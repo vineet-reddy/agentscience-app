@@ -1,21 +1,15 @@
 import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@agentscience/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
-import { useShallow } from "zustand/react/shallow";
+import { useCallback } from "react";
 import {
   type DraftThreadEnvMode,
   type DraftThreadState,
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { newThreadId } from "../lib/utils";
-import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
-import { useStore } from "../store";
 import { useThreadById } from "../storeSelectors";
-import { useUiStateStore } from "../uiStateStore";
 
 export function useHandleNewThread() {
-  const projectIds = useStore(useShallow((store) => store.projects.map((project) => project.id)));
-  const projectOrder = useUiStateStore((store) => store.projectOrder);
   const navigate = useNavigate();
   const routeThreadId = useParams({
     strict: false,
@@ -25,17 +19,10 @@ export function useHandleNewThread() {
   const activeDraftThread = useComposerDraftStore((store) =>
     routeThreadId ? (store.draftThreadsByThreadId[routeThreadId] ?? null) : null,
   );
-  const orderedProjects = useMemo(() => {
-    return orderItemsByPreferredIds({
-      items: projectIds,
-      preferredIds: projectOrder,
-      getId: (projectId) => projectId,
-    });
-  }, [projectIds, projectOrder]);
 
   const handleNewThread = useCallback(
     (
-      projectId: ProjectId,
+      projectId: ProjectId | null = null,
       options?: {
         branch?: string | null;
         worktreePath?: string | null;
@@ -53,7 +40,7 @@ export function useHandleNewThread() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
-      const storedDraftThread = getDraftThreadByProjectId(projectId);
+      const storedDraftThread = projectId ? getDraftThreadByProjectId(projectId) : null;
       const latestActiveDraftThread: DraftThreadState | null = routeThreadId
         ? getDraftThread(routeThreadId)
         : null;
@@ -119,7 +106,7 @@ export function useHandleNewThread() {
   return {
     activeDraftThread,
     activeThread,
-    defaultProjectId: orderedProjects[0] ?? null,
+    defaultProjectId: null,
     handleNewThread,
     routeThreadId,
   };

@@ -256,9 +256,12 @@ function sidebarThreadSummariesEqual(
 
 function appendThreadIdByProjectId(
   threadIdsByProjectId: Record<string, ThreadId[]>,
-  projectId: ProjectId,
+  projectId: ProjectId | null,
   threadId: ThreadId,
 ): Record<string, ThreadId[]> {
+  if (projectId === null) {
+    return threadIdsByProjectId;
+  }
   const existingThreadIds = threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS;
   if (existingThreadIds.includes(threadId)) {
     return threadIdsByProjectId;
@@ -271,9 +274,12 @@ function appendThreadIdByProjectId(
 
 function removeThreadIdByProjectId(
   threadIdsByProjectId: Record<string, ThreadId[]>,
-  projectId: ProjectId,
+  projectId: ProjectId | null,
   threadId: ThreadId,
 ): Record<string, ThreadId[]> {
+  if (projectId === null) {
+    return threadIdsByProjectId;
+  }
   const existingThreadIds = threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS;
   if (!existingThreadIds.includes(threadId)) {
     return threadIdsByProjectId;
@@ -298,6 +304,9 @@ function removeThreadIdByProjectId(
 function buildThreadIdsByProjectId(threads: ReadonlyArray<Thread>): Record<string, ThreadId[]> {
   const threadIdsByProjectId: Record<string, ThreadId[]> = {};
   for (const thread of threads) {
+    if (thread.projectId === null) {
+      continue;
+    }
     const existingThreadIds = threadIdsByProjectId[thread.projectId] ?? EMPTY_THREAD_IDS;
     threadIdsByProjectId[thread.projectId] = [...existingThreadIds, thread.id];
   }
@@ -681,6 +690,51 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         nextThreadIdsByProjectId,
         nextThread.projectId,
         nextThread.id,
+      );
+      return {
+        ...state,
+        threads,
+        sidebarThreadsById,
+        threadIdsByProjectId,
+      };
+    }
+
+    case "thread.project-set": {
+      const existingThread = state.threads.find((thread) => thread.id === event.payload.threadId);
+      if (!existingThread) {
+        return state;
+      }
+      const threads = state.threads.map((thread) =>
+        thread.id === event.payload.threadId
+          ? {
+              ...thread,
+              projectId: event.payload.projectId,
+              updatedAt: event.payload.updatedAt,
+            }
+          : thread,
+      );
+      const existingSummary = state.sidebarThreadsById[event.payload.threadId];
+      const sidebarThreadsById = {
+        ...state.sidebarThreadsById,
+        ...(existingSummary
+          ? {
+              [event.payload.threadId]: {
+                ...existingSummary,
+                projectId: event.payload.projectId,
+                updatedAt: event.payload.updatedAt,
+              },
+            }
+          : {}),
+      };
+      const nextThreadIdsByProjectId = removeThreadIdByProjectId(
+        state.threadIdsByProjectId,
+        existingThread.projectId,
+        existingThread.id,
+      );
+      const threadIdsByProjectId = appendThreadIdByProjectId(
+        nextThreadIdsByProjectId,
+        event.payload.projectId,
+        event.payload.threadId,
       );
       return {
         ...state,

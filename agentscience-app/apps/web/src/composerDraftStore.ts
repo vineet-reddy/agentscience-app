@@ -30,7 +30,7 @@ import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import { UnifiedSettings } from "@agentscience/contracts/settings";
 
-export const COMPOSER_DRAFT_STORAGE_KEY = "agentscience:composer-drafts:v1";
+export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 3;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
@@ -128,7 +128,7 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
   LegacyV2StoreFields;
 
 const PersistedDraftThreadState = Schema.Struct({
-  projectId: ProjectId,
+  projectId: Schema.NullOr(ProjectId),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
@@ -167,7 +167,7 @@ export interface ComposerThreadDraftState {
 }
 
 export interface DraftThreadState {
-  projectId: ProjectId;
+  projectId: ProjectId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
@@ -186,10 +186,10 @@ interface ComposerDraftStoreState {
   projectDraftThreadIdByProjectId: Record<ProjectId, ThreadId>;
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   stickyActiveProvider: ProviderKind | null;
-  getDraftThreadByProjectId: (projectId: ProjectId) => ProjectDraftThread | null;
+  getDraftThreadByProjectId: (projectId: ProjectId | null) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
-    projectId: ProjectId,
+    projectId: ProjectId | null,
     threadId: ThreadId,
     options?: {
       branch?: string | null;
@@ -205,15 +205,15 @@ interface ComposerDraftStoreState {
     options: {
       branch?: string | null;
       worktreePath?: string | null;
-      projectId?: ProjectId;
+      projectId?: ProjectId | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
     },
   ) => void;
-  clearProjectDraftThreadId: (projectId: ProjectId) => void;
-  clearProjectDraftThreadById: (projectId: ProjectId, threadId: ThreadId) => void;
+  clearProjectDraftThreadId: (projectId: ProjectId | null) => void;
+  clearProjectDraftThreadById: (projectId: ProjectId | null, threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
@@ -728,11 +728,11 @@ function normalizePersistedDraftThreads(
       const branch = candidateDraftThread.branch;
       const worktreePath = candidateDraftThread.worktreePath;
       const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
-      if (typeof projectId !== "string" || projectId.length === 0) {
+      if (projectId !== null && (typeof projectId !== "string" || projectId.length === 0)) {
         continue;
       }
       draftThreadsByThreadId[threadId as ThreadId] = {
-        projectId: projectId as ProjectId,
+        projectId: projectId === null ? null : (projectId as ProjectId),
         createdAt:
           typeof createdAt === "string" && createdAt.length > 0
             ? createdAt
@@ -1223,7 +1223,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       stickyModelSelectionByProvider: {},
       stickyActiveProvider: null,
       getDraftThreadByProjectId: (projectId) => {
-        if (projectId.length === 0) {
+        if (!projectId || projectId.length === 0) {
           return null;
         }
         const threadId = get().projectDraftThreadIdByProjectId[projectId];
@@ -1246,12 +1246,13 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         return get().draftThreadsByThreadId[threadId] ?? null;
       },
       setProjectDraftThreadId: (projectId, threadId, options) => {
-        if (projectId.length === 0 || threadId.length === 0) {
+        if (threadId.length === 0) {
           return;
         }
         set((state) => {
           const existingThread = state.draftThreadsByThreadId[threadId];
-          const previousThreadIdForProject = state.projectDraftThreadIdByProjectId[projectId];
+          const previousThreadIdForProject =
+            projectId === null ? undefined : state.projectDraftThreadIdByProjectId[projectId];
           const nextWorktreePath =
             options?.worktreePath === undefined
               ? (existingThread?.worktreePath ?? null)
@@ -1287,10 +1288,20 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (hasSameProjectMapping && hasSameDraftThread) {
             return state;
           }
-          const nextProjectDraftThreadIdByProjectId: Record<ProjectId, ThreadId> = {
-            ...state.projectDraftThreadIdByProjectId,
-            [projectId]: threadId,
-          };
+          const nextProjectDraftThreadIdByProjectId: Record<ProjectId, ThreadId> =
+            projectId === null
+              ? { ...state.projectDraftThreadIdByProjectId }
+              : {
+                  ...state.projectDraftThreadIdByProjectId,
+                  [projectId]: threadId,
+                };
+          if (
+            existingThread?.projectId &&
+            existingThread.projectId !== projectId &&
+            nextProjectDraftThreadIdByProjectId[existingThread.projectId] === threadId
+          ) {
+            delete nextProjectDraftThreadIdByProjectId[existingThread.projectId];
+          }
           const nextDraftThreadsByThreadId: Record<ThreadId, DraftThreadState> = {
             ...state.draftThreadsByThreadId,
             [threadId]: nextDraftThread,
@@ -1324,9 +1335,6 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             return state;
           }
           const nextProjectId = options.projectId ?? existing.projectId;
-          if (nextProjectId.length === 0) {
-            return state;
-          }
           const nextWorktreePath =
             options.worktreePath === undefined
               ? existing.worktreePath
@@ -1355,11 +1363,14 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (isUnchanged) {
             return state;
           }
-          const nextProjectDraftThreadIdByProjectId: Record<ProjectId, ThreadId> = {
-            ...state.projectDraftThreadIdByProjectId,
-            [nextProjectId]: threadId,
-          };
-          if (existing.projectId !== nextProjectId) {
+          const nextProjectDraftThreadIdByProjectId: Record<ProjectId, ThreadId> =
+            nextProjectId === null
+              ? { ...state.projectDraftThreadIdByProjectId }
+              : {
+                  ...state.projectDraftThreadIdByProjectId,
+                  [nextProjectId]: threadId,
+                };
+          if (existing.projectId !== nextProjectId && existing.projectId !== null) {
             if (nextProjectDraftThreadIdByProjectId[existing.projectId] === threadId) {
               delete nextProjectDraftThreadIdByProjectId[existing.projectId];
             }
@@ -1374,7 +1385,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         });
       },
       clearProjectDraftThreadId: (projectId) => {
-        if (projectId.length === 0) {
+        if (!projectId || projectId.length === 0) {
           return;
         }
         set((state) => {
@@ -1404,7 +1415,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         });
       },
       clearProjectDraftThreadById: (projectId, threadId) => {
-        if (projectId.length === 0 || threadId.length === 0) {
+        if (!projectId || projectId.length === 0 || threadId.length === 0) {
           return;
         }
         set((state) => {

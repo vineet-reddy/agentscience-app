@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildSidebarThreadEntries,
   createThreadJumpHintVisibilityController,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
@@ -791,6 +792,66 @@ describe("sortThreadsForSidebar", () => {
     expect(sorted.map((thread) => thread.id)).toEqual([
       ThreadId.makeUnsafe("thread-1"),
       ThreadId.makeUnsafe("thread-2"),
+    ]);
+  });
+});
+
+describe("buildSidebarThreadEntries", () => {
+  it("includes persisted uncategorized papers in the recents bucket", () => {
+    const entries = buildSidebarThreadEntries({
+      visibleThreads: [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-recent"),
+          projectId: null,
+          title: "Recent Paper",
+          updatedAt: "2026-03-09T10:10:00.000Z",
+        }),
+      ],
+      draftThreadsByThreadId: {},
+      draftTitleByThreadId: {},
+    });
+
+    expect(entries.get(null)).toEqual([
+      {
+        id: ThreadId.makeUnsafe("thread-recent"),
+        projectId: null,
+        title: "Recent Paper",
+        timestamp: "2026-03-09T10:10:00.000Z",
+        isDraft: false,
+      },
+    ]);
+  });
+
+  it("keeps draft papers out of recents when a persisted thread with the same id exists", () => {
+    const threadId = ThreadId.makeUnsafe("thread-existing");
+    const entries = buildSidebarThreadEntries({
+      visibleThreads: [
+        makeThread({
+          id: threadId,
+          projectId: null,
+          title: "Saved Paper",
+          updatedAt: "2026-03-09T10:10:00.000Z",
+        }),
+      ],
+      draftThreadsByThreadId: {
+        [threadId]: {
+          projectId: null,
+          createdAt: "2026-03-09T10:11:00.000Z",
+        },
+      },
+      draftTitleByThreadId: {
+        [threadId]: "Draft Paper",
+      },
+    });
+
+    expect(entries.get(null)).toEqual([
+      {
+        id: threadId,
+        projectId: null,
+        title: "Saved Paper",
+        timestamp: "2026-03-09T10:10:00.000Z",
+        isDraft: false,
+      },
     ]);
   });
 });

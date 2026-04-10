@@ -116,7 +116,10 @@ import {
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { getProviderModels, resolveSelectableProvider } from "../providerModels";
+import {
+  getProviderModels,
+  resolveSelectableProvider,
+} from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -2897,7 +2900,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
       return;
     }
-    if (!activeProject) return;
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
     const baseBranchForWorktree =
@@ -3009,7 +3011,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         provider: selectedProvider,
         model:
           selectedModel ||
-          activeProject.defaultModelSelection?.model ||
+          activeProject?.defaultModelSelection?.model ||
           DEFAULT_MODEL_BY_PROVIDER.codex,
         ...(selectedModelSelection.options ? { options: selectedModelSelection.options } : {}),
       };
@@ -3041,7 +3043,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               ...(isLocalDraftThread
                 ? {
                     createThread: {
-                      projectId: activeProject.id,
+                      projectId: activeProject?.id ?? null,
                       title,
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
@@ -3052,7 +3054,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     },
                   }
                 : {}),
-              ...(baseBranchForWorktree
+              ...(baseBranchForWorktree && activeProject
                 ? {
                     prepareWorktree: {
                       projectCwd: activeProject.cwd,
@@ -3445,7 +3447,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         type: "thread.create",
         commandId: newCommandId(),
         threadId: nextThreadId,
-        projectId: activeProject.id,
+        projectId: activeProject?.id ?? null,
         title: nextThreadTitle,
         modelSelection: nextThreadModelSelection,
         runtimeMode,
@@ -3881,7 +3883,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     void onRevertToTurnCount(targetTurnCount);
   };
 
-  // Empty state: no active thread
+  // Empty state: no active paper
   if (!activeThread) {
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-muted-foreground/40">
@@ -3889,18 +3891,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
           <header className="border-b border-border px-3 py-2 md:hidden">
             <div className="flex items-center gap-2">
               <SidebarTrigger className="size-7 shrink-0" />
-              <span className="text-sm font-medium text-foreground">Threads</span>
+              <span className="text-sm font-medium text-foreground">Papers</span>
             </div>
           </header>
         )}
         {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border pr-5 pl-[90px]">
-            <span className="text-xs text-muted-foreground/50">No active thread</span>
+          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
+            <span className="text-xs text-muted-foreground/50">No active paper</span>
           </div>
         )}
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
-            <p className="text-sm">Select a thread or create a new one to get started.</p>
+            <p className="text-sm">Select a paper or create a new one to get started.</p>
           </div>
         </div>
       </div>
@@ -3912,10 +3914,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Top bar */}
       <header
         className={cn(
-          "border-b border-border",
-          isElectron
-            ? "drag-region flex h-[52px] items-center pr-5 pl-[90px]"
-            : "px-3 py-2 sm:px-5 sm:py-3",
+          "border-b border-border px-3 sm:px-5",
+          isElectron ? "drag-region flex h-[52px] items-center" : "py-2 sm:py-3",
         )}
       >
         <ChatHeader

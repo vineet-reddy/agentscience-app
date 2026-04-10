@@ -16,6 +16,7 @@ import {
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
   ThreadCreatedPayload,
+  ThreadProjectSetPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
@@ -27,7 +28,7 @@ import {
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
-type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
+type ThreadPatch = Partial<Omit<OrchestrationThread, "id">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 
@@ -288,6 +289,17 @@ export function projectEvent(
           threads: updateThread(nextBase.threads, payload.threadId, {
             deletedAt: payload.deletedAt,
             updatedAt: payload.deletedAt,
+          }),
+        })),
+      );
+
+    case "thread.project-set":
+      return decodeForEvent(ThreadProjectSetPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            projectId: payload.projectId,
+            updatedAt: payload.updatedAt,
           }),
         })),
       );

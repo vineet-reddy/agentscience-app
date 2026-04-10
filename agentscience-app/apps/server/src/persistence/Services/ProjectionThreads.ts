@@ -22,7 +22,7 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
+  projectId: Schema.NullOr(ProjectId),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -48,7 +48,7 @@ export const DeleteProjectionThreadInput = Schema.Struct({
 export type DeleteProjectionThreadInput = typeof DeleteProjectionThreadInput.Type;
 
 export const ListProjectionThreadsByProjectInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: Schema.NullOr(ProjectId),
 });
 export type ListProjectionThreadsByProjectInput = typeof ListProjectionThreadsByProjectInput.Type;
 
@@ -93,4 +93,4 @@ export interface ProjectionThreadRepositoryShape {
 export class ProjectionThreadRepository extends ServiceMap.Service<
   ProjectionThreadRepository,
   ProjectionThreadRepositoryShape
->()("agentscience/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}
+>()("t3/persistence/Services/ProjectionThreads/ProjectionThreadRepository") {}

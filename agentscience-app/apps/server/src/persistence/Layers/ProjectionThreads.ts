@@ -102,25 +102,45 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
     Request: ListProjectionThreadsByProjectInput,
     Result: ProjectionThreadDbRow,
     execute: ({ projectId }) =>
-      sql`
-        SELECT
-          thread_id AS "threadId",
-          project_id AS "projectId",
-          title,
-          model_selection_json AS "modelSelection",
-          runtime_mode AS "runtimeMode",
-          interaction_mode AS "interactionMode",
-          branch,
-          worktree_path AS "worktreePath",
-          latest_turn_id AS "latestTurnId",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          archived_at AS "archivedAt",
-          deleted_at AS "deletedAt"
-        FROM projection_threads
-        WHERE project_id = ${projectId}
-        ORDER BY created_at ASC, thread_id ASC
-      `,
+      projectId === null
+        ? sql`
+            SELECT
+              thread_id AS "threadId",
+              project_id AS "projectId",
+              title,
+              model_selection_json AS "modelSelection",
+              runtime_mode AS "runtimeMode",
+              interaction_mode AS "interactionMode",
+              branch,
+              worktree_path AS "worktreePath",
+              latest_turn_id AS "latestTurnId",
+              created_at AS "createdAt",
+              updated_at AS "updatedAt",
+              archived_at AS "archivedAt",
+              deleted_at AS "deletedAt"
+            FROM projection_threads
+            WHERE project_id IS NULL
+            ORDER BY created_at ASC, thread_id ASC
+          `
+        : sql`
+            SELECT
+              thread_id AS "threadId",
+              project_id AS "projectId",
+              title,
+              model_selection_json AS "modelSelection",
+              runtime_mode AS "runtimeMode",
+              interaction_mode AS "interactionMode",
+              branch,
+              worktree_path AS "worktreePath",
+              latest_turn_id AS "latestTurnId",
+              created_at AS "createdAt",
+              updated_at AS "updatedAt",
+              archived_at AS "archivedAt",
+              deleted_at AS "deletedAt"
+            FROM projection_threads
+            WHERE project_id = ${projectId}
+            ORDER BY created_at ASC, thread_id ASC
+          `,
   });
 
   const deleteProjectionThreadRow = SqlSchema.void({

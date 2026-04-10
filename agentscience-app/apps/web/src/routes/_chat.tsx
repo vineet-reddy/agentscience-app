@@ -13,8 +13,7 @@ import { useServerKeybindings } from "~/rpc/serverState";
 function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadIdsSize = useThreadSelectionStore((state) => state.selectedThreadIds.size);
-  const { activeDraftThread, activeThread, defaultProjectId, handleNewThread, routeThreadId } =
-    useHandleNewThread();
+  const { activeDraftThread, activeThread, handleNewThread, routeThreadId } = useHandleNewThread();
   const keybindings = useServerKeybindings();
   const terminalOpen = useTerminalStateStore((state) =>
     routeThreadId
@@ -33,9 +32,6 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
-      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? defaultProjectId;
-      if (!projectId) return;
-
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
           terminalFocus: isTerminalFocused(),
@@ -46,7 +42,7 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.newLocal") {
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(projectId, {
+        void handleNewThread(null, {
           envMode: resolveSidebarNewThreadEnvMode({
             defaultEnvMode: appSettings.defaultThreadEnvMode,
           }),
@@ -57,7 +53,7 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
-        void handleNewThread(projectId, {
+        void handleNewThread(null, {
           branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
           worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
           envMode:
@@ -77,7 +73,6 @@ function ChatRouteGlobalShortcuts() {
     clearSelection,
     handleNewThread,
     keybindings,
-    defaultProjectId,
     selectedThreadIdsSize,
     terminalOpen,
     appSettings.defaultThreadEnvMode,

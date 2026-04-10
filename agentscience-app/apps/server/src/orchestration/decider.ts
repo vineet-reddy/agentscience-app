@@ -3,15 +3,12 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
 } from "@agentscience/contracts";
-import {
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  ThreadId,
-} from "@agentscience/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  requireActiveProject,
+  requireAssignedProjectIfPresent,
   requireProject,
   requireProjectAbsent,
   requireProjectWorkspaceAbsent,
@@ -76,7 +73,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         workspaceRoot: command.workspaceRoot,
       });
 
-      const projectCreatedEvent = {
+      return {
         ...withEventBase({
           aggregateKind: "project",
           aggregateId: command.projectId,
@@ -94,35 +91,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: command.createdAt,
         },
       } as const;
-
-      const threadId = ThreadId.makeUnsafe(crypto.randomUUID());
-      const threadCreatedEvent = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        causationEventId: projectCreatedEvent.eventId,
-        type: "thread.created" as const,
-        payload: {
-          threadId,
-          projectId: command.projectId,
-          title: "New thread",
-          modelSelection: command.defaultModelSelection ?? {
-            provider: "codex" as const,
-            model: "gpt-5-codex",
-          },
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-          branch: null,
-          worktreePath: null,
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-
-      return [projectCreatedEvent, threadCreatedEvent];
     }
 
     case "project.meta.update": {
@@ -176,7 +144,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.create": {
-      yield* requireProject({
+      yield* requireAssignedProjectIfPresent({
         readModel,
         command,
         projectId: command.projectId,
@@ -205,6 +173,36 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           worktreePath: command.worktreePath,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.project.set": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (command.projectId !== null) {
+        yield* requireActiveProject({
+          readModel,
+          command,
+          projectId: command.projectId,
+        });
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.project-set",
+        payload: {
+          threadId: command.threadId,
+          projectId: command.projectId,
+          updatedAt: occurredAt,
         },
       };
     }

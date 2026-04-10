@@ -1,8 +1,5 @@
 import * as React from "react";
-import type {
-  SidebarProjectSortOrder,
-  SidebarThreadSortOrder,
-} from "@agentscience/contracts/settings";
+import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@agentscience/contracts/settings";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
@@ -34,6 +31,17 @@ export interface ThreadStatusPill {
   colorClass: string;
   dotClass: string;
   pulse: boolean;
+}
+
+export interface SidebarThreadEntryRecord<
+  TThreadId extends string = string,
+  TProjectId extends string | null = string | null,
+> {
+  id: TThreadId;
+  projectId: TProjectId;
+  title: string;
+  timestamp: string;
+  isDraft: boolean;
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
@@ -497,6 +505,65 @@ export function sortThreadsForSidebar<
   });
 }
 
+export function buildSidebarThreadEntries<
+  TThread extends {
+    id: string;
+    projectId: string | null;
+    title: string;
+    createdAt: string;
+    updatedAt?: string | undefined;
+    latestUserMessageAt?: string | null;
+  },
+  TDraft extends {
+    projectId: string | null;
+    createdAt: string;
+  },
+>(input: {
+  visibleThreads: readonly TThread[];
+  draftThreadsByThreadId: Record<string, TDraft>;
+  draftTitleByThreadId: Record<string, string | undefined>;
+}): Map<string | null, SidebarThreadEntryRecord[]> {
+  const entries = new Map<string | null, SidebarThreadEntryRecord[]>();
+  const persistedThreadIds = new Set<string>();
+
+  for (const thread of input.visibleThreads) {
+    persistedThreadIds.add(thread.id);
+    const projectEntries = entries.get(thread.projectId) ?? [];
+    projectEntries.push({
+      id: thread.id,
+      projectId: thread.projectId,
+      isDraft: false,
+      timestamp: thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
+      title: thread.title,
+    });
+    entries.set(
+      thread.projectId,
+      projectEntries.toSorted((left, right) => right.timestamp.localeCompare(left.timestamp)),
+    );
+  }
+
+  for (const [threadId, draftThread] of Object.entries(input.draftThreadsByThreadId)) {
+    if (persistedThreadIds.has(threadId)) {
+      continue;
+    }
+
+    const projectEntries = entries.get(draftThread.projectId) ?? [];
+    projectEntries.push({
+      id: threadId,
+      projectId: draftThread.projectId,
+      isDraft: true,
+      timestamp: draftThread.createdAt,
+      title: input.draftTitleByThreadId[threadId] ?? "New Paper",
+    });
+    entries.set(
+      draftThread.projectId,
+      projectEntries.toSorted((left, right) => right.timestamp.localeCompare(left.timestamp)),
+    );
+  }
+
+  return entries;
+}
+
 export function getFallbackThreadIdAfterDelete<
   T extends Pick<Thread, "id" | "projectId" | "createdAt" | "updatedAt"> & SidebarThreadSortInput,
 >(input: {
@@ -556,6 +623,9 @@ export function sortProjectsForSidebar<
 
   const threadsByProjectId = new Map<string, TThread[]>();
   for (const thread of threads) {
+    if (thread.projectId === null) {
+      continue;
+    }
     const existing = threadsByProjectId.get(thread.projectId) ?? [];
     existing.push(thread);
     threadsByProjectId.set(thread.projectId, existing);

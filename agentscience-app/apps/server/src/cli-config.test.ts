@@ -18,15 +18,12 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     otlpTracesUrl: undefined,
     otlpMetricsUrl: undefined,
     otlpExportIntervalMs: 10_000,
-    otlpServiceName: "agentscience-server",
+    otlpServiceName: "t3-server",
   } as const;
 
   const openBootstrapFd = Effect.fn(function* (payload: Record<string, unknown>) {
     const fs = yield* FileSystem.FileSystem;
-    const filePath = yield* fs.makeTempFileScoped({
-      prefix: "agentscience-bootstrap-",
-      suffix: ".ndjson",
-    });
+    const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
     yield* fs.writeFileString(filePath, `${JSON.stringify(payload)}\n`);
     const { fd } = yield* fs.open(filePath, { flag: "r" });
     return fd;
@@ -35,7 +32,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("falls back to effect/config values when flags are omitted", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = join(os.tmpdir(), "agentscience-cli-config-env-base");
+      const baseDir = join(os.tmpdir(), "t3-cli-config-env-base");
       const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:5173"));
       const resolved = yield* resolveServerConfig(
         {
@@ -58,16 +55,16 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  AGENTSCIENCE_LOG_LEVEL: "Warn",
-                  AGENTSCIENCE_MODE: "desktop",
-                  AGENTSCIENCE_PORT: "4001",
-                  AGENTSCIENCE_HOST: "0.0.0.0",
-                  AGENTSCIENCE_HOME: baseDir,
+                  T3CODE_LOG_LEVEL: "Warn",
+                  T3CODE_MODE: "desktop",
+                  T3CODE_PORT: "4001",
+                  T3CODE_HOST: "0.0.0.0",
+                  T3CODE_HOME: baseDir,
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
-                  AGENTSCIENCE_NO_BROWSER: "true",
-                  AGENTSCIENCE_AUTH_TOKEN: "env-token",
-                  AGENTSCIENCE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-                  AGENTSCIENCE_LOG_WS_EVENTS: "true",
+                  T3CODE_NO_BROWSER: "true",
+                  T3CODE_AUTH_TOKEN: "env-token",
+                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
+                  T3CODE_LOG_WS_EVENTS: "true",
                 },
               }),
             ),
@@ -95,10 +92,39 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("defaults the base directory to ~/.agentscience when no override is provided", () =>
+    Effect.gen(function* () {
+      const { join } = yield* Path.Path;
+      const expectedBaseDir = join(os.homedir(), ".agentscience");
+      const derivedPaths = yield* deriveServerPaths(expectedBaseDir, undefined);
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.none(),
+          port: Option.none(),
+          host: Option.none(),
+          baseDir: Option.none(),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          authToken: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+        },
+        Option.none(),
+      ).pipe(Effect.provide(NetService.layer));
+
+      assert.equal(resolved.baseDir, expectedBaseDir);
+      assert.equal(resolved.dbPath, derivedPaths.dbPath);
+      assert.equal(resolved.stateDir, derivedPaths.stateDir);
+    }),
+  );
+
   it.effect("uses CLI flags when provided", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = join(os.tmpdir(), "agentscience-cli-config-flags-base");
+      const baseDir = join(os.tmpdir(), "t3-cli-config-flags-base");
       const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:4173"));
       const resolved = yield* resolveServerConfig(
         {
@@ -121,16 +147,16 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  AGENTSCIENCE_LOG_LEVEL: "Warn",
-                  AGENTSCIENCE_MODE: "desktop",
-                  AGENTSCIENCE_PORT: "4001",
-                  AGENTSCIENCE_HOST: "0.0.0.0",
-                  AGENTSCIENCE_HOME: join(os.tmpdir(), "ignored-base"),
+                  T3CODE_LOG_LEVEL: "Warn",
+                  T3CODE_MODE: "desktop",
+                  T3CODE_PORT: "4001",
+                  T3CODE_HOST: "0.0.0.0",
+                  T3CODE_HOME: join(os.tmpdir(), "ignored-base"),
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
-                  AGENTSCIENCE_NO_BROWSER: "false",
-                  AGENTSCIENCE_AUTH_TOKEN: "ignored-token",
-                  AGENTSCIENCE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
-                  AGENTSCIENCE_LOG_WS_EVENTS: "false",
+                  T3CODE_NO_BROWSER: "false",
+                  T3CODE_AUTH_TOKEN: "ignored-token",
+                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
+                  T3CODE_LOG_WS_EVENTS: "false",
                 },
               }),
             ),
@@ -161,12 +187,12 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("uses bootstrap envelope values as fallbacks when flags and env are absent", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = "/tmp/agentscience-bootstrap-home";
+      const baseDir = "/tmp/t3-bootstrap-home";
       const fd = yield* openBootstrapFd({
         mode: "desktop",
         port: 4888,
         host: "127.0.0.2",
-        agentScienceHome: baseDir,
+        t3Home: baseDir,
         devUrl: "http://127.0.0.1:5173",
         noBrowser: true,
         authToken: "bootstrap-token",
@@ -198,7 +224,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  AGENTSCIENCE_BOOTSTRAP_FD: String(fd),
+                  T3CODE_BOOTSTRAP_FD: String(fd),
                 },
               }),
             ),
@@ -233,9 +259,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({
-        prefix: "agentscience-cli-config-dirs-",
-      });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-dirs-" });
       const customCwd = path.join(baseDir, "nested", "project");
 
       const resolved = yield* resolveServerConfig(
@@ -282,12 +306,12 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("applies flag then env precedence over bootstrap envelope values", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = join(os.tmpdir(), "agentscience-cli-config-env-wins");
+      const baseDir = join(os.tmpdir(), "t3-cli-config-env-wins");
       const fd = yield* openBootstrapFd({
         mode: "desktop",
         port: 4888,
         host: "127.0.0.2",
-        agentScienceHome: "/tmp/agentscience-bootstrap-home",
+        t3Home: "/tmp/t3-bootstrap-home",
         devUrl: "http://127.0.0.1:5173",
         noBrowser: false,
         authToken: "bootstrap-token",
@@ -317,12 +341,12 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
             ConfigProvider.layer(
               ConfigProvider.fromEnv({
                 env: {
-                  AGENTSCIENCE_MODE: "web",
-                  AGENTSCIENCE_BOOTSTRAP_FD: String(fd),
-                  AGENTSCIENCE_HOME: baseDir,
-                  AGENTSCIENCE_NO_BROWSER: "true",
-                  AGENTSCIENCE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
-                  AGENTSCIENCE_LOG_WS_EVENTS: "true",
+                  T3CODE_MODE: "web",
+                  T3CODE_BOOTSTRAP_FD: String(fd),
+                  T3CODE_HOME: baseDir,
+                  T3CODE_NO_BROWSER: "true",
+                  T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "true",
+                  T3CODE_LOG_WS_EVENTS: "true",
                 },
               }),
             ),
@@ -354,9 +378,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({
-        prefix: "agentscience-cli-config-settings-",
-      });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-settings-" });
       const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
       yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
       yield* fs.writeFileString(

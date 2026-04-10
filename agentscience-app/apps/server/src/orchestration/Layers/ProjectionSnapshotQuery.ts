@@ -92,7 +92,7 @@ const ProjectRowSchema = Schema.Struct({
 
 const ThreadRowSchema = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
+  projectId: Schema.NullOr(ProjectId),
   title: Schema.String,
   lastMessageAt: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
@@ -103,7 +103,7 @@ const ThreadRowSchema = Schema.Struct({
 const MessageRowSchema = Schema.Struct({
   messageId: Schema.String,
   chatId: ThreadId,
-  projectId: ProjectId,
+  projectId: Schema.NullOr(ProjectId),
   role: Schema.String,
   contentMarkdown: Schema.String,
   clientCreatedAt: Schema.NullOr(Schema.String),
@@ -387,10 +387,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             }
           }
 
-          const messagesByThread = new Map<
-            string,
-            Array<OrchestrationThread["messages"][number]>
-          >();
+          const messagesByThread = new Map<string, Array<OrchestrationThread["messages"][number]>>();
           let updatedAt: string | null = null;
 
           for (const row of projectRows) {
@@ -420,19 +417,20 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.flatMap((row) => {
             const metadata = projectMetadataById.get(row.projectId);
-            if (!metadata) {
+            const workspaceRoot = row.workspaceRoot ?? metadata?.workspaceRoot ?? null;
+            if (!workspaceRoot) {
               return [];
             }
             return [
               {
                 id: row.projectId,
                 title: row.title,
-                workspaceRoot: metadata.workspaceRoot,
-                defaultModelSelection: metadata.defaultModelSelection,
-                scripts: [...metadata.scripts],
+                workspaceRoot,
+                defaultModelSelection: metadata?.defaultModelSelection ?? null,
+                scripts: [...(metadata?.scripts ?? [])],
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt,
-                deletedAt: metadata.deletedAt,
+                deletedAt: metadata?.deletedAt ?? null,
               },
             ];
           });
@@ -504,14 +502,26 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         const [projectRows, metadataRows] = yield* Effect.all([
           listProjectRows(undefined).pipe(
             Effect.mapError(
-              toPersistenceSqlError(
-                "ProjectionSnapshotQuery.getActiveProjectByWorkspaceRoot:listProjects:query",
-              ),
+              toPersistenceSqlError("ProjectionSnapshotQuery.getActiveProjectByWorkspaceRoot:listProjects:query"),
             ),
           ),
           deviceStateRepository.listByPrefix({ prefix: PROJECT_METADATA_PREFIX }),
         ]);
         const projectById = new Map(projectRows.map((row) => [row.projectId, row] as const));
+        for (const project of projectRows) {
+          if (project.workspaceRoot === workspaceRoot) {
+            return Option.some({
+              id: project.projectId,
+              title: project.title,
+              workspaceRoot: project.workspaceRoot,
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt: project.createdAt,
+              updatedAt: project.updatedAt,
+              deletedAt: null,
+            } satisfies OrchestrationProject);
+          }
+        }
         for (const row of metadataRows) {
           const metadata = parseProjectMetadata(row.valueJson);
           const projectId = row.key.slice(PROJECT_METADATA_PREFIX.length);
@@ -570,9 +580,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       const [threadRow, threadMetadataRow] = yield* Effect.all([
         getThreadRow({ threadId }).pipe(
           Effect.mapError(
-            toPersistenceSqlError(
-              "ProjectionSnapshotQuery.getThreadCheckpointContext:getThread:query",
-            ),
+            toPersistenceSqlError("ProjectionSnapshotQuery.getThreadCheckpointContext:getThread:query"),
           ),
         ),
         deviceStateRepository.getByKey({ key: `${THREAD_METADATA_PREFIX}${threadId}` }),
@@ -581,6 +589,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         return Option.none<ProjectionThreadCheckpointContext>();
       }
       const threadMetadata = parseThreadMetadata(threadMetadataRow.value.valueJson);
+      if (threadRow.value.projectId === null) {
+        return Option.none<ProjectionThreadCheckpointContext>();
+      }
       const projectMetadata = yield* deviceStateRepository.getByKey({
         key: `${PROJECT_METADATA_PREFIX}${threadRow.value.projectId}`,
       });

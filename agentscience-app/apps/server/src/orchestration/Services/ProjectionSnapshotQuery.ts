@@ -26,8 +26,8 @@ export interface ProjectionSnapshotCounts {
 
 export interface ProjectionThreadCheckpointContext {
   readonly threadId: ThreadId;
-  readonly projectId: ProjectId;
-  readonly workspaceRoot: string;
+  readonly projectId: ProjectId | null;
+  readonly workspaceRoot: string | null;
   readonly worktreePath: string | null;
   readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
 }
@@ -77,4 +77,4 @@ export interface ProjectionSnapshotQueryShape {
 export class ProjectionSnapshotQuery extends ServiceMap.Service<
   ProjectionSnapshotQuery,
   ProjectionSnapshotQueryShape
->()("agentscience/orchestration/Services/ProjectionSnapshotQuery") {}
+>()("t3/orchestration/Services/ProjectionSnapshotQuery") {}

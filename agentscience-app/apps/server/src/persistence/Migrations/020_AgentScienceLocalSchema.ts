@@ -70,7 +70,7 @@ export default Effect.gen(function* () {
   yield* sql`
     CREATE TABLE IF NOT EXISTS research_chats (
       chat_id TEXT PRIMARY KEY NOT NULL,
-      project_id TEXT NOT NULL,
+      project_id TEXT,
       user_id TEXT NOT NULL,
       workspace_id TEXT,
       title TEXT NOT NULL,
@@ -101,7 +101,7 @@ export default Effect.gen(function* () {
     CREATE TABLE IF NOT EXISTS chat_messages (
       message_id TEXT PRIMARY KEY NOT NULL,
       chat_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
+      project_id TEXT,
       user_id TEXT NOT NULL,
       role TEXT NOT NULL,
       message_type TEXT DEFAULT 'text' NOT NULL,
@@ -132,7 +132,7 @@ export default Effect.gen(function* () {
   yield* sql`
     CREATE TABLE IF NOT EXISTS papers (
       paper_id TEXT PRIMARY KEY NOT NULL,
-      project_id TEXT NOT NULL,
+      project_id TEXT,
       chat_id TEXT,
       run_id TEXT,
       user_id TEXT NOT NULL,

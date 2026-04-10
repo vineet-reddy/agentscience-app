@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import {
   ApprovalRequestId,
   type ChatAttachment,
@@ -109,6 +110,27 @@ const materializeAttachmentsForProjection = Effect.fn("materializeAttachmentsFor
 function toProjectionSqlOrPersistenceError(operation: string) {
   return (cause: unknown): ProjectionRepositoryError =>
     isPersistenceError(cause) ? cause : toPersistenceSqlError(operation)(cause);
+}
+
+function describeErrorForLog(error: unknown): unknown {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: describeErrorForLog(error.cause),
+    };
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    return {
+      ...record,
+      ...(record.cause !== undefined ? { cause: describeErrorForLog(record.cause) } : {}),
+    };
+  }
+
+  return error;
 }
 
 function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
@@ -434,14 +456,16 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig;
 
-    const upsertProjectMetadata = Effect.fn("upsertProjectMetadata")(function* (input: {
-      readonly projectId: string;
-      readonly workspaceRoot: string;
-      readonly defaultModelSelection: OrchestrationEvent["type"] extends never ? never : unknown;
-      readonly scripts: ReadonlyArray<unknown>;
-      readonly deletedAt: string | null;
-      readonly updatedAt: string;
-    }) {
+    const upsertProjectMetadata = Effect.fn("upsertProjectMetadata")(function* (
+      input: {
+        readonly projectId: string;
+        readonly workspaceRoot: string;
+        readonly defaultModelSelection: OrchestrationEvent["type"] extends never ? never : unknown;
+        readonly scripts: ReadonlyArray<unknown>;
+        readonly deletedAt: string | null;
+        readonly updatedAt: string;
+      },
+    ) {
       yield* deviceStateRepository.upsert({
         key: projectMetadataKey(input.projectId),
         valueJson: JSON.stringify({
@@ -454,16 +478,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       });
     });
 
-    const upsertThreadMetadata = Effect.fn("upsertThreadMetadata")(function* (input: {
-      readonly threadId: string;
-      readonly modelSelection: unknown;
-      readonly runtimeMode: string;
-      readonly interactionMode: string;
-      readonly branch: string | null;
-      readonly worktreePath: string | null;
-      readonly deletedAt: string | null;
-      readonly updatedAt: string;
-    }) {
+    const upsertThreadMetadata = Effect.fn("upsertThreadMetadata")(function* (
+      input: {
+        readonly threadId: string;
+        readonly modelSelection: unknown;
+        readonly runtimeMode: string;
+        readonly interactionMode: string;
+        readonly branch: string | null;
+        readonly worktreePath: string | null;
+        readonly deletedAt: string | null;
+        readonly updatedAt: string;
+      },
+    ) {
       yield* deviceStateRepository.upsert({
         key: threadMetadataKey(input.threadId),
         valueJson: JSON.stringify({
@@ -478,13 +504,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       });
     });
 
-    const upsertMessageMetadata = Effect.fn("upsertMessageMetadata")(function* (input: {
-      readonly messageId: string;
-      readonly turnId: string | null;
-      readonly attachments?: ReadonlyArray<ChatAttachment>;
-      readonly updatedAt: string;
-      readonly streaming: boolean;
-    }) {
+    const upsertMessageMetadata = Effect.fn("upsertMessageMetadata")(function* (
+      input: {
+        readonly messageId: string;
+        readonly turnId: string | null;
+        readonly attachments?: ReadonlyArray<ChatAttachment>;
+        readonly updatedAt: string;
+        readonly streaming: boolean;
+      },
+    ) {
       yield* deviceStateRepository.upsert({
         key: messageMetadataKey(input.messageId),
         valueJson: JSON.stringify({
@@ -497,7 +525,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       });
     });
 
-    const getResearchProjectRow = Effect.fn("getResearchProjectRow")(function* (projectId: string) {
+    const getResearchProjectRow = Effect.fn("getResearchProjectRow")(function* (
+      projectId: string,
+    ) {
       const rows = yield* sql<{
         readonly projectId: string;
         readonly workspaceRoot: string | null;
@@ -521,7 +551,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const getResearchChatRow = Effect.fn("getResearchChatRow")(function* (threadId: string) {
       const rows = yield* sql<{
         readonly threadId: string;
-        readonly projectId: string;
+        readonly projectId: string | null;
         readonly title: string;
         readonly createdAt: string;
         readonly updatedAt: string;
@@ -541,13 +571,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       return rows[0] ?? null;
     });
 
-    const upsertResearchProject = Effect.fn("upsertResearchProject")(function* (input: {
-      readonly projectId: string;
-      readonly workspaceRoot: string;
-      readonly title: string;
-      readonly createdAt: string;
-      readonly updatedAt: string;
-    }) {
+    const upsertResearchProject = Effect.fn("upsertResearchProject")(function* (
+      input: {
+        readonly projectId: string;
+        readonly workspaceRoot: string;
+        readonly title: string;
+        readonly createdAt: string;
+        readonly updatedAt: string;
+      },
+    ) {
       yield* sql`
         INSERT INTO research_projects (
           project_id,
@@ -589,14 +621,16 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       `;
     });
 
-    const upsertResearchChat = Effect.fn("upsertResearchChat")(function* (input: {
-      readonly threadId: string;
-      readonly projectId: string;
-      readonly title: string;
-      readonly createdAt: string;
-      readonly updatedAt: string;
-      readonly archivedAt: string | null;
-    }) {
+    const upsertResearchChat = Effect.fn("upsertResearchChat")(function* (
+      input: {
+        readonly threadId: string;
+        readonly projectId: string | null;
+        readonly title: string;
+        readonly createdAt: string;
+        readonly updatedAt: string;
+        readonly archivedAt: string | null;
+      },
+    ) {
       yield* sql`
         INSERT INTO research_chats (
           chat_id,
@@ -640,9 +674,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     });
 
     const ensureDefaultChatId = Effect.fn("ensureDefaultChatId")(function* (
-      projectId: string,
+      projectId: string | null,
       threadId: string,
     ) {
+      if (projectId === null) {
+        return;
+      }
       yield* sql`
         UPDATE research_projects
         SET default_chat_id = CASE
@@ -653,17 +690,19 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       `;
     });
 
-    const upsertResearchMessage = Effect.fn("upsertResearchMessage")(function* (input: {
-      readonly messageId: string;
-      readonly threadId: string;
-      readonly role: string;
-      readonly text: string;
-      readonly turnId: string | null;
-      readonly attachments?: ReadonlyArray<ChatAttachment>;
-      readonly streaming: boolean;
-      readonly createdAt: string;
-      readonly updatedAt: string;
-    }) {
+    const upsertResearchMessage = Effect.fn("upsertResearchMessage")(function* (
+      input: {
+        readonly messageId: string;
+        readonly threadId: string;
+        readonly role: string;
+        readonly text: string;
+        readonly turnId: string | null;
+        readonly attachments?: ReadonlyArray<ChatAttachment>;
+        readonly streaming: boolean;
+        readonly createdAt: string;
+        readonly updatedAt: string;
+      },
+    ) {
       const existingRows = yield* sql<{
         readonly contentMarkdown: string;
         readonly createdAt: string;
@@ -680,7 +719,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         LIMIT 1
       `;
       const threadRows = yield* sql<{
-        readonly projectId: string;
+        readonly projectId: string | null;
       }>`
         SELECT
           project_id AS "projectId"
@@ -689,7 +728,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         LIMIT 1
       `;
       const projectId = threadRows[0]?.projectId;
-      if (!projectId) {
+      if (projectId === undefined) {
         return;
       }
       const existingMessage = existingRows[0];
@@ -708,15 +747,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       const nextAttachments = input.attachments ?? previousMetadata?.attachments;
       const nextSequenceNo =
         existingMessage?.sequenceNo ??
-        (yield* sql<{
-          readonly nextSequenceNo: number;
-        }>`
+        (
+          (
+            yield* sql<{
+              readonly nextSequenceNo: number;
+            }>`
               SELECT
                 COALESCE(MAX(sequence_no), 0) + 1 AS "nextSequenceNo"
               FROM chat_messages
               WHERE chat_id = ${input.threadId}
-            `)[0]?.nextSequenceNo ??
-        1;
+            `
+          )[0]?.nextSequenceNo ?? 1
+        );
 
       yield* sql`
         INSERT INTO chat_messages (
@@ -786,120 +828,118 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const applyProjectsProjection: ProjectorDefinition["apply"] = (event, _attachmentSideEffects) =>
       Effect.gen(function* () {
         switch (event.type) {
-          case "project.created":
+        case "project.created":
+          yield* upsertResearchProject({
+            projectId: event.payload.projectId,
+            workspaceRoot: event.payload.workspaceRoot,
+            title: event.payload.title,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          yield* upsertProjectMetadata({
+            projectId: event.payload.projectId,
+            workspaceRoot: event.payload.workspaceRoot,
+            defaultModelSelection: event.payload.defaultModelSelection,
+            scripts: event.payload.scripts,
+            deletedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          yield* projectionProjectRepository.upsert({
+            projectId: event.payload.projectId,
+            title: event.payload.title,
+            workspaceRoot: event.payload.workspaceRoot,
+            defaultModelSelection: event.payload.defaultModelSelection,
+            scripts: event.payload.scripts,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+            deletedAt: null,
+          });
+          return;
+
+        case "project.meta-updated": {
+          const existingRow = yield* projectionProjectRepository.getById({
+            projectId: event.payload.projectId,
+          });
+          const existingResearchProject = yield* getResearchProjectRow(event.payload.projectId);
+          const existingProjectMetadataRow = yield* deviceStateRepository.getByKey({
+            key: projectMetadataKey(event.payload.projectId),
+          });
+          const existingProjectMetadata =
+            Option.isSome(existingProjectMetadataRow)
+              ? JSON.parse(existingProjectMetadataRow.value.valueJson)
+              : null;
+          if (existingResearchProject !== null && existingProjectMetadata !== null) {
             yield* upsertResearchProject({
               projectId: event.payload.projectId,
-              workspaceRoot: event.payload.workspaceRoot,
-              title: event.payload.title,
-              createdAt: event.payload.createdAt,
+              workspaceRoot:
+                (event.payload.workspaceRoot ??
+                  existingResearchProject.workspaceRoot ??
+                  existingProjectMetadata.workspaceRoot) as string,
+              title: event.payload.title ?? existingResearchProject.title,
+              createdAt: existingResearchProject.createdAt,
               updatedAt: event.payload.updatedAt,
             });
             yield* upsertProjectMetadata({
               projectId: event.payload.projectId,
-              workspaceRoot: event.payload.workspaceRoot,
-              defaultModelSelection: event.payload.defaultModelSelection,
-              scripts: event.payload.scripts,
-              deletedAt: null,
+              workspaceRoot:
+                (event.payload.workspaceRoot ?? existingProjectMetadata.workspaceRoot) as string,
+              defaultModelSelection:
+                event.payload.defaultModelSelection ?? existingProjectMetadata.defaultModelSelection,
+              scripts: (event.payload.scripts ?? existingProjectMetadata.scripts) as ReadonlyArray<unknown>,
+              deletedAt: (existingProjectMetadata.deletedAt ?? null) as string | null,
               updatedAt: event.payload.updatedAt,
             });
-            yield* projectionProjectRepository.upsert({
-              projectId: event.payload.projectId,
-              title: event.payload.title,
-              workspaceRoot: event.payload.workspaceRoot,
-              defaultModelSelection: event.payload.defaultModelSelection,
-              scripts: event.payload.scripts,
-              createdAt: event.payload.createdAt,
-              updatedAt: event.payload.updatedAt,
-              deletedAt: null,
-            });
-            return;
-
-          case "project.meta-updated": {
-            const existingRow = yield* projectionProjectRepository.getById({
-              projectId: event.payload.projectId,
-            });
-            const existingResearchProject = yield* getResearchProjectRow(event.payload.projectId);
-            const existingProjectMetadataRow = yield* deviceStateRepository.getByKey({
-              key: projectMetadataKey(event.payload.projectId),
-            });
-            const existingProjectMetadata = Option.isSome(existingProjectMetadataRow)
-              ? JSON.parse(existingProjectMetadataRow.value.valueJson)
-              : null;
-            if (existingResearchProject !== null && existingProjectMetadata !== null) {
-              yield* upsertResearchProject({
-                projectId: event.payload.projectId,
-                workspaceRoot: (event.payload.workspaceRoot ??
-                  existingResearchProject.workspaceRoot ??
-                  existingProjectMetadata.workspaceRoot) as string,
-                title: event.payload.title ?? existingResearchProject.title,
-                createdAt: existingResearchProject.createdAt,
-                updatedAt: event.payload.updatedAt,
-              });
-              yield* upsertProjectMetadata({
-                projectId: event.payload.projectId,
-                workspaceRoot: (event.payload.workspaceRoot ??
-                  existingProjectMetadata.workspaceRoot) as string,
-                defaultModelSelection:
-                  event.payload.defaultModelSelection ??
-                  existingProjectMetadata.defaultModelSelection,
-                scripts: (event.payload.scripts ??
-                  existingProjectMetadata.scripts) as ReadonlyArray<unknown>,
-                deletedAt: (existingProjectMetadata.deletedAt ?? null) as string | null,
-                updatedAt: event.payload.updatedAt,
-              });
-            }
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionProjectRepository.upsert({
-              ...existingRow.value,
-              ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-              ...(event.payload.workspaceRoot !== undefined
-                ? { workspaceRoot: event.payload.workspaceRoot }
-                : {}),
-              ...(event.payload.defaultModelSelection !== undefined
-                ? { defaultModelSelection: event.payload.defaultModelSelection }
-                : {}),
-              ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
-              updatedAt: event.payload.updatedAt,
-            });
+          }
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionProjectRepository.upsert({
+            ...existingRow.value,
+            ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+            ...(event.payload.workspaceRoot !== undefined
+              ? { workspaceRoot: event.payload.workspaceRoot }
+              : {}),
+            ...(event.payload.defaultModelSelection !== undefined
+              ? { defaultModelSelection: event.payload.defaultModelSelection }
+              : {}),
+            ...(event.payload.scripts !== undefined ? { scripts: event.payload.scripts } : {}),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
 
-          case "project.deleted": {
-            const existingRow = yield* projectionProjectRepository.getById({
+        case "project.deleted": {
+          const existingRow = yield* projectionProjectRepository.getById({
+            projectId: event.payload.projectId,
+          });
+          const existingProjectMetadataRow = yield* deviceStateRepository.getByKey({
+            key: projectMetadataKey(event.payload.projectId),
+          });
+          if (Option.isSome(existingProjectMetadataRow)) {
+            const existingProjectMetadata = JSON.parse(existingProjectMetadataRow.value.valueJson) as {
+              readonly workspaceRoot: string;
+              readonly defaultModelSelection: unknown;
+              readonly scripts: ReadonlyArray<unknown>;
+            };
+            yield* upsertProjectMetadata({
               projectId: event.payload.projectId,
-            });
-            const existingProjectMetadataRow = yield* deviceStateRepository.getByKey({
-              key: projectMetadataKey(event.payload.projectId),
-            });
-            if (Option.isSome(existingProjectMetadataRow)) {
-              const existingProjectMetadata = JSON.parse(
-                existingProjectMetadataRow.value.valueJson,
-              ) as {
-                readonly workspaceRoot: string;
-                readonly defaultModelSelection: unknown;
-                readonly scripts: ReadonlyArray<unknown>;
-              };
-              yield* upsertProjectMetadata({
-                projectId: event.payload.projectId,
-                workspaceRoot: existingProjectMetadata.workspaceRoot,
-                defaultModelSelection: existingProjectMetadata.defaultModelSelection,
-                scripts: existingProjectMetadata.scripts,
-                deletedAt: event.payload.deletedAt,
-                updatedAt: event.payload.deletedAt,
-              });
-            }
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionProjectRepository.upsert({
-              ...existingRow.value,
+              workspaceRoot: existingProjectMetadata.workspaceRoot,
+              defaultModelSelection: existingProjectMetadata.defaultModelSelection,
+              scripts: existingProjectMetadata.scripts,
               deletedAt: event.payload.deletedAt,
               updatedAt: event.payload.deletedAt,
             });
+          }
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionProjectRepository.upsert({
+            ...existingRow.value,
+            deletedAt: event.payload.deletedAt,
+            updatedAt: event.payload.deletedAt,
+          });
+          return;
+        }
 
           default:
             return;
@@ -913,352 +953,378 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const applyThreadsProjection: ProjectorDefinition["apply"] = (event, attachmentSideEffects) =>
       Effect.gen(function* () {
         switch (event.type) {
-          case "thread.created":
+        case "thread.created":
+          yield* upsertResearchChat({
+            threadId: event.payload.threadId,
+            projectId: event.payload.projectId,
+            title: event.payload.title,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+            archivedAt: null,
+          });
+          yield* ensureDefaultChatId(event.payload.projectId, event.payload.threadId);
+          yield* upsertThreadMetadata({
+            threadId: event.payload.threadId,
+            modelSelection: event.payload.modelSelection,
+            runtimeMode: event.payload.runtimeMode,
+            interactionMode: event.payload.interactionMode,
+            branch: event.payload.branch,
+            worktreePath: event.payload.worktreePath,
+            deletedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          yield* projectionThreadRepository.upsert({
+            threadId: event.payload.threadId,
+            projectId: event.payload.projectId,
+            title: event.payload.title,
+            modelSelection: event.payload.modelSelection,
+            runtimeMode: event.payload.runtimeMode,
+            interactionMode: event.payload.interactionMode,
+            branch: event.payload.branch,
+            worktreePath: event.payload.worktreePath,
+            latestTurnId: null,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+            archivedAt: null,
+            deletedAt: null,
+          });
+          return;
+
+        case "thread.project-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
+          if (existingResearchChat !== null) {
             yield* upsertResearchChat({
-              threadId: event.payload.threadId,
+              threadId: existingResearchChat.threadId,
               projectId: event.payload.projectId,
-              title: event.payload.title,
-              createdAt: event.payload.createdAt,
+              title: existingResearchChat.title,
+              createdAt: existingResearchChat.createdAt,
               updatedAt: event.payload.updatedAt,
-              archivedAt: null,
+              archivedAt: existingResearchChat.archivedAt,
             });
             yield* ensureDefaultChatId(event.payload.projectId, event.payload.threadId);
+          }
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            projectId: event.payload.projectId,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.archived": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
+          if (existingResearchChat !== null) {
+            yield* upsertResearchChat({
+              threadId: existingResearchChat.threadId,
+              projectId: existingResearchChat.projectId,
+              title: existingResearchChat.title,
+              createdAt: existingResearchChat.createdAt,
+              updatedAt: event.payload.updatedAt,
+              archivedAt: event.payload.archivedAt,
+            });
+          }
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            archivedAt: event.payload.archivedAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.unarchived": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
+          if (existingResearchChat !== null) {
+            yield* upsertResearchChat({
+              threadId: existingResearchChat.threadId,
+              projectId: existingResearchChat.projectId,
+              title: existingResearchChat.title,
+              createdAt: existingResearchChat.createdAt,
+              updatedAt: event.payload.updatedAt,
+              archivedAt: null,
+            });
+          }
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            archivedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.meta-updated": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
+          const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
+            key: threadMetadataKey(event.payload.threadId),
+          });
+          if (existingResearchChat !== null && Option.isSome(existingThreadMetadataRow)) {
+            const existingThreadMetadata = JSON.parse(existingThreadMetadataRow.value.valueJson) as {
+              readonly modelSelection: unknown;
+              readonly runtimeMode: string;
+              readonly interactionMode: string;
+              readonly branch: string | null;
+              readonly worktreePath: string | null;
+              readonly deletedAt: string | null;
+            };
+            yield* upsertResearchChat({
+              threadId: existingResearchChat.threadId,
+              projectId: existingResearchChat.projectId,
+              title: event.payload.title ?? existingResearchChat.title,
+              createdAt: existingResearchChat.createdAt,
+              updatedAt: event.payload.updatedAt,
+              archivedAt: existingResearchChat.archivedAt,
+            });
             yield* upsertThreadMetadata({
               threadId: event.payload.threadId,
-              modelSelection: event.payload.modelSelection,
+              modelSelection: event.payload.modelSelection ?? existingThreadMetadata.modelSelection,
+              runtimeMode: existingThreadMetadata.runtimeMode,
+              interactionMode: existingThreadMetadata.interactionMode,
+              branch:
+                event.payload.branch !== undefined
+                  ? event.payload.branch
+                  : existingThreadMetadata.branch,
+              worktreePath:
+                event.payload.worktreePath !== undefined
+                  ? event.payload.worktreePath
+                  : existingThreadMetadata.worktreePath,
+              deletedAt: existingThreadMetadata.deletedAt,
+              updatedAt: event.payload.updatedAt,
+            });
+          }
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+            ...(event.payload.modelSelection !== undefined
+              ? { modelSelection: event.payload.modelSelection }
+              : {}),
+            ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
+            ...(event.payload.worktreePath !== undefined
+              ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.runtime-mode-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
+            key: threadMetadataKey(event.payload.threadId),
+          });
+          if (Option.isSome(existingThreadMetadataRow)) {
+            const existingThreadMetadata = JSON.parse(existingThreadMetadataRow.value.valueJson) as {
+              readonly modelSelection: unknown;
+              readonly interactionMode: string;
+              readonly branch: string | null;
+              readonly worktreePath: string | null;
+              readonly deletedAt: string | null;
+            };
+            yield* upsertThreadMetadata({
+              threadId: event.payload.threadId,
+              modelSelection: existingThreadMetadata.modelSelection,
               runtimeMode: event.payload.runtimeMode,
+              interactionMode: existingThreadMetadata.interactionMode,
+              branch: existingThreadMetadata.branch,
+              worktreePath: existingThreadMetadata.worktreePath,
+              deletedAt: existingThreadMetadata.deletedAt,
+              updatedAt: event.payload.updatedAt,
+            });
+          }
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            runtimeMode: event.payload.runtimeMode,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.interaction-mode-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
+            key: threadMetadataKey(event.payload.threadId),
+          });
+          if (Option.isSome(existingThreadMetadataRow)) {
+            const existingThreadMetadata = JSON.parse(existingThreadMetadataRow.value.valueJson) as {
+              readonly modelSelection: unknown;
+              readonly runtimeMode: string;
+              readonly branch: string | null;
+              readonly worktreePath: string | null;
+              readonly deletedAt: string | null;
+            };
+            yield* upsertThreadMetadata({
+              threadId: event.payload.threadId,
+              modelSelection: existingThreadMetadata.modelSelection,
+              runtimeMode: existingThreadMetadata.runtimeMode,
               interactionMode: event.payload.interactionMode,
-              branch: event.payload.branch,
-              worktreePath: event.payload.worktreePath,
-              deletedAt: null,
+              branch: existingThreadMetadata.branch,
+              worktreePath: existingThreadMetadata.worktreePath,
+              deletedAt: existingThreadMetadata.deletedAt,
               updatedAt: event.payload.updatedAt,
             });
-            yield* projectionThreadRepository.upsert({
-              threadId: event.payload.threadId,
-              projectId: event.payload.projectId,
-              title: event.payload.title,
-              modelSelection: event.payload.modelSelection,
-              runtimeMode: event.payload.runtimeMode,
-              interactionMode: event.payload.interactionMode,
-              branch: event.payload.branch,
-              worktreePath: event.payload.worktreePath,
-              latestTurnId: null,
-              createdAt: event.payload.createdAt,
-              updatedAt: event.payload.updatedAt,
-              archivedAt: null,
-              deletedAt: null,
-            });
-            return;
-
-          case "thread.archived": {
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
-            if (existingResearchChat !== null) {
-              yield* upsertResearchChat({
-                threadId: existingResearchChat.threadId,
-                projectId: existingResearchChat.projectId,
-                title: existingResearchChat.title,
-                createdAt: existingResearchChat.createdAt,
-                updatedAt: event.payload.updatedAt,
-                archivedAt: event.payload.archivedAt,
-              });
-            }
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              archivedAt: event.payload.archivedAt,
-              updatedAt: event.payload.updatedAt,
-            });
+          }
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            interactionMode: event.payload.interactionMode,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
 
-          case "thread.unarchived": {
-            const existingRow = yield* projectionThreadRepository.getById({
+        case "thread.deleted": {
+          attachmentSideEffects.deletedThreadIds.add(event.payload.threadId);
+          const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
+            key: threadMetadataKey(event.payload.threadId),
+          });
+          if (Option.isSome(existingThreadMetadataRow)) {
+            const existingThreadMetadata = JSON.parse(existingThreadMetadataRow.value.valueJson) as {
+              readonly modelSelection: unknown;
+              readonly runtimeMode: string;
+              readonly interactionMode: string;
+              readonly branch: string | null;
+              readonly worktreePath: string | null;
+            };
+            yield* upsertThreadMetadata({
               threadId: event.payload.threadId,
-            });
-            const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
-            if (existingResearchChat !== null) {
-              yield* upsertResearchChat({
-                threadId: existingResearchChat.threadId,
-                projectId: existingResearchChat.projectId,
-                title: existingResearchChat.title,
-                createdAt: existingResearchChat.createdAt,
-                updatedAt: event.payload.updatedAt,
-                archivedAt: null,
-              });
-            }
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              archivedAt: null,
-              updatedAt: event.payload.updatedAt,
-            });
-            return;
-          }
-
-          case "thread.meta-updated": {
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
-            const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
-            if (existingResearchChat !== null && Option.isSome(existingThreadMetadataRow)) {
-              const existingThreadMetadata = JSON.parse(
-                existingThreadMetadataRow.value.valueJson,
-              ) as {
-                readonly modelSelection: unknown;
-                readonly runtimeMode: string;
-                readonly interactionMode: string;
-                readonly branch: string | null;
-                readonly worktreePath: string | null;
-                readonly deletedAt: string | null;
-              };
-              yield* upsertResearchChat({
-                threadId: existingResearchChat.threadId,
-                projectId: existingResearchChat.projectId,
-                title: event.payload.title ?? existingResearchChat.title,
-                createdAt: existingResearchChat.createdAt,
-                updatedAt: event.payload.updatedAt,
-                archivedAt: existingResearchChat.archivedAt,
-              });
-              yield* upsertThreadMetadata({
-                threadId: event.payload.threadId,
-                modelSelection:
-                  event.payload.modelSelection ?? existingThreadMetadata.modelSelection,
-                runtimeMode: existingThreadMetadata.runtimeMode,
-                interactionMode: existingThreadMetadata.interactionMode,
-                branch:
-                  event.payload.branch !== undefined
-                    ? event.payload.branch
-                    : existingThreadMetadata.branch,
-                worktreePath:
-                  event.payload.worktreePath !== undefined
-                    ? event.payload.worktreePath
-                    : existingThreadMetadata.worktreePath,
-                deletedAt: existingThreadMetadata.deletedAt,
-                updatedAt: event.payload.updatedAt,
-              });
-            }
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-              ...(event.payload.modelSelection !== undefined
-                ? { modelSelection: event.payload.modelSelection }
-                : {}),
-              ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
-              ...(event.payload.worktreePath !== undefined
-                ? { worktreePath: event.payload.worktreePath }
-                : {}),
-              updatedAt: event.payload.updatedAt,
-            });
-            return;
-          }
-
-          case "thread.runtime-mode-set": {
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
-            if (Option.isSome(existingThreadMetadataRow)) {
-              const existingThreadMetadata = JSON.parse(
-                existingThreadMetadataRow.value.valueJson,
-              ) as {
-                readonly modelSelection: unknown;
-                readonly interactionMode: string;
-                readonly branch: string | null;
-                readonly worktreePath: string | null;
-                readonly deletedAt: string | null;
-              };
-              yield* upsertThreadMetadata({
-                threadId: event.payload.threadId,
-                modelSelection: existingThreadMetadata.modelSelection,
-                runtimeMode: event.payload.runtimeMode,
-                interactionMode: existingThreadMetadata.interactionMode,
-                branch: existingThreadMetadata.branch,
-                worktreePath: existingThreadMetadata.worktreePath,
-                deletedAt: existingThreadMetadata.deletedAt,
-                updatedAt: event.payload.updatedAt,
-              });
-            }
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              runtimeMode: event.payload.runtimeMode,
-              updatedAt: event.payload.updatedAt,
-            });
-            return;
-          }
-
-          case "thread.interaction-mode-set": {
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
-            if (Option.isSome(existingThreadMetadataRow)) {
-              const existingThreadMetadata = JSON.parse(
-                existingThreadMetadataRow.value.valueJson,
-              ) as {
-                readonly modelSelection: unknown;
-                readonly runtimeMode: string;
-                readonly branch: string | null;
-                readonly worktreePath: string | null;
-                readonly deletedAt: string | null;
-              };
-              yield* upsertThreadMetadata({
-                threadId: event.payload.threadId,
-                modelSelection: existingThreadMetadata.modelSelection,
-                runtimeMode: existingThreadMetadata.runtimeMode,
-                interactionMode: event.payload.interactionMode,
-                branch: existingThreadMetadata.branch,
-                worktreePath: existingThreadMetadata.worktreePath,
-                deletedAt: existingThreadMetadata.deletedAt,
-                updatedAt: event.payload.updatedAt,
-              });
-            }
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              interactionMode: event.payload.interactionMode,
-              updatedAt: event.payload.updatedAt,
-            });
-            return;
-          }
-
-          case "thread.deleted": {
-            attachmentSideEffects.deletedThreadIds.add(event.payload.threadId);
-            const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
-            if (Option.isSome(existingThreadMetadataRow)) {
-              const existingThreadMetadata = JSON.parse(
-                existingThreadMetadataRow.value.valueJson,
-              ) as {
-                readonly modelSelection: unknown;
-                readonly runtimeMode: string;
-                readonly interactionMode: string;
-                readonly branch: string | null;
-                readonly worktreePath: string | null;
-              };
-              yield* upsertThreadMetadata({
-                threadId: event.payload.threadId,
-                modelSelection: existingThreadMetadata.modelSelection,
-                runtimeMode: existingThreadMetadata.runtimeMode,
-                interactionMode: existingThreadMetadata.interactionMode,
-                branch: existingThreadMetadata.branch,
-                worktreePath: existingThreadMetadata.worktreePath,
-                deletedAt: event.payload.deletedAt,
-                updatedAt: event.payload.deletedAt,
-              });
-            }
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
+              modelSelection: existingThreadMetadata.modelSelection,
+              runtimeMode: existingThreadMetadata.runtimeMode,
+              interactionMode: existingThreadMetadata.interactionMode,
+              branch: existingThreadMetadata.branch,
+              worktreePath: existingThreadMetadata.worktreePath,
               deletedAt: event.payload.deletedAt,
               updatedAt: event.payload.deletedAt,
             });
+          }
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            deletedAt: event.payload.deletedAt,
+            updatedAt: event.payload.deletedAt,
+          });
+          return;
+        }
 
-          case "thread.message-sent":
-          case "thread.proposed-plan-upserted":
-          case "thread.activity-appended": {
-            const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
-            if (existingResearchChat !== null) {
-              yield* upsertResearchChat({
-                threadId: existingResearchChat.threadId,
-                projectId: existingResearchChat.projectId,
-                title: existingResearchChat.title,
-                createdAt: existingResearchChat.createdAt,
-                updatedAt: event.occurredAt,
-                archivedAt: existingResearchChat.archivedAt,
-              });
-            }
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
+        case "thread.message-sent":
+        case "thread.proposed-plan-upserted":
+        case "thread.activity-appended": {
+          const existingResearchChat = yield* getResearchChatRow(event.payload.threadId);
+          if (existingResearchChat !== null) {
+            yield* upsertResearchChat({
+              threadId: existingResearchChat.threadId,
+              projectId: existingResearchChat.projectId,
+              title: existingResearchChat.title,
+              createdAt: existingResearchChat.createdAt,
               updatedAt: event.occurredAt,
+              archivedAt: existingResearchChat.archivedAt,
             });
+          }
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
 
-          case "thread.session-set": {
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              latestTurnId: event.payload.session.activeTurnId,
-              updatedAt: event.occurredAt,
-            });
+        case "thread.session-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: event.payload.session.activeTurnId,
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
 
-          case "thread.turn-diff-completed": {
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              latestTurnId: event.payload.turnId,
-              updatedAt: event.occurredAt,
-            });
+        case "thread.turn-diff-completed": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: event.payload.turnId,
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
 
-          case "thread.reverted": {
-            const existingRow = yield* projectionThreadRepository.getById({
-              threadId: event.payload.threadId,
-            });
-            if (Option.isNone(existingRow)) {
-              return;
-            }
-            yield* projectionThreadRepository.upsert({
-              ...existingRow.value,
-              latestTurnId: null,
-              updatedAt: event.occurredAt,
-            });
+        case "thread.reverted": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
             return;
           }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: null,
+            updatedAt: event.occurredAt,
+          });
+          return;
+        }
 
           default:
             return;
         }
       }).pipe(
+        Effect.tapError((error) =>
+          Effect.logError("ProjectionPipeline.applyThreadsProjection failed", {
+            eventType: event.type,
+            aggregateId: event.aggregateId,
+            error: describeErrorForLog(error),
+            errorInspect: inspect(error, { depth: 10, breakLength: 120 }),
+          }),
+        ),
         Effect.mapError(
           toProjectionSqlOrPersistenceError("ProjectionPipeline.applyThreadsProjection:query"),
         ),
@@ -1270,88 +1336,86 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     ) =>
       Effect.gen(function* () {
         switch (event.type) {
-          case "thread.message-sent": {
-            yield* upsertResearchMessage({
-              messageId: event.payload.messageId,
-              threadId: event.payload.threadId,
-              role: event.payload.role,
-              text: event.payload.text,
-              turnId: event.payload.turnId,
-              ...(event.payload.attachments !== undefined
-                ? { attachments: event.payload.attachments }
-                : {}),
-              streaming: event.payload.streaming,
-              createdAt: event.payload.createdAt,
-              updatedAt: event.payload.updatedAt,
-            });
-            const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
-              messageId: event.payload.messageId,
-            });
-            const previousMessage = Option.getOrUndefined(existingMessage);
-            const nextText = Option.match(existingMessage, {
-              onNone: () => event.payload.text,
-              onSome: (message) => {
-                if (event.payload.streaming) {
-                  return `${message.text}${event.payload.text}`;
-                }
-                if (event.payload.text.length === 0) {
-                  return message.text;
-                }
-                return event.payload.text;
-              },
-            });
-            const nextAttachments =
-              event.payload.attachments !== undefined
-                ? yield* materializeAttachmentsForProjection({
-                    attachments: event.payload.attachments,
-                  })
-                : previousMessage?.attachments;
-            yield* projectionThreadMessageRepository.upsert({
-              messageId: event.payload.messageId,
-              threadId: event.payload.threadId,
-              turnId: event.payload.turnId,
-              role: event.payload.role,
-              text: nextText,
-              ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
-              isStreaming: event.payload.streaming,
-              createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
-              updatedAt: event.payload.updatedAt,
-            });
+        case "thread.message-sent": {
+          yield* upsertResearchMessage({
+            messageId: event.payload.messageId,
+            threadId: event.payload.threadId,
+            role: event.payload.role,
+            text: event.payload.text,
+            turnId: event.payload.turnId,
+            ...(event.payload.attachments !== undefined ? { attachments: event.payload.attachments } : {}),
+            streaming: event.payload.streaming,
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
+            messageId: event.payload.messageId,
+          });
+          const previousMessage = Option.getOrUndefined(existingMessage);
+          const nextText = Option.match(existingMessage, {
+            onNone: () => event.payload.text,
+            onSome: (message) => {
+              if (event.payload.streaming) {
+                return `${message.text}${event.payload.text}`;
+              }
+              if (event.payload.text.length === 0) {
+                return message.text;
+              }
+              return event.payload.text;
+            },
+          });
+          const nextAttachments =
+            event.payload.attachments !== undefined
+              ? yield* materializeAttachmentsForProjection({
+                  attachments: event.payload.attachments,
+                })
+              : previousMessage?.attachments;
+          yield* projectionThreadMessageRepository.upsert({
+            messageId: event.payload.messageId,
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            role: event.payload.role,
+            text: nextText,
+            ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
+            isStreaming: event.payload.streaming,
+            createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.reverted": {
+          const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          if (existingRows.length === 0) {
             return;
           }
 
-          case "thread.reverted": {
-            const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
-              threadId: event.payload.threadId,
-            });
-            if (existingRows.length === 0) {
-              return;
-            }
-
-            const existingTurns = yield* projectionTurnRepository.listByThreadId({
-              threadId: event.payload.threadId,
-            });
-            const keptRows = retainProjectionMessagesAfterRevert(
-              existingRows,
-              existingTurns,
-              event.payload.turnCount,
-            );
-            if (keptRows.length === existingRows.length) {
-              return;
-            }
-
-            yield* projectionThreadMessageRepository.deleteByThreadId({
-              threadId: event.payload.threadId,
-            });
-            yield* Effect.forEach(keptRows, projectionThreadMessageRepository.upsert, {
-              concurrency: 1,
-            }).pipe(Effect.asVoid);
-            attachmentSideEffects.prunedThreadRelativePaths.set(
-              event.payload.threadId,
-              collectThreadAttachmentRelativePaths(event.payload.threadId, keptRows),
-            );
+          const existingTurns = yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const keptRows = retainProjectionMessagesAfterRevert(
+            existingRows,
+            existingTurns,
+            event.payload.turnCount,
+          );
+          if (keptRows.length === existingRows.length) {
             return;
           }
+
+          yield* projectionThreadMessageRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(keptRows, projectionThreadMessageRepository.upsert, {
+            concurrency: 1,
+          }).pipe(Effect.asVoid);
+          attachmentSideEffects.prunedThreadRelativePaths.set(
+            event.payload.threadId,
+            collectThreadAttachmentRelativePaths(event.payload.threadId, keptRows),
+          );
+          return;
+        }
 
           default:
             return;

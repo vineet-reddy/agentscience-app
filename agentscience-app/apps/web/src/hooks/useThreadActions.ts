@@ -1,4 +1,4 @@
-import { ThreadId } from "@agentscience/contracts";
+import { ProjectId, ThreadId } from "@agentscience/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
@@ -48,7 +48,7 @@ export function useThreadActions() {
       });
 
       if (routeThreadId === threadId) {
-        await handleNewThread(thread.projectId);
+        await handleNewThread(thread.projectId ?? null);
       }
     },
     [handleNewThread, routeThreadId],
@@ -63,6 +63,22 @@ export function useThreadActions() {
       threadId,
     });
   }, []);
+
+  const moveThreadToProject = useCallback(
+    async (threadId: ThreadId, projectId: ProjectId | null) => {
+      const api = readNativeApi();
+      if (!api) return;
+      await api.orchestration.dispatchCommand({
+        type: "thread.project.set",
+        commandId: newCommandId(),
+        threadId,
+        projectId,
+      });
+      const draftStore = useComposerDraftStore.getState();
+      draftStore.setDraftThreadContext(threadId, { projectId });
+    },
+    [],
+  );
 
   const deleteThread = useCallback(
     async (threadId: ThreadId, opts: { deletedThreadIds?: ReadonlySet<ThreadId> } = {}) => {
@@ -86,7 +102,7 @@ export function useThreadActions() {
         canDeleteWorktree &&
         (await api.dialogs.confirm(
           [
-            "This thread is the only one linked to this worktree:",
+            "This paper is the only one linked to this worktree:",
             displayWorktreePath ?? orphanedWorktreePath,
             "",
             "Delete the worktree too?",
@@ -159,7 +175,7 @@ export function useThreadActions() {
         });
         toastManager.add({
           type: "error",
-          title: "Thread deleted, but worktree removal failed",
+          title: "Paper deleted, but worktree removal failed",
           description: `Could not remove ${displayWorktreePath ?? orphanedWorktreePath}. ${message}`,
         });
       }
@@ -185,8 +201,8 @@ export function useThreadActions() {
       if (appSettings.confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
-            `Delete thread "${thread.title}"?`,
-            "This permanently clears conversation history for this thread.",
+            `Delete paper "${thread.title}"?`,
+            "This permanently clears conversation history for this paper.",
           ].join("\n"),
         );
         if (!confirmed) {
@@ -202,6 +218,7 @@ export function useThreadActions() {
   return {
     archiveThread,
     unarchiveThread,
+    moveThreadToProject,
     deleteThread,
     confirmAndDeleteThread,
   };

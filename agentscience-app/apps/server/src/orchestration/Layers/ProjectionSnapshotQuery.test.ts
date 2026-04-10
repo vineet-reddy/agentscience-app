@@ -171,7 +171,9 @@ describe("ProjectionSnapshotQuery", () => {
         firstThreadId: yield* snapshotQuery.getFirstActiveThreadIdByProjectId(
           ProjectId.makeUnsafe("project-ctx"),
         ),
-        context: yield* snapshotQuery.getThreadCheckpointContext(ThreadId.makeUnsafe("thread-ctx")),
+        context: yield* snapshotQuery.getThreadCheckpointContext(
+          ThreadId.makeUnsafe("thread-ctx"),
+        ),
       };
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
@@ -202,5 +204,56 @@ describe("ProjectionSnapshotQuery", () => {
         checkpoints: [],
       });
     }
+  });
+
+  it("falls back to research project rows when project metadata is missing", async () => {
+    const snapshot = await Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO research_projects (
+          project_id, user_id, workspace_root, title, sharing_strategy, sync_state, created_at, updated_at
+        ) VALUES (
+          'project-fallback', 'local-user', '/tmp/fallback-project', 'Fallback Project', 'local_only', 'local_only',
+          '2026-02-26T00:00:00.000Z', '2026-02-26T00:00:01.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO research_chats (
+          chat_id, project_id, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+        ) VALUES (
+          'thread-fallback', 'project-fallback', 'local-user', 'Fallback Thread', 'local_only', 'local_only',
+          '2026-02-26T00:00:02.000Z', '2026-02-26T00:00:03.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO device_state (key, value_json, updated_at) VALUES
+        (
+          'local.thread.thread-fallback',
+          '{"modelSelection":{"provider":"codex","model":"gpt-5-codex"},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"deletedAt":null}',
+          '2026-02-26T00:00:03.000Z'
+        )
+      `;
+
+      return {
+        snapshot: yield* snapshotQuery.getSnapshot(),
+        project: yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/fallback-project"),
+      };
+    }).pipe(Effect.provide(testLayer), Effect.runPromise);
+
+    expect(snapshot.snapshot.projects).toEqual([
+      {
+        id: ProjectId.makeUnsafe("project-fallback"),
+        title: "Fallback Project",
+        workspaceRoot: "/tmp/fallback-project",
+        defaultModelSelection: null,
+        scripts: [],
+        createdAt: "2026-02-26T00:00:00.000Z",
+        updatedAt: "2026-02-26T00:00:01.000Z",
+        deletedAt: null,
+      },
+    ]);
+    expect(Option.isSome(snapshot.project)).toBe(true);
   });
 });

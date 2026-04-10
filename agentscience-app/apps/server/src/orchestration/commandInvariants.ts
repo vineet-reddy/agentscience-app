@@ -31,6 +31,13 @@ export function findProjectById(
   return readModel.projects.find((project) => project.id === projectId);
 }
 
+export function findActiveProjectById(
+  readModel: OrchestrationReadModel,
+  projectId: ProjectId,
+): OrchestrationProject | undefined {
+  return readModel.projects.find((project) => project.id === projectId && project.deletedAt === null);
+}
+
 export function findActiveProjectByWorkspaceRoot(
   readModel: OrchestrationReadModel,
   workspaceRoot: string,
@@ -42,7 +49,7 @@ export function findActiveProjectByWorkspaceRoot(
 
 export function listThreadsByProjectId(
   readModel: OrchestrationReadModel,
-  projectId: ProjectId,
+  projectId: ProjectId | null,
 ): ReadonlyArray<OrchestrationThread> {
   return readModel.threads.filter((thread) => thread.projectId === projectId);
 }
@@ -62,6 +69,38 @@ export function requireProject(input: {
       `Project '${input.projectId}' does not exist for command '${input.command.type}'.`,
     ),
   );
+}
+
+export function requireActiveProject(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly projectId: ProjectId;
+}): Effect.Effect<OrchestrationProject, OrchestrationCommandInvariantError> {
+  const project = findActiveProjectById(input.readModel, input.projectId);
+  if (project) {
+    return Effect.succeed(project);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Project '${input.projectId}' does not exist or is deleted for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireAssignedProjectIfPresent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly projectId: ProjectId | null;
+}): Effect.Effect<OrchestrationProject | null, OrchestrationCommandInvariantError> {
+  if (input.projectId === null) {
+    return Effect.succeed(null);
+  }
+  return requireActiveProject({
+    readModel: input.readModel,
+    command: input.command,
+    projectId: input.projectId,
+  });
 }
 
 export function requireProjectAbsent(input: {

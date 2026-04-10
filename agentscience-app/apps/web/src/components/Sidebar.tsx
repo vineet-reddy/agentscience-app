@@ -11,20 +11,39 @@ import {
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-
+import {
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
-import { cn, newCommandId } from "../lib/utils";
+import { cn, newCommandId, newProjectId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { useUiStateStore } from "../uiStateStore";
+import {
+  buildSidebarThreadEntries,
+  type SidebarThreadEntryRecord,
+} from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 import {
   SidebarContent,
   SidebarFooter,
@@ -36,13 +55,7 @@ import {
   SidebarSeparator,
 } from "./ui/sidebar";
 
-interface SidebarThreadEntry {
-  id: ThreadId;
-  projectId: ProjectId;
-  title: string;
-  timestamp: string;
-  isDraft: boolean;
-}
+type SidebarThreadEntry = SidebarThreadEntryRecord<ThreadId, ProjectId | null>;
 
 interface EditingState {
   kind: "project" | "thread";
@@ -56,6 +69,13 @@ interface ThreadContextMenuState {
   y: number;
 }
 
+interface CreateProjectDialogState {
+  open: boolean;
+  name: string;
+  workspaceRoot: string;
+  creating: boolean;
+}
+
 function deriveDraftTitle(prompt: string | undefined): string {
   const firstMeaningfulLine = prompt
     ?.split(/\r?\n/)
@@ -63,7 +83,7 @@ function deriveDraftTitle(prompt: string | undefined): string {
     .find((line) => line.length > 0);
 
   if (!firstMeaningfulLine) {
-    return "New Research";
+    return "New Paper";
   }
 
   return firstMeaningfulLine.length > 56
@@ -74,9 +94,11 @@ function deriveDraftTitle(prompt: string | undefined): string {
 export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { activeDraftThread, activeThread, defaultProjectId, handleNewThread, routeThreadId } =
-    useHandleNewThread();
-  const { archiveThread } = useThreadActions();
+  const {
+    handleNewThread,
+    routeThreadId,
+  } = useHandleNewThread();
+  const { archiveThread, moveThreadToProject } = useThreadActions();
   const projects = useStore((state) => state.projects);
   const sidebarThreadsById = useStore((state) => state.sidebarThreadsById);
   const threadIdsByProjectId = useStore((state) => state.threadIdsByProjectId);
@@ -85,13 +107,17 @@ export default function Sidebar() {
   const projectExpandedById = useUiStateStore((state) => state.projectExpandedById);
   const projectOrder = useUiStateStore((state) => state.projectOrder);
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
-  const projectSortOrder = useSettings((state) => state.sidebarProjectSortOrder);
+  const settings = useSettings();
+  const projectSortOrder = settings.sidebarProjectSortOrder;
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [contextMenu, setContextMenu] = useState<ThreadContextMenuState | null>(null);
+  const [createProjectDialog, setCreateProjectDialog] = useState<CreateProjectDialogState>({
+    open: false,
+    name: "",
+    workspaceRoot: "",
+    creating: false,
+  });
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
-
-  const activeProjectId =
-    activeThread?.projectId ?? activeDraftThread?.projectId ?? defaultProjectId;
 
   const visibleThreadsById = useMemo(() => {
     const visibleThreads = Object.values(sidebarThreadsById).filter(
@@ -119,9 +145,8 @@ export default function Sidebar() {
         ...leftThreadIds.map((threadId) => {
           const thread = visibleThreadsById.get(threadId);
           return (
-            Date.parse(
-              thread?.latestUserMessageAt ?? thread?.updatedAt ?? thread?.createdAt ?? "",
-            ) || Number.NEGATIVE_INFINITY
+            Date.parse(thread?.latestUserMessageAt ?? thread?.updatedAt ?? thread?.createdAt ?? "") ||
+            Number.NEGATIVE_INFINITY
           );
         }),
       );
@@ -130,9 +155,8 @@ export default function Sidebar() {
         ...rightThreadIds.map((threadId) => {
           const thread = visibleThreadsById.get(threadId);
           return (
-            Date.parse(
-              thread?.latestUserMessageAt ?? thread?.updatedAt ?? thread?.createdAt ?? "",
-            ) || Number.NEGATIVE_INFINITY
+            Date.parse(thread?.latestUserMessageAt ?? thread?.updatedAt ?? thread?.createdAt ?? "") ||
+            Number.NEGATIVE_INFINITY
           );
         }),
       );
@@ -146,51 +170,18 @@ export default function Sidebar() {
   }, [projectOrder, projectSortOrder, projects, threadIdsByProjectId, visibleThreadsById]);
 
   const threadEntriesByProjectId = useMemo(() => {
-    const entries = new Map<ProjectId, SidebarThreadEntry[]>();
-    const persistedThreadIds = new Set<string>();
-
-    for (const [projectId, threadIds] of Object.entries(threadIdsByProjectId)) {
-      const projectEntries = threadIds
-        .map((threadId) => visibleThreadsById.get(threadId))
-        .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
-        .map((thread) => {
-          persistedThreadIds.add(thread.id);
-          return {
-            id: thread.id,
-            projectId: thread.projectId,
-            isDraft: false,
-            timestamp: thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
-            title: thread.title,
-          } satisfies SidebarThreadEntry;
-        });
-
-      entries.set(
-        projectId as ProjectId,
-        projectEntries.toSorted((left, right) => right.timestamp.localeCompare(left.timestamp)),
-      );
-    }
-
-    for (const [threadId, draftThread] of Object.entries(draftThreadsByThreadId)) {
-      if (persistedThreadIds.has(threadId)) {
-        continue;
-      }
-
-      const projectEntries = entries.get(draftThread.projectId) ?? [];
-      projectEntries.push({
-        id: threadId as ThreadId,
-        projectId: draftThread.projectId,
-        isDraft: true,
-        timestamp: draftThread.createdAt,
-        title: deriveDraftTitle(draftsByThreadId[threadId as ThreadId]?.prompt),
-      });
-      entries.set(
-        draftThread.projectId,
-        projectEntries.toSorted((left, right) => right.timestamp.localeCompare(left.timestamp)),
-      );
-    }
-
-    return entries;
-  }, [draftThreadsByThreadId, draftsByThreadId, threadIdsByProjectId, visibleThreadsById]);
+    return buildSidebarThreadEntries({
+      visibleThreads: [...visibleThreadsById.values()],
+      draftThreadsByThreadId,
+      draftTitleByThreadId: Object.fromEntries(
+        Object.entries(draftsByThreadId).map(([threadId, draft]) => [
+          threadId,
+          deriveDraftTitle(draft?.prompt),
+        ]),
+      ),
+    }) as Map<ProjectId | null, SidebarThreadEntry[]>;
+  }, [draftThreadsByThreadId, draftsByThreadId, visibleThreadsById]);
+  const recentThreads = threadEntriesByProjectId.get(null) ?? [];
 
   useEffect(() => {
     if (!contextMenu) {
@@ -271,7 +262,7 @@ export default function Sidebar() {
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Failed to rename chat",
+        title: "Failed to rename paper",
         description: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -284,7 +275,7 @@ export default function Sidebar() {
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Failed to archive chat",
+        title: "Failed to archive paper",
         description: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -312,6 +303,67 @@ export default function Sidebar() {
     void commitThreadRename(input.id as ThreadId, input.originalTitle);
   };
 
+  const openCreateProjectDialog = () => {
+    setCreateProjectDialog({
+      open: true,
+      name: "",
+      workspaceRoot: "",
+      creating: false,
+    });
+  };
+
+  const pickProjectWorkspaceRoot = async () => {
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    const pickedFolder = await api.dialogs.pickFolder();
+    if (!pickedFolder) {
+      return;
+    }
+    setCreateProjectDialog((current) => ({
+      ...current,
+      workspaceRoot: pickedFolder,
+      name: current.name || pickedFolder.split("/").filter(Boolean).at(-1) || "",
+    }));
+  };
+
+  const submitCreateProject = async () => {
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    const title = createProjectDialog.name.trim();
+    const workspaceRoot = createProjectDialog.workspaceRoot.trim();
+    if (!title || !workspaceRoot || createProjectDialog.creating) {
+      return;
+    }
+    setCreateProjectDialog((current) => ({ ...current, creating: true }));
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "project.create",
+        commandId: newCommandId(),
+        projectId: newProjectId(),
+        title,
+        workspaceRoot,
+        createdAt: new Date().toISOString(),
+      });
+      setCreateProjectDialog({
+        open: false,
+        name: "",
+        workspaceRoot: "",
+        creating: false,
+      });
+    } catch (error) {
+      setCreateProjectDialog((current) => ({ ...current, creating: false }));
+      toastManager.add({
+        type: "error",
+        title: "Failed to create project",
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
   return (
     <>
       <SidebarHeader
@@ -331,17 +383,119 @@ export default function Sidebar() {
         <SidebarGroup className="gap-3 px-3 py-3">
           <Button
             className="w-full justify-start gap-2"
-            disabled={activeProjectId === null}
             onClick={() => {
-              if (!activeProjectId) return;
-              void handleNewThread(activeProjectId);
+              void handleNewThread(null);
             }}
           >
             <PlusIcon className="size-4" />
-            New Research
+            New Paper
           </Button>
 
           <div className="space-y-1">
+            <div className="border-b border-sidebar-border/60 pb-2">
+              <div className="flex items-center gap-2 px-2 py-1">
+                <FileTextIcon className="size-4 text-sidebar-foreground/70" />
+                <div className="text-[13px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/60">
+                  Recents
+                </div>
+              </div>
+              <div className="mt-1 space-y-0.5 pl-2">
+                {recentThreads.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-sidebar-foreground/55">
+                    New papers appear here until you move them into a project.
+                  </p>
+                ) : (
+                  recentThreads.map((thread) => {
+                    const isEditingThread =
+                      editing?.kind === "thread" && editing.id === thread.id;
+
+                    return (
+                      <div
+                        key={thread.id}
+                        className={cn(
+                          "group/thread flex items-start gap-1 rounded-xl transition-colors",
+                          routeThreadId === thread.id
+                            ? "bg-zinc-500/15 text-sidebar-foreground shadow-[inset_0_0_0_1px_hsl(var(--sidebar-border))]"
+                            : "hover:bg-sidebar-accent/50",
+                        )}
+                        onContextMenu={(event) => {
+                          if (thread.isDraft) {
+                            return;
+                          }
+                          event.preventDefault();
+                          setContextMenu({
+                            threadId: thread.id,
+                            x: event.clientX,
+                            y: event.clientY,
+                          });
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-start px-3 py-2 text-left"
+                          onClick={() => {
+                            void navigate({
+                              to: "/$threadId",
+                              params: { threadId: thread.id },
+                            });
+                          }}
+                        >
+                          <div className="min-w-0 flex-1">
+                            {isEditingThread ? (
+                              <input
+                                autoFocus
+                                className="w-full rounded border border-sidebar-border bg-background px-2 py-1 text-sm text-foreground outline-none"
+                                value={editing.value}
+                                onClick={(event) => event.stopPropagation()}
+                                onBlur={() => void commitThreadRename(thread.id, thread.title)}
+                                onChange={(event) =>
+                                  setEditing({
+                                    kind: "thread",
+                                    id: thread.id,
+                                    value: event.target.value,
+                                  })
+                                }
+                                onKeyDown={(event) =>
+                                  handleEditingKeyDown(event, {
+                                    kind: "thread",
+                                    id: thread.id,
+                                    originalTitle: thread.title,
+                                  })
+                                }
+                              />
+                            ) : (
+                              <>
+                                <div className="truncate text-[15px] font-medium text-sidebar-foreground">
+                                  {thread.title}
+                                </div>
+                                <div className="mt-1 text-xs text-sidebar-foreground/60">
+                                  {formatRelativeTimeLabel(thread.timestamp)}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between px-2 pt-1">
+              <div className="text-[13px] font-medium uppercase tracking-[0.12em] text-sidebar-foreground/60">
+                Projects
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                onClick={openCreateProjectDialog}
+              >
+                <PlusIcon className="size-3.5" />
+                New Project
+              </button>
+            </div>
+
             {orderedProjects.map((project) => {
               const projectThreads = threadEntriesByProjectId.get(project.id) ?? [];
               const isExpanded = projectExpandedById[project.id] ?? true;
@@ -409,7 +563,7 @@ export default function Sidebar() {
                           onClick={() => {
                             void handleNewThread(project.id);
                           }}
-                          title="New chat"
+                          title="New paper"
                         >
                           <FolderPlusIcon className="size-4" />
                         </button>
@@ -434,7 +588,7 @@ export default function Sidebar() {
                   {isExpanded ? (
                     <div className="mt-1 space-y-0.5 pl-8">
                       {projectThreads.length === 0 ? (
-                        <p className="px-2 py-2 text-sm text-sidebar-foreground/55">No chats yet</p>
+                        <p className="px-2 py-2 text-sm text-sidebar-foreground/55">No papers yet</p>
                       ) : (
                         projectThreads.map((thread) => {
                           const isEditingThread =
@@ -537,7 +691,7 @@ export default function Sidebar() {
                                           value: thread.title,
                                         });
                                       }}
-                                      title="Rename chat"
+                                        title="Rename paper"
                                     >
                                       <PencilIcon className="size-3.5" />
                                     </button>
@@ -548,7 +702,7 @@ export default function Sidebar() {
                                     onClick={() => {
                                       void handleArchiveThread(thread.id);
                                     }}
-                                    title="Archive chat"
+                                    title="Archive paper"
                                   >
                                     <ArchiveIcon className="size-3.5" />
                                   </button>
@@ -567,7 +721,7 @@ export default function Sidebar() {
 
           {orderedProjects.length === 0 ? (
             <div className="rounded-lg border border-dashed border-sidebar-border px-3 py-4 text-sm text-sidebar-foreground/60">
-              No research projects yet.
+              No projects yet.
             </div>
           ) : null}
         </SidebarGroup>
@@ -584,7 +738,7 @@ export default function Sidebar() {
               title="My Papers arrives in Phase 4."
             >
               <FileTextIcon className="size-4" />
-              <span>My Papers</span>
+              <span>Papers</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
@@ -629,8 +783,38 @@ export default function Sidebar() {
               setContextMenu(null);
             }}
           >
-            Rename chat
+            Rename paper
           </button>
+          {projects.length > 0 ? (
+            <>
+              <div className="px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                Move To Project
+              </div>
+              <button
+                type="button"
+                className="flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                onClick={() => {
+                  void moveThreadToProject(contextMenu.threadId, null);
+                  setContextMenu(null);
+                }}
+              >
+                Remove from Project
+              </button>
+              {projects.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  className="flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+                  onClick={() => {
+                    void moveThreadToProject(contextMenu.threadId, project.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  {project.name}
+                </button>
+              ))}
+            </>
+          ) : null}
           <button
             type="button"
             className="flex w-full rounded-md px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
@@ -638,10 +822,92 @@ export default function Sidebar() {
               void handleArchiveThread(contextMenu.threadId);
             }}
           >
-            Archive chat
+            Archive paper
           </button>
         </div>
       ) : null}
+
+      <Dialog
+        modal
+        open={createProjectDialog.open}
+        onOpenChange={(open) =>
+          setCreateProjectDialog((current) => ({
+            ...current,
+            open,
+            creating: open ? current.creating : false,
+          }))
+        }
+      >
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>New Project</DialogTitle>
+            <DialogDescription>
+              Projects are tied to a workspace root. Pick the folder first, then papers can be
+              moved into it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-foreground">Project name</div>
+              <Input
+                autoFocus
+                value={createProjectDialog.name}
+                onChange={(event) =>
+                  setCreateProjectDialog((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                placeholder="Resume & Cover Letters"
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-foreground">Workspace root</div>
+              <div className="flex gap-2">
+                <Input
+                  value={createProjectDialog.workspaceRoot}
+                  onChange={(event) =>
+                    setCreateProjectDialog((current) => ({
+                      ...current,
+                      workspaceRoot: event.target.value,
+                    }))
+                  }
+                  placeholder="/path/to/workspace"
+                />
+                <Button type="button" variant="outline" onClick={() => void pickProjectWorkspaceRoot()}>
+                  Choose
+                </Button>
+              </div>
+            </div>
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setCreateProjectDialog((current) => ({
+                  ...current,
+                  open: false,
+                  creating: false,
+                }))
+              }
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                createProjectDialog.creating ||
+                createProjectDialog.name.trim().length === 0 ||
+                createProjectDialog.workspaceRoot.trim().length === 0
+              }
+              onClick={() => void submitCreateProject()}
+            >
+              Create Project
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </>
   );
 }
