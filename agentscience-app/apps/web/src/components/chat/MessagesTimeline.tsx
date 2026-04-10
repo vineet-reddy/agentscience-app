@@ -700,7 +700,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
 
         return (
-          <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
+          <div className="wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground">
             {inlineNodes}
           </div>
         );
@@ -728,7 +728,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     return (
-      <div className="wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground">
+      <div className="wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground">
         {inlineNodes}
       </div>
     );
@@ -739,9 +739,9 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   }
 
   return (
-    <pre className="whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground">
+    <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
       {props.text}
-    </pre>
+    </div>
   );
 });
 

@@ -3894,7 +3894,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           </header>
         )}
         {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
+          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border pr-5 pl-[90px]">
             <span className="text-xs text-muted-foreground/50">No active thread</span>
           </div>
         )}
@@ -3912,8 +3912,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Top bar */}
       <header
         className={cn(
-          "border-b border-border px-3 sm:px-5",
-          isElectron ? "drag-region flex h-[52px] items-center" : "py-2 sm:py-3",
+          "border-b border-border",
+          isElectron
+            ? "drag-region flex h-[52px] items-center pr-5 pl-[90px]"
+            : "px-3 py-2 sm:px-5 sm:py-3",
         )}
       >
         <ChatHeader

@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { APP_VERSION } from "../branding";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
