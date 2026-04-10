@@ -1,0 +1,5 @@
+dist-electron/
+.electron-runtime/
+dist/
+**/dist/
+.electron-runtime/

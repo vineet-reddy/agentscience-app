@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist-electron/**"],
+    },
+    "dev": {
+      "dependsOn": ["agentscience-server#build"],
+      "persistent": true,
+    },
+    "start": {
+      "dependsOn": ["build", "@agentscience/web#build", "agentscience-server#build"],
+      "cache": false,
+      "persistent": true,
+    },
+    "smoke-test": {
+      "dependsOn": ["build", "@agentscience/web#build", "agentscience-server#build"],
+      "cache": false,
+      "outputs": [],
+    },
+  },
+}

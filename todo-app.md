@@ -44,10 +44,9 @@ The app uses Codex only (not Claude) because Anthropic has shut down third-party
 
 ---
 
-## Phase 1: Fork and Strip
+## Phase 1: Strip
 
-### 1.1 Create new repo
-- Copy T3 Code contents to `agent-science-app/`
+### 1.1 Commit to set a checkpoint
 - `git init`, initial commit
 
 ### 1.2 Delete marketing app
