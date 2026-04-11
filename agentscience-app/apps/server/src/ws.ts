@@ -28,7 +28,6 @@ import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
-import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
@@ -53,7 +52,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
-    const keybindings = yield* Keybindings;
     const open = yield* Open;
     const gitManager = yield* GitManager;
     const git = yield* GitCore;
@@ -327,15 +325,11 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     };
 
     const loadServerConfig = Effect.gen(function* () {
-      const keybindingsConfig = yield* keybindings.loadConfigState;
       const providers = yield* providerRegistry.getProviders;
       const settings = yield* serverSettings.getSettings;
 
       return {
         cwd: config.cwd,
-        keybindingsConfigPath: config.keybindingsConfigPath,
-        keybindings: keybindingsConfig.keybindings,
-        issues: keybindingsConfig.issues,
         providers,
         availableEditors: resolveAvailableEditors(),
         observability: {
@@ -515,15 +509,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
           { "rpc.aggregate": "server" },
         ),
-      [WS_METHODS.serverUpsertKeybinding]: (rule) =>
-        observeRpcEffect(
-          WS_METHODS.serverUpsertKeybinding,
-          Effect.gen(function* () {
-            const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
-            return { keybindings: keybindingsConfig, issues: [] };
-          }),
-          { "rpc.aggregate": "server" },
-        ),
       [WS_METHODS.serverGetSettings]: (_input) =>
         observeRpcEffect(WS_METHODS.serverGetSettings, serverSettings.getSettings, {
           "rpc.aggregate": "server",
@@ -700,15 +685,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcStreamEffect(
           WS_METHODS.subscribeServerConfig,
           Effect.gen(function* () {
-            const keybindingsUpdates = keybindings.streamChanges.pipe(
-              Stream.map((event) => ({
-                version: 1 as const,
-                type: "keybindingsUpdated" as const,
-                payload: {
-                  issues: event.issues,
-                },
-              })),
-            );
             const providerStatuses = providerRegistry.streamChanges.pipe(
               Stream.map((providers) => ({
                 version: 1 as const,
@@ -730,7 +706,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 type: "snapshot" as const,
                 config: yield* loadServerConfig,
               }),
-              Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+              Stream.merge(providerStatuses, settingsUpdates),
             );
           }),
           { "rpc.aggregate": "server" },

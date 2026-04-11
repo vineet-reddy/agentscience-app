@@ -1,4 +1,4 @@
-import { EditorId, type ResolvedKeybindingsConfig } from "@agentscience/contracts";
+import { EditorId } from "@agentscience/contracts";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { isOpenFavoriteEditorShortcut, shortcutLabelForCommand } from "../../keybindings";
 import { usePreferredEditor } from "../../editorPreferences";
@@ -74,11 +74,9 @@ const resolveOptions = (platform: string, availableEditors: ReadonlyArray<Editor
 };
 
 export const OpenInPicker = memo(function OpenInPicker({
-  keybindings,
   availableEditors,
   openInCwd,
 }: {
-  keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   openInCwd: string | null;
 }) {
@@ -102,14 +100,14 @@ export const OpenInPicker = memo(function OpenInPicker({
   );
 
   const openFavoriteEditorShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "editor.openFavorite"),
-    [keybindings],
+    () => shortcutLabelForCommand("editor.openFavorite"),
+    [],
   );
 
   useEffect(() => {
     const handler = (e: globalThis.KeyboardEvent) => {
       const api = readNativeApi();
-      if (!isOpenFavoriteEditorShortcut(e, keybindings)) return;
+      if (!isOpenFavoriteEditorShortcut(e)) return;
       if (!api || !openInCwd) return;
       if (!preferredEditor) return;
 
@@ -118,7 +116,7 @@ export const OpenInPicker = memo(function OpenInPicker({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [preferredEditor, keybindings, openInCwd]);
+  }, [preferredEditor, openInCwd]);
 
   return (
     <Group aria-label="Subscription actions">

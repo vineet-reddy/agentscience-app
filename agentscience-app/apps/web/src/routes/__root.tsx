@@ -27,14 +27,9 @@ import {
   ToastProvider,
   toastManager,
 } from "../components/ui/toast";
-import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { readNativeApi } from "../nativeApi";
 import {
-  getServerConfigUpdatedNotification,
-  ServerConfigUpdatedNotification,
   startServerStateSync,
-  useServerConfig,
-  useServerConfigUpdatedSubscription,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
 import {
@@ -243,14 +238,10 @@ function EventRouter() {
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const readPathname = useEffectEvent(() => pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
-  const seenServerConfigUpdateIdRef = useRef(
-    getServerConfigUpdatedNotification()?.id ?? 0,
-  );
   const disposedRef = useRef(false);
   const bootstrapFromSnapshotRef = useRef<() => Promise<void>>(
     async () => undefined,
   );
-  const serverConfig = useServerConfig();
 
   const handleWelcome = useEffectEvent(
     (payload: ServerLifecycleWelcomePayload | null) => {
@@ -281,72 +272,6 @@ function EventRouter() {
         });
         handledBootstrapThreadIdRef.current = payload.bootstrapThreadId;
       })().catch(() => undefined);
-    },
-  );
-
-  const handleServerConfigUpdated = useEffectEvent(
-    (notification: ServerConfigUpdatedNotification | null) => {
-      if (!notification) return;
-
-      const { id, payload, source } = notification;
-      if (id <= seenServerConfigUpdateIdRef.current) {
-        return;
-      }
-      seenServerConfigUpdateIdRef.current = id;
-      if (source !== "keybindingsUpdated") {
-        return;
-      }
-
-      const issue = payload.issues.find((entry) =>
-        entry.kind.startsWith("keybindings."),
-      );
-      if (!issue) {
-        toastManager.add({
-          type: "success",
-          title: "Keybindings updated",
-          description: "Keybindings configuration reloaded successfully.",
-        });
-        return;
-      }
-
-      toastManager.add({
-        type: "warning",
-        title: "Invalid keybindings configuration",
-        description: issue.message,
-        actionProps: {
-          children: "Open keybindings.json",
-          onClick: () => {
-            const api = readNativeApi();
-            if (!api) {
-              return;
-            }
-
-            void Promise.resolve(serverConfig ?? api.server.getConfig())
-              .then((config) => {
-                const editor = resolveAndPersistPreferredEditor(
-                  config.availableEditors,
-                );
-                if (!editor) {
-                  throw new Error("No available editors found.");
-                }
-                return api.shell.openInEditor(
-                  config.keybindingsConfigPath,
-                  editor,
-                );
-              })
-              .catch((error) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Unable to open keybindings file",
-                  description:
-                    error instanceof Error
-                      ? error.message
-                      : "Unknown error opening file.",
-                });
-              });
-          },
-        },
-      });
     },
   );
 
@@ -654,7 +579,6 @@ function EventRouter() {
   ]);
 
   useServerWelcomeSubscription(handleWelcome);
-  useServerConfigUpdatedSubscription(handleServerConfigUpdated);
 
   return null;
 }

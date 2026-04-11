@@ -1,8 +1,4 @@
-import type {
-  ProjectScript,
-  ProjectScriptIcon,
-  ResolvedKeybindingsConfig,
-} from "@agentscience/contracts";
+import type { ProjectScript, ProjectScriptIcon } from "@agentscience/contracts";
 import {
   BugIcon,
   ChevronDownIcon,
@@ -14,19 +10,9 @@ import {
   SettingsIcon,
   WrenchIcon,
 } from "lucide-react";
-import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useState } from "react";
+import React, { type FormEvent, useCallback, useMemo, useState } from "react";
 
-import {
-  keybindingValueForCommand,
-  decodeProjectScriptKeybindingRule,
-} from "~/lib/projectScriptKeybindings";
-import {
-  commandForProjectScript,
-  nextProjectScriptId,
-  primaryProjectScript,
-} from "~/projectScripts";
-import { shortcutLabelForCommand } from "~/keybindings";
-import { isMacPlatform } from "~/lib/utils";
+import { nextProjectScriptId, primaryProjectScript } from "~/projectScripts";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -49,7 +35,7 @@ import {
 import { Group, GroupSeparator } from "./ui/group";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
@@ -83,12 +69,10 @@ export interface NewProjectScriptInput {
   command: string;
   icon: ProjectScriptIcon;
   runOnWorktreeCreate: boolean;
-  keybinding: string | null;
 }
 
 interface ProjectScriptsControlProps {
   scripts: ProjectScript[];
-  keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
@@ -96,60 +80,8 @@ interface ProjectScriptsControlProps {
   onDeleteScript: (scriptId: string) => Promise<void> | void;
 }
 
-function normalizeShortcutKeyToken(key: string): string | null {
-  const normalized = key.toLowerCase();
-  if (
-    normalized === "meta" ||
-    normalized === "control" ||
-    normalized === "ctrl" ||
-    normalized === "shift" ||
-    normalized === "alt" ||
-    normalized === "option"
-  ) {
-    return null;
-  }
-  if (normalized === " ") return "space";
-  if (normalized === "escape") return "esc";
-  if (normalized === "arrowup") return "arrowup";
-  if (normalized === "arrowdown") return "arrowdown";
-  if (normalized === "arrowleft") return "arrowleft";
-  if (normalized === "arrowright") return "arrowright";
-  if (normalized.length === 1) return normalized;
-  if (normalized.startsWith("f") && normalized.length <= 3) return normalized;
-  if (normalized === "enter" || normalized === "tab" || normalized === "backspace") {
-    return normalized;
-  }
-  if (normalized === "delete" || normalized === "home" || normalized === "end") {
-    return normalized;
-  }
-  if (normalized === "pageup" || normalized === "pagedown") return normalized;
-  return null;
-}
-
-function keybindingFromEvent(event: KeyboardEvent<HTMLInputElement>): string | null {
-  const keyToken = normalizeShortcutKeyToken(event.key);
-  if (!keyToken) return null;
-
-  const parts: string[] = [];
-  if (isMacPlatform(navigator.platform)) {
-    if (event.metaKey) parts.push("mod");
-    if (event.ctrlKey) parts.push("ctrl");
-  } else {
-    if (event.ctrlKey) parts.push("mod");
-    if (event.metaKey) parts.push("meta");
-  }
-  if (event.altKey) parts.push("alt");
-  if (event.shiftKey) parts.push("shift");
-  if (parts.length === 0) {
-    return null;
-  }
-  parts.push(keyToken);
-  return parts.join("+");
-}
-
 export default function ProjectScriptsControl({
   scripts,
-  keybindings,
   preferredScriptId = null,
   onRunScript,
   onAddScript,
@@ -164,7 +96,6 @@ export default function ProjectScriptsControl({
   const [icon, setIcon] = useState<ProjectScriptIcon>("play");
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [runOnWorktreeCreate, setRunOnWorktreeCreate] = useState(false);
-  const [keybinding, setKeybinding] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
@@ -178,18 +109,6 @@ export default function ProjectScriptsControl({
   const isEditing = editingScriptId !== null;
   const dropdownItemClassName =
     "data-highlighted:bg-transparent data-highlighted:text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-highlighted:hover:bg-accent data-highlighted:hover:text-accent-foreground data-highlighted:focus-visible:bg-accent data-highlighted:focus-visible:text-accent-foreground";
-
-  const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Tab") return;
-    event.preventDefault();
-    if (event.key === "Backspace" || event.key === "Delete") {
-      setKeybinding("");
-      return;
-    }
-    const next = keybindingFromEvent(event);
-    if (!next) return;
-    setKeybinding(next);
-  };
 
   const submitAddScript = async (event: FormEvent) => {
     event.preventDefault();
@@ -206,22 +125,11 @@ export default function ProjectScriptsControl({
 
     setValidationError(null);
     try {
-      const scriptIdForValidation =
-        editingScriptId ??
-        nextProjectScriptId(
-          trimmedName,
-          scripts.map((script) => script.id),
-        );
-      const keybindingRule = decodeProjectScriptKeybindingRule({
-        keybinding,
-        command: commandForProjectScript(scriptIdForValidation),
-      });
       const payload = {
         name: trimmedName,
         command: trimmedCommand,
         icon,
         runOnWorktreeCreate,
-        keybinding: keybindingRule?.key ?? null,
       } satisfies NewProjectScriptInput;
       if (editingScriptId) {
         await onUpdateScript(editingScriptId, payload);
@@ -242,7 +150,6 @@ export default function ProjectScriptsControl({
     setIcon("play");
     setIconPickerOpen(false);
     setRunOnWorktreeCreate(false);
-    setKeybinding("");
     setValidationError(null);
     setDialogOpen(true);
   };
@@ -254,7 +161,6 @@ export default function ProjectScriptsControl({
     setIcon(script.icon);
     setIconPickerOpen(false);
     setRunOnWorktreeCreate(script.runOnWorktreeCreate);
-    setKeybinding(keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "");
     setValidationError(null);
     setDialogOpen(true);
   };
@@ -289,49 +195,38 @@ export default function ProjectScriptsControl({
               <ChevronDownIcon className="size-4" />
             </MenuTrigger>
             <MenuPopup align="end">
-              {scripts.map((script) => {
-                const shortcutLabel = shortcutLabelForCommand(
-                  keybindings,
-                  commandForProjectScript(script.id),
-                );
-                return (
-                  <MenuItem
-                    key={script.id}
-                    className={`group ${dropdownItemClassName}`}
-                    onClick={() => onRunScript(script)}
-                  >
-                    <ScriptIcon icon={script.icon} className="size-4" />
-                    <span className="truncate">
-                      {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
-                    </span>
-                    <span className="relative ms-auto flex h-6 min-w-6 items-center justify-end">
-                      {shortcutLabel && (
-                        <MenuShortcut className="ms-0 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
-                          {shortcutLabel}
-                        </MenuShortcut>
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
-                        aria-label={`Edit ${script.name}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          openEditDialog(script);
-                        }}
-                      >
-                        <SettingsIcon className="size-3.5" />
-                      </Button>
-                    </span>
-                  </MenuItem>
-                );
-              })}
+              {scripts.map((script) => (
+                <MenuItem
+                  key={script.id}
+                  className={`group ${dropdownItemClassName}`}
+                  onClick={() => onRunScript(script)}
+                >
+                  <ScriptIcon icon={script.icon} className="size-4" />
+                  <span className="truncate">
+                    {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
+                  </span>
+                  <span className="relative ms-auto flex h-6 min-w-6 items-center justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
+                      aria-label={`Edit ${script.name}`}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openEditDialog(script);
+                      }}
+                    >
+                      <SettingsIcon className="size-3.5" />
+                    </Button>
+                  </span>
+                </MenuItem>
+              ))}
               <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
                 <PlusIcon className="size-4" />
                 Add action
@@ -362,7 +257,6 @@ export default function ProjectScriptsControl({
           setCommand("");
           setIcon("play");
           setRunOnWorktreeCreate(false);
-          setKeybinding("");
           setValidationError(null);
         }}
         open={dialogOpen}
@@ -371,7 +265,7 @@ export default function ProjectScriptsControl({
           <DialogHeader>
             <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
             <DialogDescription>
-              Actions are project-scoped commands you can run from the top bar or keybindings.
+              Actions are project-scoped commands you can run from the top bar.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -426,19 +320,6 @@ export default function ProjectScriptsControl({
                     onChange={(event) => setName(event.target.value)}
                   />
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="script-keybinding">Keybinding</Label>
-                <Input
-                  id="script-keybinding"
-                  placeholder="Press shortcut"
-                  value={keybinding}
-                  readOnly
-                  onKeyDown={captureKeybinding}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Press a shortcut. Use <code>Backspace</code> to clear.
-                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="script-command">Command</Label>

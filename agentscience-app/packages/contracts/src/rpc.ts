@@ -28,7 +28,6 @@ import {
   GitStatusResult,
   GitStatusStreamEvent,
 } from "./git";
-import { KeybindingsConfigError } from "./keybindings";
 import {
   ClientOrchestrationCommand,
   OrchestrationEvent,
@@ -68,8 +67,6 @@ import {
   ServerConfig,
   ServerLifecycleStreamEvent,
   ServerProviderUpdatedPayload,
-  ServerUpsertKeybindingInput,
-  ServerUpsertKeybindingResult,
 } from "./server";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 
@@ -108,7 +105,6 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
-  serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
 
@@ -120,16 +116,10 @@ export const WS_METHODS = {
   subscribeServerLifecycle: "subscribeServerLifecycle",
 } as const;
 
-export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
-  payload: ServerUpsertKeybindingInput,
-  success: ServerUpsertKeybindingResult,
-  error: KeybindingsConfigError,
-});
-
 export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
-  error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
+  error: ServerSettingsError,
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -324,7 +314,7 @@ export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTermina
 export const WsSubscribeServerConfigRpc = Rpc.make(WS_METHODS.subscribeServerConfig, {
   payload: Schema.Struct({}),
   success: ServerConfigStreamEvent,
-  error: Schema.Union([KeybindingsConfigError, ServerSettingsError]),
+  error: ServerSettingsError,
   stream: true,
 });
 
@@ -337,7 +327,6 @@ export const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServer
 export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
-  WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,

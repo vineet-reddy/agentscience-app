@@ -73,7 +73,6 @@ const rpcClientMock = {
   server: {
     getConfig: vi.fn(),
     refreshProviders: vi.fn(),
-    upsertKeybinding: vi.fn(),
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
     subscribeConfig: vi.fn(),
@@ -159,9 +158,6 @@ const defaultProviders: ReadonlyArray<ServerProvider> = [
 
 const baseServerConfig: ServerConfig = {
   cwd: "/tmp/workspace",
-  keybindingsConfigPath: "/tmp/workspace/.config/keybindings.json",
-  keybindings: [],
-  issues: [],
   providers: defaultProviders,
   availableEditors: ["cursor"],
   observability: {

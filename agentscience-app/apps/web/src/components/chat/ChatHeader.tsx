@@ -1,7 +1,6 @@
 import {
   type EditorId,
   type ProjectScript,
-  type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@agentscience/contracts";
 import { memo } from "react";
@@ -22,7 +21,6 @@ interface ChatHeaderProps {
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
   preferredScriptId: string | null;
-  keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   terminalAvailable: boolean;
   terminalOpen: boolean;
@@ -46,7 +44,6 @@ export const ChatHeader = memo(function ChatHeader({
   openInCwd,
   activeProjectScripts,
   preferredScriptId,
-  keybindings,
   availableEditors,
   terminalAvailable,
   terminalOpen,
@@ -86,7 +83,6 @@ export const ChatHeader = memo(function ChatHeader({
         {/* {activeProjectScripts && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
-            keybindings={keybindings}
             preferredScriptId={preferredScriptId}
             onRunScript={onRunProjectScript}
             onAddScript={onAddProjectScript}
@@ -96,7 +92,6 @@ export const ChatHeader = memo(function ChatHeader({
         )} */}
         {activeProjectName && (
           <OpenInPicker
-            keybindings={keybindings}
             availableEditors={availableEditors}
             openInCwd={openInCwd}
           />

@@ -20,9 +20,6 @@ import { GeneralSettingsPanel } from "./SettingsPanels";
 function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
-    keybindingsConfigPath: "/repo/project/.agentscience-keybindings.json",
-    keybindings: [],
-    issues: [],
     providers: [],
     availableEditors: ["cursor"],
     observability: {

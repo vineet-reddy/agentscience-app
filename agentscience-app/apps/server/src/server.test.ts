@@ -6,7 +6,6 @@ import {
   CommandId,
   DEFAULT_SERVER_SETTINGS,
   GitCommandError,
-  KeybindingRule,
   MessageId,
   OpenError,
   TerminalNotRunningError,
@@ -14,7 +13,6 @@ import {
   type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
-  ResolvedKeybindingRule,
   ThreadId,
   WS_METHODS,
   WsRpcGroup,
@@ -54,7 +52,6 @@ import {
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
-import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
   OrchestrationEngineService,
@@ -289,7 +286,6 @@ const makeBrowserOtlpPayload = (spanName: string) =>
 const buildAppUnderTest = (options?: {
   config?: Partial<ServerConfigShape>;
   layers?: {
-    keybindings?: Partial<KeybindingsShape>;
     providerRegistry?: Partial<ProviderRegistryShape>;
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
@@ -350,12 +346,6 @@ const buildAppUnderTest = (options?: {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
-      Layer.provide(
-        Layer.mock(Keybindings)({
-          streamChanges: Stream.empty,
-          ...options?.layers?.keybindings,
-        }),
-      ),
       Layer.provide(
         Layer.mock(ProviderRegistry)({
           getProviders: Effect.succeed([]),
@@ -943,44 +933,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("routes websocket rpc server.upsertKeybinding", () =>
-    Effect.gen(function* () {
-      const rule: KeybindingRule = {
-        command: "terminal.toggle",
-        key: "ctrl+k",
-      };
-      const resolved: ResolvedKeybindingRule = {
-        command: "terminal.toggle",
-        shortcut: {
-          key: "k",
-          metaKey: false,
-          ctrlKey: true,
-          shiftKey: false,
-          altKey: false,
-          modKey: true,
-        },
-      };
-
-      yield* buildAppUnderTest({
-        layers: {
-          keybindings: {
-            upsertKeybindingRule: () => Effect.succeed([resolved]),
-          },
-        },
-      });
-
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const response = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.serverUpsertKeybinding](rule),
-        ),
-      );
-
-      assert.deepEqual(response.issues, []);
-      assert.deepEqual(response.keybindings, [resolved]);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
-
   it.effect("rejects websocket rpc handshake when auth token is missing", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -1054,10 +1006,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     () =>
       Effect.gen(function* () {
         const providers = [] as const;
-        const changeEvent = {
-          keybindings: [],
-          issues: [],
-        } as const;
 
         yield* buildAppUnderTest({
           config: {
@@ -1065,15 +1013,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             otlpMetricsUrl: "http://localhost:4318/v1/metrics",
           },
           layers: {
-            keybindings: {
-              loadConfigState: Effect.succeed({
-                keybindings: [],
-                issues: [],
-              }),
-              streamChanges: Stream.succeed(changeEvent),
-            },
             providerRegistry: {
               getProviders: Effect.succeed(providers),
+              streamChanges: Stream.succeed(providers),
             },
           },
         });
@@ -1092,8 +1034,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.equal(first?.type, "snapshot");
         if (first?.type === "snapshot") {
           assert.equal(first.version, 1);
-          assert.deepEqual(first.config.keybindings, []);
-          assert.deepEqual(first.config.issues, []);
           assert.deepEqual(first.config.providers, providers);
           assert.equal(
             first.config.observability.logsDirectoryPath.endsWith("/logs"),
@@ -1114,8 +1054,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         }
         assert.deepEqual(second, {
           version: 1,
-          type: "keybindingsUpdated",
-          payload: { issues: [] },
+          type: "providerStatuses",
+          payload: { providers },
         });
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -1128,13 +1068,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
         yield* buildAppUnderTest({
           layers: {
-            keybindings: {
-              loadConfigState: Effect.succeed({
-                keybindings: [],
-                issues: [],
-              }),
-              streamChanges: Stream.empty,
-            },
             providerRegistry: {
               getProviders: Effect.succeed([]),
               streamChanges: Stream.succeed(providers),

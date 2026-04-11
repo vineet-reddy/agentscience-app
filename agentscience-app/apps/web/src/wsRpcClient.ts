@@ -91,7 +91,6 @@ export interface WsRpcClient {
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
-    readonly upsertKeybinding: RpcUnaryMethod<typeof WS_METHODS.serverUpsertKeybinding>;
     readonly getSettings: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetSettings>;
     readonly updateSettings: (
       patch: ServerSettingsPatch,
@@ -208,8 +207,6 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
       refreshProviders: () =>
         transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
-      upsertKeybinding: (input) =>
-        transport.request((client) => client[WS_METHODS.serverUpsertKeybinding](input)),
       getSettings: () => transport.request((client) => client[WS_METHODS.serverGetSettings]({})),
       updateSettings: (patch) =>
         transport.request((client) => client[WS_METHODS.serverUpdateSettings]({ patch })),

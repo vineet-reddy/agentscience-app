@@ -129,9 +129,6 @@ function isoAt(offsetSeconds: number): string {
 function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
-    keybindingsConfigPath: "/repo/project/.agentscience-keybindings.json",
-    keybindings: [],
-    issues: [],
     providers: [
       {
         provider: "codex",
@@ -2650,28 +2647,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetMessageId: "msg-user-chat-shortcut-test" as MessageId,
         targetText: "chat shortcut test",
       }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "chat.new",
-              shortcut: {
-                key: "o",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: true,
-                altKey: false,
-                modKey: true,
-              },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
-              },
-            },
-          ],
-        };
-      },
     });
 
     try {
@@ -2696,28 +2671,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetMessageId: "msg-user-promoted-draft-shortcut-test" as MessageId,
         targetText: "promoted draft shortcut test",
       }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "chat.new",
-              shortcut: {
-                key: "o",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: true,
-                altKey: false,
-                modKey: true,
-              },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
-              },
-            },
-          ],
-        };
-      },
     });
 
     try {

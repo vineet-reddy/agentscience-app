@@ -33,7 +33,6 @@ import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { GitManagerLive } from "./git/Layers/GitManager";
-import { KeybindingsLive } from "./keybindings";
 import {
   ServerRuntimeStartup,
   ServerRuntimeStartupLive,
@@ -228,7 +227,6 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(PersistenceLayerLive),
-  Layer.provideMerge(KeybindingsLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(WorkspaceLayerLive),

@@ -1,10 +1,6 @@
-import {
-  MAX_SCRIPT_ID_LENGTH,
-  SCRIPT_RUN_COMMAND_PATTERN,
-  type KeybindingCommand,
-  type ProjectScript,
-} from "@agentscience/contracts";
-import { Schema } from "effect";
+import { type ProjectScript } from "@agentscience/contracts";
+
+const MAX_SCRIPT_ID_LENGTH = 24;
 
 function normalizeScriptId(value: string): string {
   const cleaned = value
@@ -19,18 +15,6 @@ function normalizeScriptId(value: string): string {
     return cleaned;
   }
   return cleaned.slice(0, MAX_SCRIPT_ID_LENGTH).replace(/-+$/g, "") || "script";
-}
-
-export const commandForProjectScript = (scriptId: string): KeybindingCommand =>
-  SCRIPT_RUN_COMMAND_PATTERN.makeUnsafe(`script.${scriptId}.run`);
-
-export function projectScriptIdFromCommand(command: string): string | null {
-  const trimmed = command.trim();
-  if (!Schema.is(SCRIPT_RUN_COMMAND_PATTERN)(trimmed)) {
-    return null;
-  }
-  const [prefix, , suffix] = SCRIPT_RUN_COMMAND_PATTERN.parts;
-  return trimmed.slice(prefix.literal.length, -suffix.literal.length);
 }
 
 export function nextProjectScriptId(name: string, existingIds: Iterable<string>): string {

@@ -13,7 +13,6 @@ import {
   type ServerProvider,
   type ThreadId,
   type TurnId,
-  type KeybindingCommand,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -107,13 +106,8 @@ import { Separator } from "./ui/separator";
 import { cn, randomUUID } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
-import {
-  commandForProjectScript,
-  nextProjectScriptId,
-  projectScriptIdFromCommand,
-} from "~/projectScripts";
+import { nextProjectScriptId } from "~/projectScripts";
 import { SidebarTrigger } from "./ui/sidebar";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
@@ -195,7 +189,6 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useServerAvailableEditors,
   useServerConfig,
-  useServerKeybindings,
 } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 
@@ -1407,7 +1400,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
   const gitStatusQuery = useGitStatus(gitCwd);
-  const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
   const modelOptionsByProvider = useMemo(
     () => ({
@@ -1557,24 +1549,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [terminalState.terminalOpen],
   );
   const terminalToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
-    [keybindings],
+    () => shortcutLabelForCommand("terminal.toggle"),
+    [],
   );
   const splitTerminalShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.split", terminalShortcutLabelOptions),
-    [keybindings, terminalShortcutLabelOptions],
+    () => shortcutLabelForCommand("terminal.split", terminalShortcutLabelOptions),
+    [terminalShortcutLabelOptions],
   );
   const newTerminalShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.new", terminalShortcutLabelOptions),
-    [keybindings, terminalShortcutLabelOptions],
+    () => shortcutLabelForCommand("terminal.new", terminalShortcutLabelOptions),
+    [terminalShortcutLabelOptions],
   );
   const closeTerminalShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
-    [keybindings, terminalShortcutLabelOptions],
+    () => shortcutLabelForCommand("terminal.close", terminalShortcutLabelOptions),
+    [terminalShortcutLabelOptions],
   );
   const diffPanelShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "diff.toggle", nonTerminalShortcutLabelOptions),
-    [keybindings, nonTerminalShortcutLabelOptions],
+    () => shortcutLabelForCommand("diff.toggle", nonTerminalShortcutLabelOptions),
+    [nonTerminalShortcutLabelOptions],
   );
   const onToggleDiff = useCallback(() => {
     void navigate({
@@ -1835,8 +1827,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
       projectCwd: string;
       previousScripts: ProjectScript[];
       nextScripts: ProjectScript[];
-      keybinding?: string | null;
-      keybindingCommand: KeybindingCommand;
     }) => {
       const api = readNativeApi();
       if (!api) return;
@@ -1847,15 +1837,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         projectId: input.projectId,
         scripts: input.nextScripts,
       });
-
-      const keybindingRule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: input.keybindingCommand,
-      });
-
-      if (isElectron && keybindingRule) {
-        await api.server.upsertKeybinding(keybindingRule);
-      }
     },
     [],
   );
@@ -1887,8 +1868,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         projectCwd: activeThread?.resolvedWorkspacePath ?? activeProject.cwd ?? "",
         previousScripts: activeProject.scripts,
         nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(nextId),
       });
     },
     [activeProject, persistProjectScripts],
@@ -1921,8 +1900,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
         projectCwd: activeThread?.resolvedWorkspacePath ?? activeProject.cwd ?? "",
         previousScripts: activeProject.scripts,
         nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(scriptId),
       });
     },
     [activeProject, persistProjectScripts],
@@ -1940,8 +1917,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           projectCwd: activeThread?.resolvedWorkspacePath ?? activeProject.cwd ?? "",
           previousScripts: activeProject.scripts,
           nextScripts,
-          keybinding: null,
-          keybindingCommand: commandForProjectScript(scriptId),
         });
         toastManager.add({
           type: "success",
@@ -2629,7 +2604,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         terminalOpen: Boolean(terminalState.terminalOpen),
       };
 
-      const command = resolveShortcutCommand(event, keybindings, {
+      const command = resolveShortcutCommand(event, {
         context: shortcutContext,
       });
       if (!command) return;
@@ -2675,28 +2650,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
         onToggleDiff();
         return;
       }
-
-      const scriptId = projectScriptIdFromCommand(command);
-      if (!scriptId || !activeProject) return;
-      const script = activeProject.scripts.find((entry) => entry.id === scriptId);
-      if (!script) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void runProjectScript(script);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [
-    activeProject,
     terminalState.terminalOpen,
     terminalState.activeTerminalId,
     activeThreadId,
     closeTerminal,
     createNewTerminal,
     setTerminalOpen,
-    runProjectScript,
     splitTerminal,
-    keybindings,
     onToggleDiff,
     toggleTerminalVisibility,
   ]);
@@ -3945,7 +3909,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
           preferredScriptId={
             activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
           }
-          keybindings={keybindings}
           availableEditors={availableEditors}
           terminalAvailable={activeProject !== undefined}
           terminalOpen={terminalState.terminalOpen}

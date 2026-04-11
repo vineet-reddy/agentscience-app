@@ -1,11 +1,3 @@
-import {
-  type KeybindingCommand,
-  type KeybindingShortcut,
-  type KeybindingWhenNode,
-  type ResolvedKeybindingsConfig,
-  THREAD_JUMP_KEYBINDING_COMMANDS,
-  type ThreadJumpKeybindingCommand,
-} from "@agentscience/contracts";
 import { isMacPlatform } from "./lib/utils";
 
 export interface ShortcutEventLike {
@@ -21,7 +13,6 @@ export interface ShortcutEventLike {
 export interface ShortcutMatchContext {
   terminalFocus: boolean;
   terminalOpen: boolean;
-  [key: string]: boolean;
 }
 
 interface ShortcutMatchOptions {
@@ -29,14 +20,76 @@ interface ShortcutMatchOptions {
   context?: Partial<ShortcutMatchContext>;
 }
 
-interface ResolvedShortcutLabelOptions extends ShortcutMatchOptions {
-  platform?: string;
+type ShortcutCommand =
+  | "terminal.toggle"
+  | "terminal.split"
+  | "terminal.new"
+  | "terminal.close"
+  | "diff.toggle"
+  | "chat.new"
+  | "chat.newLocal"
+  | "editor.openFavorite";
+
+interface ShortcutDefinition {
+  key: string;
+  modKey?: boolean;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+}
+
+interface FixedShortcutBinding {
+  command: ShortcutCommand;
+  shortcut: ShortcutDefinition;
+  when?: "terminalFocus" | "notTerminalFocus";
 }
 
 const TERMINAL_WORD_BACKWARD = "\u001bb";
 const TERMINAL_WORD_FORWARD = "\u001bf";
 const TERMINAL_LINE_START = "\u0001";
 const TERMINAL_LINE_END = "\u0005";
+
+const FIXED_SHORTCUTS: ReadonlyArray<FixedShortcutBinding> = [
+  { command: "terminal.toggle", shortcut: { key: "j", modKey: true } },
+  {
+    command: "terminal.split",
+    shortcut: { key: "d", modKey: true },
+    when: "terminalFocus",
+  },
+  {
+    command: "terminal.new",
+    shortcut: { key: "n", modKey: true },
+    when: "terminalFocus",
+  },
+  {
+    command: "terminal.close",
+    shortcut: { key: "w", modKey: true },
+    when: "terminalFocus",
+  },
+  {
+    command: "diff.toggle",
+    shortcut: { key: "d", modKey: true },
+    when: "notTerminalFocus",
+  },
+  {
+    command: "chat.new",
+    shortcut: { key: "n", modKey: true },
+    when: "notTerminalFocus",
+  },
+  {
+    command: "chat.new",
+    shortcut: { key: "o", modKey: true, shiftKey: true },
+    when: "notTerminalFocus",
+  },
+  {
+    command: "chat.newLocal",
+    shortcut: { key: "n", modKey: true, shiftKey: true },
+    when: "notTerminalFocus",
+  },
+  { command: "editor.openFavorite", shortcut: { key: "o", modKey: true } },
+] as const;
+
 const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   BracketLeft: ["["],
   BracketRight: ["]"],
@@ -69,31 +122,6 @@ function resolveEventKeys(event: ShortcutEventLike): Set<string> {
   return keys;
 }
 
-function matchesShortcutModifiers(
-  event: ShortcutEventLike,
-  shortcut: KeybindingShortcut,
-  platform = navigator.platform,
-): boolean {
-  const useMetaForMod = isMacPlatform(platform);
-  const expectedMeta = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
-  const expectedCtrl = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
-  return (
-    event.metaKey === expectedMeta &&
-    event.ctrlKey === expectedCtrl &&
-    event.shiftKey === shortcut.shiftKey &&
-    event.altKey === shortcut.altKey
-  );
-}
-
-function matchesShortcut(
-  event: ShortcutEventLike,
-  shortcut: KeybindingShortcut,
-  platform = navigator.platform,
-): boolean {
-  if (!matchesShortcutModifiers(event, shortcut, platform)) return false;
-  return resolveEventKeys(event).has(shortcut.key);
-}
-
 function resolvePlatform(options: ShortcutMatchOptions | undefined): string {
   return options?.platform ?? navigator.platform;
 }
@@ -106,92 +134,66 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
   };
 }
 
-function evaluateWhenNode(node: KeybindingWhenNode, context: ShortcutMatchContext): boolean {
-  switch (node.type) {
-    case "identifier":
-      if (node.name === "true") return true;
-      if (node.name === "false") return false;
-      return Boolean(context[node.name]);
-    case "not":
-      return !evaluateWhenNode(node.node, context);
-    case "and":
-      return evaluateWhenNode(node.left, context) && evaluateWhenNode(node.right, context);
-    case "or":
-      return evaluateWhenNode(node.left, context) || evaluateWhenNode(node.right, context);
-  }
-}
-
 function matchesWhenClause(
-  whenAst: KeybindingWhenNode | undefined,
+  binding: FixedShortcutBinding,
   context: ShortcutMatchContext,
 ): boolean {
-  if (!whenAst) return true;
-  return evaluateWhenNode(whenAst, context);
-}
-
-function shortcutConflictKey(shortcut: KeybindingShortcut, platform = navigator.platform): string {
-  const useMetaForMod = isMacPlatform(platform);
-  const metaKey = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
-  const ctrlKey = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
-
-  return [
-    shortcut.key,
-    metaKey ? "meta" : "",
-    ctrlKey ? "ctrl" : "",
-    shortcut.shiftKey ? "shift" : "",
-    shortcut.altKey ? "alt" : "",
-  ].join("|");
-}
-
-function findEffectiveShortcutForCommand(
-  keybindings: ResolvedKeybindingsConfig,
-  command: KeybindingCommand,
-  options?: ShortcutMatchOptions,
-): KeybindingShortcut | null {
-  const platform = resolvePlatform(options);
-  const context = resolveContext(options);
-  const claimedShortcuts = new Set<string>();
-
-  for (let index = keybindings.length - 1; index >= 0; index -= 1) {
-    const binding = keybindings[index];
-    if (!binding) continue;
-    if (!matchesWhenClause(binding.whenAst, context)) continue;
-
-    const conflictKey = shortcutConflictKey(binding.shortcut, platform);
-    if (claimedShortcuts.has(conflictKey)) {
-      continue;
-    }
-
-    claimedShortcuts.add(conflictKey);
-    if (binding.command === command) {
-      return binding.shortcut;
-    }
+  if (binding.when === "terminalFocus") {
+    return context.terminalFocus;
   }
-
-  return null;
+  if (binding.when === "notTerminalFocus") {
+    return !context.terminalFocus;
+  }
+  return true;
 }
 
-function matchesCommandShortcut(
+function matchesShortcutModifiers(
   event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  command: KeybindingCommand,
-  options?: ShortcutMatchOptions,
+  shortcut: ShortcutDefinition,
+  platform = navigator.platform,
 ): boolean {
-  return resolveShortcutCommand(event, keybindings, options) === command;
+  const useMetaForMod = isMacPlatform(platform);
+  const expectedMeta = Boolean(shortcut.metaKey || (shortcut.modKey && useMetaForMod));
+  const expectedCtrl = Boolean(shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod));
+  return (
+    event.metaKey === expectedMeta &&
+    event.ctrlKey === expectedCtrl &&
+    event.shiftKey === Boolean(shortcut.shiftKey) &&
+    event.altKey === Boolean(shortcut.altKey)
+  );
+}
+
+function matchesShortcut(
+  event: ShortcutEventLike,
+  shortcut: ShortcutDefinition,
+  platform = navigator.platform,
+): boolean {
+  if (!matchesShortcutModifiers(event, shortcut, platform)) return false;
+  return resolveEventKeys(event).has(shortcut.key);
+}
+
+function findShortcutForCommand(
+  command: ShortcutCommand,
+  options?: ShortcutMatchOptions,
+): ShortcutDefinition | null {
+  const context = resolveContext(options);
+  for (const binding of FIXED_SHORTCUTS) {
+    if (binding.command !== command) continue;
+    if (!matchesWhenClause(binding, context)) continue;
+    return binding.shortcut;
+  }
+  return null;
 }
 
 export function resolveShortcutCommand(
   event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
-): KeybindingCommand | null {
+): ShortcutCommand | null {
   const platform = resolvePlatform(options);
   const context = resolveContext(options);
 
-  for (let index = keybindings.length - 1; index >= 0; index -= 1) {
-    const binding = keybindings[index];
-    if (!binding) continue;
-    if (!matchesWhenClause(binding.whenAst, context)) continue;
+  for (const binding of FIXED_SHORTCUTS) {
+    if (!matchesWhenClause(binding, context)) continue;
     if (!matchesShortcut(event, binding.shortcut, platform)) continue;
     return binding.command;
   }
@@ -210,15 +212,15 @@ function formatShortcutKeyLabel(key: string): string {
 }
 
 export function formatShortcutLabel(
-  shortcut: KeybindingShortcut,
+  shortcut: ShortcutDefinition,
   platform = navigator.platform,
 ): string {
   const keyLabel = formatShortcutKeyLabel(shortcut.key);
   const useMetaForMod = isMacPlatform(platform);
-  const showMeta = shortcut.metaKey || (shortcut.modKey && useMetaForMod);
-  const showCtrl = shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod);
-  const showAlt = shortcut.altKey;
-  const showShift = shortcut.shiftKey;
+  const showMeta = Boolean(shortcut.metaKey || (shortcut.modKey && useMetaForMod));
+  const showCtrl = Boolean(shortcut.ctrlKey || (shortcut.modKey && !useMetaForMod));
+  const showAlt = Boolean(shortcut.altKey);
+  const showShift = Boolean(shortcut.shiftKey);
 
   if (useMetaForMod) {
     return `${showCtrl ? "\u2303" : ""}${showAlt ? "\u2325" : ""}${showShift ? "\u21e7" : ""}${showMeta ? "\u2318" : ""}${keyLabel}`;
@@ -234,116 +236,21 @@ export function formatShortcutLabel(
 }
 
 export function shortcutLabelForCommand(
-  keybindings: ResolvedKeybindingsConfig,
-  command: KeybindingCommand,
-  options?: string | ResolvedShortcutLabelOptions,
+  command: ShortcutCommand,
+  options?: string | ShortcutMatchOptions,
 ): string | null {
   const resolvedOptions =
-    typeof options === "string"
-      ? ({ platform: options } satisfies ResolvedShortcutLabelOptions)
-      : options;
+    typeof options === "string" ? { platform: options } : options;
   const platform = resolvePlatform(resolvedOptions);
-  const shortcut = findEffectiveShortcutForCommand(keybindings, command, resolvedOptions);
+  const shortcut = findShortcutForCommand(command, resolvedOptions);
   return shortcut ? formatShortcutLabel(shortcut, platform) : null;
-}
-
-export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCommand | null {
-  return THREAD_JUMP_KEYBINDING_COMMANDS[index] ?? null;
-}
-
-export function threadJumpIndexFromCommand(command: string): number | null {
-  const index = THREAD_JUMP_KEYBINDING_COMMANDS.indexOf(command as ThreadJumpKeybindingCommand);
-  return index === -1 ? null : index;
-}
-
-export function threadTraversalDirectionFromCommand(
-  command: string | null,
-): "previous" | "next" | null {
-  if (command === "thread.previous") return "previous";
-  if (command === "thread.next") return "next";
-  return null;
-}
-
-export function shouldShowThreadJumpHints(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  const platform = resolvePlatform(options);
-
-  for (const command of THREAD_JUMP_KEYBINDING_COMMANDS) {
-    const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
-    if (!shortcut) continue;
-    if (matchesShortcutModifiers(event, shortcut, platform)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-export function isTerminalToggleShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.toggle", options);
-}
-
-export function isTerminalSplitShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.split", options);
-}
-
-export function isTerminalNewShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.new", options);
-}
-
-export function isTerminalCloseShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.close", options);
-}
-
-export function isDiffToggleShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "diff.toggle", options);
-}
-
-export function isChatNewShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "chat.new", options);
-}
-
-export function isChatNewLocalShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "chat.newLocal", options);
 }
 
 export function isOpenFavoriteEditorShortcut(
   event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
 ): boolean {
-  return matchesCommandShortcut(event, keybindings, "editor.openFavorite", options);
+  return resolveShortcutCommand(event, options) === "editor.openFavorite";
 }
 
 export function isTerminalClearShortcut(

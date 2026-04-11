@@ -12,7 +12,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getServerConfig,
   onProvidersUpdated,
-  onServerConfigUpdated,
   onWelcome,
   resetServerStateForTests,
   startServerStateSync,
@@ -52,9 +51,6 @@ const defaultProviders: ReadonlyArray<ServerProvider> = [
 
 const baseServerConfig: ServerConfig = {
   cwd: "/tmp/workspace",
-  keybindingsConfigPath: "/tmp/workspace/.config/keybindings.json",
-  keybindings: [],
-  issues: [],
   providers: defaultProviders,
   availableEditors: ["cursor"],
   observability: {
@@ -115,12 +111,10 @@ afterEach(() => {
 });
 
 describe("serverState", () => {
-  it("bootstraps the server config snapshot and replays it to late subscribers", async () => {
+  it("bootstraps the server config snapshot", async () => {
     serverApi.getConfig.mockResolvedValueOnce(baseServerConfig);
 
-    const configListener = vi.fn();
     const stop = startServerStateSync(serverApi);
-    const unsubscribe = onServerConfigUpdated(configListener);
 
     await waitFor(() => {
       expect(getServerConfig()).toEqual(baseServerConfig);
@@ -129,28 +123,7 @@ describe("serverState", () => {
     expect(serverApi.subscribeConfig).toHaveBeenCalledOnce();
     expect(serverApi.subscribeLifecycle).toHaveBeenCalledOnce();
     expect(serverApi.getConfig).toHaveBeenCalledOnce();
-    expect(configListener).toHaveBeenCalledWith(
-      {
-        issues: [],
-        providers: defaultProviders,
-        settings: DEFAULT_SERVER_SETTINGS,
-      },
-      "snapshot",
-    );
 
-    const lateListener = vi.fn();
-    const unsubscribeLate = onServerConfigUpdated(lateListener);
-    expect(lateListener).toHaveBeenCalledWith(
-      {
-        issues: [],
-        providers: defaultProviders,
-        settings: DEFAULT_SERVER_SETTINGS,
-      },
-      "snapshot",
-    );
-
-    unsubscribeLate();
-    unsubscribe();
     stop();
   });
 
@@ -221,12 +194,10 @@ describe("serverState", () => {
     stop();
   });
 
-  it("merges provider, settings, and keybinding updates into the cached config", async () => {
+  it("merges provider and settings updates into the cached config", async () => {
     serverApi.getConfig.mockResolvedValueOnce(baseServerConfig);
-    const configListener = vi.fn();
     const providersListener = vi.fn();
     const stop = startServerStateSync(serverApi);
-    const unsubscribeConfig = onServerConfigUpdated(configListener);
     const unsubscribeProviders = onProvidersUpdated(providersListener);
 
     await waitFor(() => {
@@ -242,13 +213,6 @@ describe("serverState", () => {
       },
     ];
 
-    emitServerConfigEvent({
-      version: 1,
-      type: "keybindingsUpdated",
-      payload: {
-        issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
-      },
-    });
     emitServerConfigEvent({
       version: 1,
       type: "providerStatuses",
@@ -270,7 +234,6 @@ describe("serverState", () => {
     await waitFor(() => {
       expect(getServerConfig()).toEqual({
         ...baseServerConfig,
-        issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
         providers: nextProviders,
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
@@ -280,38 +243,8 @@ describe("serverState", () => {
     });
 
     expect(providersListener).toHaveBeenLastCalledWith({ providers: nextProviders });
-    expect(configListener).toHaveBeenNthCalledWith(
-      2,
-      {
-        issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
-        providers: defaultProviders,
-        settings: DEFAULT_SERVER_SETTINGS,
-      },
-      "keybindingsUpdated",
-    );
-    expect(configListener).toHaveBeenNthCalledWith(
-      3,
-      {
-        issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
-        providers: nextProviders,
-        settings: DEFAULT_SERVER_SETTINGS,
-      },
-      "providerStatuses",
-    );
-    expect(configListener).toHaveBeenLastCalledWith(
-      {
-        issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
-        providers: nextProviders,
-        settings: {
-          ...DEFAULT_SERVER_SETTINGS,
-          enableAssistantStreaming: true,
-        },
-      },
-      "settingsUpdated",
-    );
 
     unsubscribeProviders();
-    unsubscribeConfig();
     stop();
   });
 });

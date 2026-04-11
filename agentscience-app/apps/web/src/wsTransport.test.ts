@@ -259,12 +259,7 @@ describe("WsTransport", () => {
     expect(secondSocket).not.toBe(firstSocket);
     expect(firstSocket.readyState).toBe(MockWebSocket.CLOSED);
 
-    const requestPromise = transport.request((client) =>
-      client[WS_METHODS.serverUpsertKeybinding]({
-        command: "terminal.toggle",
-        key: "ctrl+k",
-      }),
-    );
+    const requestPromise = transport.request((client) => client[WS_METHODS.serverGetSettings]({}));
 
     secondSocket.open();
 
@@ -279,18 +274,12 @@ describe("WsTransport", () => {
         requestId: requestMessage.id,
         exit: {
           _tag: "Success",
-          value: {
-            keybindings: [],
-            issues: [],
-          },
+          value: DEFAULT_SERVER_SETTINGS,
         },
       }),
     );
 
-    await expect(requestPromise).resolves.toEqual({
-      keybindings: [],
-      issues: [],
-    });
+    await expect(requestPromise).resolves.toEqual(DEFAULT_SERVER_SETTINGS);
 
     await transport.dispose();
   });
@@ -300,12 +289,7 @@ describe("WsTransport", () => {
     setSlowRpcAckThresholdMsForTests(slowAckThresholdMs);
     const transport = new WsTransport("ws://localhost:3020");
 
-    const requestPromise = transport.request((client) =>
-      client[WS_METHODS.serverUpsertKeybinding]({
-        command: "terminal.toggle",
-        key: "ctrl+k",
-      }),
-    );
+    const requestPromise = transport.request((client) => client[WS_METHODS.serverGetSettings]({}));
 
     await waitFor(() => {
       expect(sockets).toHaveLength(1);
@@ -323,7 +307,7 @@ describe("WsTransport", () => {
       expect(getSlowRpcAckRequests()).toMatchObject([
         {
           requestId: requestMessage.id,
-          tag: WS_METHODS.serverUpsertKeybinding,
+          tag: WS_METHODS.serverGetSettings,
         },
       ]);
     }, 1_000);
@@ -334,18 +318,12 @@ describe("WsTransport", () => {
         requestId: requestMessage.id,
         exit: {
           _tag: "Success",
-          value: {
-            keybindings: [],
-            issues: [],
-          },
+          value: DEFAULT_SERVER_SETTINGS,
         },
       }),
     );
 
-    await expect(requestPromise).resolves.toEqual({
-      keybindings: [],
-      issues: [],
-    });
+    await expect(requestPromise).resolves.toEqual(DEFAULT_SERVER_SETTINGS);
     expect(getSlowRpcAckRequests()).toEqual([]);
 
     await transport.dispose();
@@ -354,12 +332,7 @@ describe("WsTransport", () => {
   it("sends unary RPC requests and resolves successful exits", async () => {
     const transport = new WsTransport("ws://localhost:3020");
 
-    const requestPromise = transport.request((client) =>
-      client[WS_METHODS.serverUpsertKeybinding]({
-        command: "terminal.toggle",
-        key: "ctrl+k",
-      }),
-    );
+    const requestPromise = transport.request((client) => client[WS_METHODS.serverGetSettings]({}));
 
     await waitFor(() => {
       expect(sockets).toHaveLength(1);
@@ -380,11 +353,8 @@ describe("WsTransport", () => {
     };
     expect(requestMessage).toMatchObject({
       _tag: "Request",
-      tag: WS_METHODS.serverUpsertKeybinding,
-      payload: {
-        command: "terminal.toggle",
-        key: "ctrl+k",
-      },
+      tag: WS_METHODS.serverGetSettings,
+      payload: {},
     });
 
     socket.serverMessage(
@@ -393,18 +363,12 @@ describe("WsTransport", () => {
         requestId: requestMessage.id,
         exit: {
           _tag: "Success",
-          value: {
-            keybindings: [],
-            issues: [],
-          },
+          value: DEFAULT_SERVER_SETTINGS,
         },
       }),
     );
 
-    await expect(requestPromise).resolves.toEqual({
-      keybindings: [],
-      issues: [],
-    });
+    await expect(requestPromise).resolves.toEqual(DEFAULT_SERVER_SETTINGS);
 
     await transport.dispose();
   });
