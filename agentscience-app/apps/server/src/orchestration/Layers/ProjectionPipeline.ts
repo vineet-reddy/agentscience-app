@@ -459,7 +459,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const upsertProjectMetadata = Effect.fn("upsertProjectMetadata")(function* (
       input: {
         readonly projectId: string;
-        readonly workspaceRoot: string;
         readonly defaultModelSelection: OrchestrationEvent["type"] extends never ? never : unknown;
         readonly scripts: ReadonlyArray<unknown>;
         readonly deletedAt: string | null;
@@ -469,7 +468,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       yield* deviceStateRepository.upsert({
         key: projectMetadataKey(input.projectId),
         valueJson: JSON.stringify({
-          workspaceRoot: input.workspaceRoot,
           defaultModelSelection: input.defaultModelSelection,
           scripts: input.scripts,
           deletedAt: input.deletedAt,
@@ -530,14 +528,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     ) {
       const rows = yield* sql<{
         readonly projectId: string;
-        readonly workspaceRoot: string | null;
+        readonly folderSlug: string;
         readonly title: string;
         readonly createdAt: string;
         readonly updatedAt: string;
       }>`
         SELECT
           project_id AS "projectId",
-          workspace_root AS "workspaceRoot",
+          folder_slug AS "folderSlug",
           title,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -552,6 +550,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       const rows = yield* sql<{
         readonly threadId: string;
         readonly projectId: string | null;
+        readonly folderSlug: string;
         readonly title: string;
         readonly createdAt: string;
         readonly updatedAt: string;
@@ -560,6 +559,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         SELECT
           chat_id AS "threadId",
           project_id AS "projectId",
+          folder_slug AS "folderSlug",
           title,
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -574,7 +574,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const upsertResearchProject = Effect.fn("upsertResearchProject")(function* (
       input: {
         readonly projectId: string;
-        readonly workspaceRoot: string;
+        readonly folderSlug: string;
         readonly title: string;
         readonly createdAt: string;
         readonly updatedAt: string;
@@ -585,7 +585,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           project_id,
           user_id,
           workspace_id,
-          workspace_root,
+          folder_slug,
           title,
           description,
           status,
@@ -601,7 +601,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           ${input.projectId},
           ${LOCAL_USER_ID},
           NULL,
-          ${input.workspaceRoot},
+          ${input.folderSlug},
           ${input.title},
           NULL,
           'active',
@@ -615,7 +615,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         )
         ON CONFLICT (project_id)
         DO UPDATE SET
-          workspace_root = excluded.workspace_root,
+          folder_slug = excluded.folder_slug,
           title = excluded.title,
           updated_at = excluded.updated_at
       `;
@@ -625,6 +625,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       input: {
         readonly threadId: string;
         readonly projectId: string | null;
+        readonly folderSlug: string;
         readonly title: string;
         readonly createdAt: string;
         readonly updatedAt: string;
@@ -635,6 +636,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         INSERT INTO research_chats (
           chat_id,
           project_id,
+          folder_slug,
           user_id,
           workspace_id,
           title,
@@ -651,6 +653,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         VALUES (
           ${input.threadId},
           ${input.projectId},
+          ${input.folderSlug},
           ${LOCAL_USER_ID},
           NULL,
           ${input.title},
@@ -667,6 +670,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         ON CONFLICT (chat_id)
         DO UPDATE SET
           project_id = excluded.project_id,
+          folder_slug = excluded.folder_slug,
           title = excluded.title,
           updated_at = excluded.updated_at,
           archived_at = excluded.archived_at
@@ -831,14 +835,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "project.created":
           yield* upsertResearchProject({
             projectId: event.payload.projectId,
-            workspaceRoot: event.payload.workspaceRoot,
+            folderSlug: event.payload.folderSlug,
             title: event.payload.title,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
           yield* upsertProjectMetadata({
             projectId: event.payload.projectId,
-            workspaceRoot: event.payload.workspaceRoot,
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
             deletedAt: null,
@@ -847,7 +850,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionProjectRepository.upsert({
             projectId: event.payload.projectId,
             title: event.payload.title,
-            workspaceRoot: event.payload.workspaceRoot,
+            folderSlug: event.payload.folderSlug,
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
             createdAt: event.payload.createdAt,
@@ -871,18 +874,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           if (existingResearchProject !== null && existingProjectMetadata !== null) {
             yield* upsertResearchProject({
               projectId: event.payload.projectId,
-              workspaceRoot:
-                (event.payload.workspaceRoot ??
-                  existingResearchProject.workspaceRoot ??
-                  existingProjectMetadata.workspaceRoot) as string,
+              folderSlug: existingResearchProject.folderSlug,
               title: event.payload.title ?? existingResearchProject.title,
               createdAt: existingResearchProject.createdAt,
               updatedAt: event.payload.updatedAt,
             });
             yield* upsertProjectMetadata({
               projectId: event.payload.projectId,
-              workspaceRoot:
-                (event.payload.workspaceRoot ?? existingProjectMetadata.workspaceRoot) as string,
               defaultModelSelection:
                 event.payload.defaultModelSelection ?? existingProjectMetadata.defaultModelSelection,
               scripts: (event.payload.scripts ?? existingProjectMetadata.scripts) as ReadonlyArray<unknown>,
@@ -896,9 +894,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionProjectRepository.upsert({
             ...existingRow.value,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
-            ...(event.payload.workspaceRoot !== undefined
-              ? { workspaceRoot: event.payload.workspaceRoot }
-              : {}),
             ...(event.payload.defaultModelSelection !== undefined
               ? { defaultModelSelection: event.payload.defaultModelSelection }
               : {}),
@@ -917,13 +912,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           if (Option.isSome(existingProjectMetadataRow)) {
             const existingProjectMetadata = JSON.parse(existingProjectMetadataRow.value.valueJson) as {
-              readonly workspaceRoot: string;
               readonly defaultModelSelection: unknown;
               readonly scripts: ReadonlyArray<unknown>;
             };
             yield* upsertProjectMetadata({
               projectId: event.payload.projectId,
-              workspaceRoot: existingProjectMetadata.workspaceRoot,
               defaultModelSelection: existingProjectMetadata.defaultModelSelection,
               scripts: existingProjectMetadata.scripts,
               deletedAt: event.payload.deletedAt,
@@ -957,6 +950,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* upsertResearchChat({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
+            folderSlug: event.payload.folderSlug,
             title: event.payload.title,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -976,6 +970,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
+            folderSlug: event.payload.folderSlug,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -999,6 +994,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
               projectId: event.payload.projectId,
+              folderSlug: existingResearchChat.folderSlug,
               title: existingResearchChat.title,
               createdAt: existingResearchChat.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -1026,6 +1022,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
               projectId: existingResearchChat.projectId,
+              folderSlug: existingResearchChat.folderSlug,
               title: existingResearchChat.title,
               createdAt: existingResearchChat.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -1052,6 +1049,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
               projectId: existingResearchChat.projectId,
+              folderSlug: existingResearchChat.folderSlug,
               title: existingResearchChat.title,
               createdAt: existingResearchChat.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -1089,6 +1087,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
               projectId: existingResearchChat.projectId,
+              folderSlug: existingResearchChat.folderSlug,
               title: event.payload.title ?? existingResearchChat.title,
               createdAt: existingResearchChat.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -1249,6 +1248,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
               projectId: existingResearchChat.projectId,
+              folderSlug: existingResearchChat.folderSlug,
               title: existingResearchChat.title,
               createdAt: existingResearchChat.createdAt,
               updatedAt: event.occurredAt,

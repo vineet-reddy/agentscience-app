@@ -11,11 +11,11 @@ import {
 import { Effect } from "effect";
 
 import {
-  findActiveProjectByWorkspaceRoot,
+  findActiveProjectByFolderSlug,
   findThreadById,
   listThreadsByProjectId,
   requireNonNegativeInteger,
-  requireProjectWorkspaceAbsent,
+  requireProjectFolderSlugAbsent,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
@@ -29,7 +29,7 @@ const readModel: OrchestrationReadModel = {
     {
       id: ProjectId.makeUnsafe("project-a"),
       title: "Project A",
-      workspaceRoot: "/tmp/project-a",
+      folderSlug: "project-a",
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -42,7 +42,7 @@ const readModel: OrchestrationReadModel = {
     {
       id: ProjectId.makeUnsafe("project-b"),
       title: "Project B",
-      workspaceRoot: "/tmp/project-b",
+      folderSlug: "project-b",
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",
@@ -57,6 +57,8 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.makeUnsafe("thread-1"),
       projectId: ProjectId.makeUnsafe("project-a"),
+      folderSlug: "thread-a",
+      resolvedWorkspacePath: "/tmp/AgentScience/Projects/project-a/papers/thread-a",
       title: "Thread A",
       modelSelection: {
         provider: "codex",
@@ -80,6 +82,8 @@ const readModel: OrchestrationReadModel = {
     {
       id: ThreadId.makeUnsafe("thread-2"),
       projectId: ProjectId.makeUnsafe("project-b"),
+      folderSlug: "thread-b",
+      resolvedWorkspacePath: "/tmp/AgentScience/Projects/project-b/papers/thread-b",
       title: "Thread B",
       modelSelection: {
         provider: "codex",
@@ -121,7 +125,7 @@ const messageSendCommand: OrchestrationCommand = {
 describe("commandInvariants", () => {
   it("finds threads by id and project", () => {
     expect(findThreadById(readModel, ThreadId.makeUnsafe("thread-1"))?.projectId).toBe("project-a");
-    expect(findActiveProjectByWorkspaceRoot(readModel, "/tmp/project-b")?.id).toBe("project-b");
+    expect(findActiveProjectByFolderSlug(readModel, "project-b")?.id).toBe("project-b");
     expect(findThreadById(readModel, ThreadId.makeUnsafe("missing"))).toBeUndefined();
     expect(
       listThreadsByProjectId(readModel, ProjectId.makeUnsafe("project-b")).map(
@@ -160,6 +164,7 @@ describe("commandInvariants", () => {
           commandId: CommandId.makeUnsafe("cmd-2"),
           threadId: ThreadId.makeUnsafe("thread-3"),
           projectId: ProjectId.makeUnsafe("project-a"),
+          folderSlug: "thread-c",
           title: "new",
           modelSelection: {
             provider: "codex",
@@ -184,6 +189,7 @@ describe("commandInvariants", () => {
             commandId: CommandId.makeUnsafe("cmd-3"),
             threadId: ThreadId.makeUnsafe("thread-1"),
             projectId: ProjectId.makeUnsafe("project-a"),
+            folderSlug: "thread-a",
             title: "dup",
             modelSelection: {
               provider: "codex",
@@ -221,20 +227,20 @@ describe("commandInvariants", () => {
     ).rejects.toThrow("greater than or equal to 0");
   });
 
-  it("rejects duplicate workspace roots for project creation", async () => {
+  it("rejects duplicate folder slugs for project creation", async () => {
     await expect(
       Effect.runPromise(
-        requireProjectWorkspaceAbsent({
+        requireProjectFolderSlugAbsent({
           readModel,
           command: {
             type: "project.create",
-            commandId: CommandId.makeUnsafe("cmd-project-dup-workspace"),
+            commandId: CommandId.makeUnsafe("cmd-project-dup-folder"),
             projectId: ProjectId.makeUnsafe("project-c"),
-            title: "Duplicate Root",
-            workspaceRoot: "/tmp/project-a",
+            title: "Duplicate Folder",
+            folderSlug: "project-a",
             createdAt: now,
           },
-          workspaceRoot: "/tmp/project-a",
+          folderSlug: "project-a",
         }),
       ),
     ).rejects.toThrow("already tracked");

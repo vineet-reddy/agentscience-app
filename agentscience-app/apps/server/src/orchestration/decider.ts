@@ -9,12 +9,14 @@ import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   requireActiveProject,
   requireAssignedProjectIfPresent,
+  requireFolderSlugSafe,
   requireProject,
   requireProjectAbsent,
-  requireProjectWorkspaceAbsent,
+  requireProjectFolderSlugAbsent,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
+  requireThreadFolderSlugAbsent,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
 
@@ -67,10 +69,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
-      yield* requireProjectWorkspaceAbsent({
+      yield* requireFolderSlugSafe({
         readModel,
         command,
-        workspaceRoot: command.workspaceRoot,
+        folderSlug: command.folderSlug,
+      });
+      yield* requireProjectFolderSlugAbsent({
+        readModel,
+        command,
+        folderSlug: command.folderSlug,
       });
 
       return {
@@ -84,7 +91,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           projectId: command.projectId,
           title: command.title,
-          workspaceRoot: command.workspaceRoot,
+          folderSlug: command.folderSlug,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
           createdAt: command.createdAt,
@@ -111,7 +118,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           projectId: command.projectId,
           ...(command.title !== undefined ? { title: command.title } : {}),
-          ...(command.workspaceRoot !== undefined ? { workspaceRoot: command.workspaceRoot } : {}),
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
@@ -154,6 +160,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireFolderSlugSafe({
+        readModel,
+        command,
+        folderSlug: command.folderSlug,
+      });
+      yield* requireThreadFolderSlugAbsent({
+        readModel,
+        command,
+        projectId: command.projectId,
+        folderSlug: command.folderSlug,
+      });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -165,6 +182,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           projectId: command.projectId,
+          folderSlug: command.folderSlug,
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,

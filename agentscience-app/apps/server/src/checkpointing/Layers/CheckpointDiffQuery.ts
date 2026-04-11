@@ -63,7 +63,8 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const workspaceCwd = threadContext.value.worktreePath ?? threadContext.value.workspaceRoot;
+      const workspaceCwd =
+        threadContext.value.worktreePath ?? threadContext.value.resolvedWorkspacePath;
       if (!workspaceCwd) {
         return yield* new CheckpointInvariantError({
           operation,

@@ -91,7 +91,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
       {
         id: PROJECT_ID,
         title: "Project",
-        workspaceRoot: "/repo/project",
+        folderSlug: "project",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -106,6 +106,8 @@ function createMinimalSnapshot(): OrchestrationReadModel {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
+        folderSlug: "test-thread",
+        resolvedWorkspacePath: "/repo/project/papers/test-thread",
         title: "Test thread",
         modelSelection: {
           provider: "codex",

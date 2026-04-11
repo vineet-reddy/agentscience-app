@@ -246,7 +246,7 @@ describe("wsNativeApi", () => {
       payload: {
         projectId: ProjectId.makeUnsafe("project-1"),
         title: "Project",
-        workspaceRoot: "/tmp/workspace",
+        folderSlug: "project",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -312,7 +312,7 @@ describe("wsNativeApi", () => {
       commandId: CommandId.makeUnsafe("cmd-1"),
       projectId: ProjectId.makeUnsafe("project-1"),
       title: "Project",
-      workspaceRoot: "/tmp/project",
+      folderSlug: "project",
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5-codex",

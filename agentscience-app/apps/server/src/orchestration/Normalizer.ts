@@ -9,38 +9,12 @@ import {
 import { createAttachmentId, resolveAttachmentPath } from "../attachmentStore";
 import { ServerConfig } from "../config";
 import { parseBase64DataUrl } from "../imageMime";
-import { WorkspacePaths } from "../workspace/Services/WorkspacePaths";
 
 export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const serverConfig = yield* ServerConfig;
-    const workspacePaths = yield* WorkspacePaths;
-
-    const normalizeProjectWorkspaceRoot = (workspaceRoot: string) =>
-      workspacePaths.normalizeWorkspaceRoot(workspaceRoot).pipe(
-        Effect.mapError(
-          (cause) =>
-            new OrchestrationDispatchCommandError({
-              message: cause.message,
-            }),
-        ),
-      );
-
-    if (command.type === "project.create") {
-      return {
-        ...command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(command.workspaceRoot),
-      } satisfies OrchestrationCommand;
-    }
-
-    if (command.type === "project.meta.update" && command.workspaceRoot !== undefined) {
-      return {
-        ...command,
-        workspaceRoot: yield* normalizeProjectWorkspaceRoot(command.workspaceRoot),
-      } satisfies OrchestrationCommand;
-    }
 
     if (command.type !== "thread.turn.start") {
       return command as OrchestrationCommand;

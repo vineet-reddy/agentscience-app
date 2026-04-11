@@ -133,7 +133,7 @@ export type ProjectScript = typeof ProjectScript.Type;
 export const OrchestrationProject = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  folderSlug: TrimmedNonEmptyString,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
@@ -262,6 +262,10 @@ export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: Schema.NullOr(ProjectId),
+  folderSlug: TrimmedNonEmptyString,
+  resolvedWorkspacePath: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -296,7 +300,7 @@ export const ProjectCreateCommand = Schema.Struct({
   commandId: CommandId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  folderSlug: TrimmedNonEmptyString,
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   createdAt: IsoDateTime,
 });
@@ -306,7 +310,6 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   commandId: CommandId,
   projectId: ProjectId,
   title: Schema.optional(TrimmedNonEmptyString),
-  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
 });
@@ -322,6 +325,7 @@ const ThreadCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   projectId: Schema.NullOr(ProjectId),
+  folderSlug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -386,6 +390,7 @@ const ThreadInteractionModeSetCommand = Schema.Struct({
 
 const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   projectId: Schema.NullOr(ProjectId),
+  folderSlug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -649,7 +654,7 @@ export const OrchestrationActorKind = Schema.Literals(["client", "server", "prov
 export const ProjectCreatedPayload = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  folderSlug: TrimmedNonEmptyString,
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
@@ -659,7 +664,6 @@ export const ProjectCreatedPayload = Schema.Struct({
 export const ProjectMetaUpdatedPayload = Schema.Struct({
   projectId: ProjectId,
   title: Schema.optional(TrimmedNonEmptyString),
-  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   updatedAt: IsoDateTime,
@@ -673,6 +677,7 @@ export const ProjectDeletedPayload = Schema.Struct({
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: Schema.NullOr(ProjectId),
+  folderSlug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),

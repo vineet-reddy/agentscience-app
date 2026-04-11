@@ -23,6 +23,7 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: Schema.NullOr(ProjectId),
+  folderSlug: Schema.String,
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,

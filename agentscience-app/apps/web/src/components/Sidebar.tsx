@@ -23,6 +23,7 @@ import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { useUiStateStore } from "../uiStateStore";
+import { nextWorkspaceSlug } from "../workspaceSlugs";
 import { buildSidebarThreadEntries, type SidebarThreadEntryRecord } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
@@ -64,7 +65,6 @@ interface ThreadContextMenuState {
 interface CreateProjectDialogState {
   open: boolean;
   name: string;
-  workspaceRoot: string;
   creating: boolean;
 }
 
@@ -103,7 +103,6 @@ export default function Sidebar() {
   const [createProjectDialog, setCreateProjectDialog] = useState<CreateProjectDialogState>({
     open: false,
     name: "",
-    workspaceRoot: "",
     creating: false,
   });
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -298,25 +297,8 @@ export default function Sidebar() {
     setCreateProjectDialog({
       open: true,
       name: "",
-      workspaceRoot: "",
       creating: false,
     });
-  };
-
-  const pickProjectWorkspaceRoot = async () => {
-    const api = readNativeApi();
-    if (!api) {
-      return;
-    }
-    const pickedFolder = await api.dialogs.pickFolder();
-    if (!pickedFolder) {
-      return;
-    }
-    setCreateProjectDialog((current) => ({
-      ...current,
-      workspaceRoot: pickedFolder,
-      name: current.name || pickedFolder.split("/").filter(Boolean).at(-1) || "",
-    }));
   };
 
   const submitCreateProject = async () => {
@@ -325,10 +307,14 @@ export default function Sidebar() {
       return;
     }
     const title = createProjectDialog.name.trim();
-    const workspaceRoot = createProjectDialog.workspaceRoot.trim();
-    if (!title || !workspaceRoot || createProjectDialog.creating) {
+    if (!title || createProjectDialog.creating) {
       return;
     }
+    const folderSlug = nextWorkspaceSlug(
+      title,
+      projects.map((project) => project.folderSlug),
+      "project",
+    );
     setCreateProjectDialog((current) => ({ ...current, creating: true }));
     try {
       await api.orchestration.dispatchCommand({
@@ -336,13 +322,12 @@ export default function Sidebar() {
         commandId: newCommandId(),
         projectId: newProjectId(),
         title,
-        workspaceRoot,
+        folderSlug,
         createdAt: new Date().toISOString(),
       });
       setCreateProjectDialog({
         open: false,
         name: "",
-        workspaceRoot: "",
         creating: false,
       });
     } catch (error) {
@@ -832,8 +817,7 @@ export default function Sidebar() {
           <DialogHeader>
             <DialogTitle>New Project</DialogTitle>
             <DialogDescription>
-              Projects are tied to a workspace root. Pick the folder first, then papers can be moved
-              into it.
+              Create a project enclosure for related papers.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4">
@@ -850,28 +834,6 @@ export default function Sidebar() {
                 }
                 placeholder="Resume & Cover Letters"
               />
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-foreground">Workspace root</div>
-              <div className="flex gap-2">
-                <Input
-                  value={createProjectDialog.workspaceRoot}
-                  onChange={(event) =>
-                    setCreateProjectDialog((current) => ({
-                      ...current,
-                      workspaceRoot: event.target.value,
-                    }))
-                  }
-                  placeholder="/path/to/workspace"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void pickProjectWorkspaceRoot()}
-                >
-                  Choose
-                </Button>
-              </div>
             </div>
           </DialogPanel>
           <DialogFooter>
@@ -891,9 +853,7 @@ export default function Sidebar() {
             <Button
               type="button"
               disabled={
-                createProjectDialog.creating ||
-                createProjectDialog.name.trim().length === 0 ||
-                createProjectDialog.workspaceRoot.trim().length === 0
+                createProjectDialog.creating || createProjectDialog.name.trim().length === 0
               }
               onClick={() => void submitCreateProject()}
             >

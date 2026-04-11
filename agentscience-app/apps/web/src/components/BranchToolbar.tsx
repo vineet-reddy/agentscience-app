@@ -46,7 +46,8 @@ export default function BranchToolbar({
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
   const activeThreadBranch = serverThread?.branch ?? draftThread?.branch ?? null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
-  const branchCwd = activeWorktreePath ?? activeProject?.cwd ?? null;
+  const activeProjectCwd = serverThread?.resolvedWorkspacePath ?? activeProject?.cwd ?? null;
+  const branchCwd = activeWorktreePath ?? activeProjectCwd ?? null;
   const hasServerThread = serverThread !== undefined;
   const effectiveEnvMode = resolveEffectiveEnvMode({
     activeWorktreePath,
@@ -106,7 +107,7 @@ export default function BranchToolbar({
     ],
   );
 
-  if (!activeThreadId || !activeProject) return null;
+  if (!activeThreadId || !activeProject || !activeProjectCwd) return null;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
@@ -156,7 +157,7 @@ export default function BranchToolbar({
       )}
 
       <BranchToolbarBranchSelector
-        activeProjectCwd={activeProject.cwd}
+        activeProjectCwd={activeProjectCwd}
         activeThreadBranch={activeThreadBranch}
         activeWorktreePath={activeWorktreePath}
         branchCwd={branchCwd}

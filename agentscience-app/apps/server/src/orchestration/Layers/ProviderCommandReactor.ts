@@ -251,10 +251,7 @@ const make = Effect.gen(function* () {
     }
     const preferredProvider: ProviderKind = currentProvider ?? threadProvider;
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
-    const effectiveCwd = resolveThreadWorkspaceCwd({
-      thread,
-      projects: readModel.projects,
-    });
+    const effectiveCwd = resolveThreadWorkspaceCwd({ thread });
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -538,11 +535,7 @@ const make = Effect.gen(function* () {
     const isFirstUserMessageTurn =
       thread.messages.filter((entry) => entry.role === "user").length === 1;
     if (isFirstUserMessageTurn) {
-      const generationCwd =
-        resolveThreadWorkspaceCwd({
-          thread,
-          projects: (yield* orchestrationEngine.getReadModel()).projects,
-        }) ?? process.cwd();
+      const generationCwd = resolveThreadWorkspaceCwd({ thread }) ?? process.cwd();
       const generationInput = {
         messageText: message.text,
         ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),

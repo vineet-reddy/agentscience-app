@@ -183,7 +183,7 @@ export function projectEvent(
           const nextProject = {
             id: payload.projectId,
             title: payload.title,
-            workspaceRoot: payload.workspaceRoot,
+            folderSlug: payload.folderSlug,
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
             createdAt: payload.createdAt,
@@ -211,9 +211,6 @@ export function projectEvent(
               ? {
                   ...project,
                   ...(payload.title !== undefined ? { title: payload.title } : {}),
-                  ...(payload.workspaceRoot !== undefined
-                    ? { workspaceRoot: payload.workspaceRoot }
-                    : {}),
                   ...(payload.defaultModelSelection !== undefined
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
@@ -254,6 +251,8 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
+            folderSlug: payload.folderSlug,
+            resolvedWorkspacePath: null,
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -266,6 +265,7 @@ export function projectEvent(
             archivedAt: null,
             deletedAt: null,
             messages: [],
+            proposedPlans: [],
             activities: [],
             checkpoints: [],
             session: null,

@@ -8,6 +8,7 @@ import { OrchestrationEventStoreLive } from "../../persistence/Layers/Orchestrat
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 
@@ -16,6 +17,7 @@ const testLayer = OrchestrationProjectionPipelineLive.pipe(
   Layer.provideMerge(
     ServerConfig.layerTest(process.cwd(), { prefix: "agentscience-agent-science-pipeline-" }),
   ),
+  Layer.provideMerge(ServerSettingsService.layerTest()),
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provideMerge(NodeServices.layer),
 );
@@ -41,7 +43,7 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
         payload: {
           projectId: ProjectId.makeUnsafe("project-1"),
           title: "Project 1",
-          workspaceRoot: "/tmp/project-1",
+          folderSlug: "project-1",
           defaultModelSelection: {
             provider: "codex",
             model: "gpt-5-codex",
@@ -65,6 +67,7 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           projectId: ProjectId.makeUnsafe("project-1"),
+          folderSlug: "thread-1",
           title: "Thread 1",
           modelSelection: {
             provider: "codex",
@@ -106,12 +109,12 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
       return {
         projectRows: yield* sql<{
           readonly projectId: string;
-          readonly workspaceRoot: string | null;
+          readonly folderSlug: string | null;
           readonly defaultChatId: string | null;
         }>`
           SELECT
             project_id AS "projectId",
-            workspace_root AS "workspaceRoot",
+            folder_slug AS "folderSlug",
             default_chat_id AS "defaultChatId"
           FROM research_projects
         `,
@@ -138,7 +141,7 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
     expect(result.projectRows).toEqual([
-      { projectId: "project-1", workspaceRoot: "/tmp/project-1", defaultChatId: "thread-1" },
+      { projectId: "project-1", folderSlug: "project-1", defaultChatId: "thread-1" },
     ]);
     expect(result.messageRows).toEqual([
       { messageId: "message-1", contentMarkdown: "hello", sequenceNo: 1 },
@@ -170,7 +173,7 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
         payload: {
           projectId: ProjectId.makeUnsafe("project-2"),
           title: "Project 2",
-          workspaceRoot: "/tmp/project-2",
+          folderSlug: "project-2",
           defaultModelSelection: null,
           scripts: [],
           createdAt: now,
@@ -191,6 +194,7 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
         payload: {
           threadId: ThreadId.makeUnsafe("thread-2"),
           projectId: ProjectId.makeUnsafe("project-2"),
+          folderSlug: "thread-2",
           title: "Thread 2",
           modelSelection: {
             provider: "codex",
@@ -259,9 +263,9 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
       const sql = yield* SqlClient.SqlClient;
       const now = "2026-02-24T00:00:00.000Z";
 
-      for (const [projectId, workspaceRoot] of [
-        ["project-a", "/tmp/workspace-a"],
-        ["project-b", "/tmp/workspace-b"],
+      for (const [projectId, folderSlug] of [
+        ["project-a", "project-a"],
+        ["project-b", "project-b"],
       ] as const) {
         yield* eventStore.append({
           type: "project.created",
@@ -276,7 +280,7 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
           payload: {
             projectId: ProjectId.makeUnsafe(projectId),
             title: "Shared Title",
-            workspaceRoot,
+            folderSlug,
             defaultModelSelection: null,
             scripts: [],
             createdAt: now,
@@ -289,19 +293,19 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
 
       return yield* sql<{
         readonly projectId: string;
-        readonly workspaceRoot: string | null;
+        readonly folderSlug: string | null;
       }>`
         SELECT
           project_id AS "projectId",
-          workspace_root AS "workspaceRoot"
+          folder_slug AS "folderSlug"
         FROM research_projects
         ORDER BY project_id ASC
       `;
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
     expect(rows).toEqual([
-      { projectId: "project-a", workspaceRoot: "/tmp/workspace-a" },
-      { projectId: "project-b", workspaceRoot: "/tmp/workspace-b" },
+      { projectId: "project-a", folderSlug: "project-a" },
+      { projectId: "project-b", folderSlug: "project-b" },
     ]);
   });
 });

@@ -27,7 +27,7 @@ export interface ProjectionSnapshotCounts {
 export interface ProjectionThreadCheckpointContext {
   readonly threadId: ThreadId;
   readonly projectId: ProjectId | null;
-  readonly workspaceRoot: string | null;
+  readonly resolvedWorkspacePath: string | null;
   readonly worktreePath: string | null;
   readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
 }
@@ -48,13 +48,6 @@ export interface ProjectionSnapshotQueryShape {
    * Read aggregate projection counts without hydrating the full read model.
    */
   readonly getCounts: () => Effect.Effect<ProjectionSnapshotCounts, ProjectionRepositoryError>;
-
-  /**
-   * Read the active project for an exact workspace root match.
-   */
-  readonly getActiveProjectByWorkspaceRoot: (
-    workspaceRoot: string,
-  ) => Effect.Effect<Option.Option<OrchestrationProject>, ProjectionRepositoryError>;
 
   /**
    * Read the earliest active thread for a project.

@@ -157,6 +157,8 @@ function mapThread(thread: OrchestrationThread): Thread {
     id: thread.id,
     codexThreadId: null,
     projectId: thread.projectId,
+    folderSlug: thread.folderSlug,
+    resolvedWorkspacePath: thread.resolvedWorkspacePath,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
@@ -181,7 +183,8 @@ function mapProject(project: OrchestrationReadModel["projects"][number]): Projec
   return {
     id: project.id,
     name: project.title,
-    cwd: project.workspaceRoot,
+    folderSlug: project.folderSlug,
+    cwd: null,
     defaultModelSelection: project.defaultModelSelection
       ? normalizeModelSelection(project.defaultModelSelection)
       : null,
@@ -602,13 +605,12 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
   switch (event.type) {
     case "project.created": {
       const existingIndex = state.projects.findIndex(
-        (project) =>
-          project.id === event.payload.projectId || project.cwd === event.payload.workspaceRoot,
+        (project) => project.id === event.payload.projectId,
       );
       const nextProject = mapProject({
         id: event.payload.projectId,
         title: event.payload.title,
-        workspaceRoot: event.payload.workspaceRoot,
+        folderSlug: event.payload.folderSlug,
         defaultModelSelection: event.payload.defaultModelSelection,
         scripts: event.payload.scripts,
         createdAt: event.payload.createdAt,
@@ -628,7 +630,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       const projects = updateProject(state.projects, event.payload.projectId, (project) => ({
         ...project,
         ...(event.payload.title !== undefined ? { name: event.payload.title } : {}),
-        ...(event.payload.workspaceRoot !== undefined ? { cwd: event.payload.workspaceRoot } : {}),
         ...(event.payload.defaultModelSelection !== undefined
           ? {
               defaultModelSelection: event.payload.defaultModelSelection
@@ -654,6 +655,8 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       const nextThread = mapThread({
         id: event.payload.threadId,
         projectId: event.payload.projectId,
+        folderSlug: event.payload.folderSlug,
+        resolvedWorkspacePath: null,
         title: event.payload.title,
         modelSelection: event.payload.modelSelection,
         runtimeMode: event.payload.runtimeMode,

@@ -5,7 +5,6 @@ import {
   ModelSelection,
   type ModelSelection as ModelSelectionType,
   OrchestrationReadModel,
-  type OrchestrationProject,
   type OrchestrationThread,
   type RuntimeMode,
   type ProviderInteractionMode,
@@ -14,7 +13,7 @@ import {
   ThreadId,
   TurnId,
 } from "@agentscience/contracts";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option, Path, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -25,6 +24,7 @@ import {
 } from "../../persistence/Errors.ts";
 import { DeviceStateRepositoryLive } from "../../persistence/Layers/DeviceState.ts";
 import { DeviceStateRepository } from "../../persistence/Services/DeviceState.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotCounts,
@@ -34,17 +34,18 @@ import {
 
 const PROJECT_METADATA_PREFIX = "local.project.";
 const THREAD_METADATA_PREFIX = "local.thread.";
+const PROJECTS_DIRNAME = "Projects";
+const PAPERS_DIRNAME = "Papers";
+const PROJECT_PAPERS_DIRNAME = "papers";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 
 const ProjectMetadataSchema = Schema.Struct({
-  workspaceRoot: Schema.String,
   defaultModelSelection: Schema.NullOr(Schema.Unknown),
   scripts: Schema.Array(ProjectScript),
   deletedAt: Schema.NullOr(Schema.String),
 });
 type ProjectMetadata = {
-  readonly workspaceRoot: string;
   readonly defaultModelSelection: ModelSelectionType | null;
   readonly scripts: ReadonlyArray<typeof ProjectScript.Type>;
   readonly deletedAt: string | null;
@@ -82,7 +83,7 @@ type MessageMetadata = {
 
 const ProjectRowSchema = Schema.Struct({
   projectId: ProjectId,
-  workspaceRoot: Schema.NullOr(Schema.String),
+  folderSlug: Schema.String,
   title: Schema.String,
   defaultChatId: Schema.NullOr(ThreadId),
   createdAt: Schema.String,
@@ -93,6 +94,7 @@ const ProjectRowSchema = Schema.Struct({
 const ThreadRowSchema = Schema.Struct({
   threadId: ThreadId,
   projectId: Schema.NullOr(ProjectId),
+  folderSlug: Schema.String,
   title: Schema.String,
   lastMessageAt: Schema.NullOr(Schema.String),
   createdAt: Schema.String,
@@ -157,7 +159,6 @@ function parseProjectMetadata(valueJson: string): ProjectMetadata | null {
     }
   }
   return {
-    workspaceRoot: parsed.workspaceRoot,
     defaultModelSelection: decodedModelSelection,
     scripts: parsed.scripts,
     deletedAt: parsed.deletedAt,
@@ -242,9 +243,28 @@ function maxIso(left: string | null, right: string | null): string | null {
   return left > right ? left : right;
 }
 
+function resolveThreadWorkspacePath(input: {
+  readonly workspaceRoot: string;
+  readonly projectFolderSlug: string | null;
+  readonly folderSlug: string;
+  readonly path: Path.Path;
+}): string {
+  return input.projectFolderSlug === null
+    ? input.path.join(input.workspaceRoot, PAPERS_DIRNAME, input.folderSlug)
+    : input.path.join(
+        input.workspaceRoot,
+        PROJECTS_DIRNAME,
+        input.projectFolderSlug,
+        PROJECT_PAPERS_DIRNAME,
+        input.folderSlug,
+      );
+}
+
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const deviceStateRepository = yield* DeviceStateRepository;
+  const path = yield* Path.Path;
+  const serverSettingsService = yield* ServerSettingsService;
 
   const listProjectRows = SqlSchema.findAll({
     Request: Schema.Void,
@@ -253,7 +273,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           project_id AS "projectId",
-          workspace_root AS "workspaceRoot",
+          folder_slug AS "folderSlug",
           title,
           default_chat_id AS "defaultChatId",
           created_at AS "createdAt",
@@ -272,6 +292,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           chat_id AS "threadId",
           project_id AS "projectId",
+          folder_slug AS "folderSlug",
           title,
           last_message_at AS "lastMessageAt",
           created_at AS "createdAt",
@@ -335,6 +356,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           chat_id AS "threadId",
           project_id AS "projectId",
+          folder_slug AS "folderSlug",
           title,
           last_message_at AS "lastMessageAt",
           created_at AS "createdAt",
@@ -370,6 +392,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               deviceStateRepository.listByPrefix({ prefix: PROJECT_METADATA_PREFIX }),
               deviceStateRepository.listByPrefix({ prefix: THREAD_METADATA_PREFIX }),
             ]);
+          const settings = yield* serverSettingsService.getSettings;
 
           const projectMetadataById = new Map<string, ProjectMetadata>();
           for (const row of projectStateRows) {
@@ -388,6 +411,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           }
 
           const messagesByThread = new Map<string, Array<OrchestrationThread["messages"][number]>>();
+          const projectFolderSlugById = new Map(
+            projectRows.map((row) => [row.projectId, row.folderSlug] as const),
+          );
           let updatedAt: string | null = null;
 
           for (const row of projectRows) {
@@ -415,25 +441,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt = maxIso(updatedAt, metadata?.updatedAt ?? row.createdAt);
           }
 
-          const projects: ReadonlyArray<OrchestrationProject> = projectRows.flatMap((row) => {
-            const metadata = projectMetadataById.get(row.projectId);
-            const workspaceRoot = row.workspaceRoot ?? metadata?.workspaceRoot ?? null;
-            if (!workspaceRoot) {
-              return [];
-            }
-            return [
-              {
-                id: row.projectId,
-                title: row.title,
-                workspaceRoot,
-                defaultModelSelection: metadata?.defaultModelSelection ?? null,
-                scripts: [...(metadata?.scripts ?? [])],
-                createdAt: row.createdAt,
-                updatedAt: row.updatedAt,
-                deletedAt: metadata?.deletedAt ?? null,
-              },
-            ];
-          });
+          const projects: ReadonlyArray<OrchestrationReadModel["projects"][number]> =
+            projectRows.flatMap((row) => {
+              const metadata = projectMetadataById.get(row.projectId);
+              return [
+                {
+                  id: row.projectId,
+                  title: row.title,
+                  folderSlug: row.folderSlug,
+                  defaultModelSelection: metadata?.defaultModelSelection ?? null,
+                  scripts: [...(metadata?.scripts ?? [])],
+                  createdAt: row.createdAt,
+                  updatedAt: row.updatedAt,
+                  deletedAt: metadata?.deletedAt ?? null,
+                },
+              ];
+            });
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.flatMap((row) => {
             const metadata = threadMetadataById.get(row.threadId);
@@ -444,6 +467,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               {
                 id: row.threadId,
                 projectId: row.projectId,
+                folderSlug: row.folderSlug,
+                resolvedWorkspacePath: resolveThreadWorkspacePath({
+                  workspaceRoot: settings.workspaceRoot,
+                  projectFolderSlug:
+                    row.projectId === null ? null : (projectFolderSlugById.get(row.projectId) ?? null),
+                  folderSlug: row.folderSlug,
+                  path,
+                }),
                 title: row.title,
                 modelSelection: metadata.modelSelection,
                 runtimeMode: metadata.runtimeMode,
@@ -496,55 +527,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
-  const getActiveProjectByWorkspaceRoot: ProjectionSnapshotQueryShape["getActiveProjectByWorkspaceRoot"] =
-    (workspaceRoot) =>
-      Effect.gen(function* () {
-        const [projectRows, metadataRows] = yield* Effect.all([
-          listProjectRows(undefined).pipe(
-            Effect.mapError(
-              toPersistenceSqlError("ProjectionSnapshotQuery.getActiveProjectByWorkspaceRoot:listProjects:query"),
-            ),
-          ),
-          deviceStateRepository.listByPrefix({ prefix: PROJECT_METADATA_PREFIX }),
-        ]);
-        const projectById = new Map(projectRows.map((row) => [row.projectId, row] as const));
-        for (const project of projectRows) {
-          if (project.workspaceRoot === workspaceRoot) {
-            return Option.some({
-              id: project.projectId,
-              title: project.title,
-              workspaceRoot: project.workspaceRoot,
-              defaultModelSelection: null,
-              scripts: [],
-              createdAt: project.createdAt,
-              updatedAt: project.updatedAt,
-              deletedAt: null,
-            } satisfies OrchestrationProject);
-          }
-        }
-        for (const row of metadataRows) {
-          const metadata = parseProjectMetadata(row.valueJson);
-          const projectId = row.key.slice(PROJECT_METADATA_PREFIX.length);
-          const project = projectById.get(projectId as never);
-          if (!metadata || !project || metadata.deletedAt !== null) {
-            continue;
-          }
-          if ((project.workspaceRoot ?? metadata.workspaceRoot) === workspaceRoot) {
-            return Option.some({
-              id: project.projectId,
-              title: project.title,
-              workspaceRoot: project.workspaceRoot ?? metadata.workspaceRoot,
-              defaultModelSelection: metadata.defaultModelSelection,
-              scripts: [...metadata.scripts],
-              createdAt: project.createdAt,
-              updatedAt: project.updatedAt,
-              deletedAt: metadata.deletedAt,
-            } satisfies OrchestrationProject);
-          }
-        }
-        return Option.none<OrchestrationProject>();
-      });
-
   const getFirstActiveThreadIdByProjectId: ProjectionSnapshotQueryShape["getFirstActiveThreadIdByProjectId"] =
     (projectId) =>
       Effect.gen(function* () {
@@ -589,23 +571,35 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         return Option.none<ProjectionThreadCheckpointContext>();
       }
       const threadMetadata = parseThreadMetadata(threadMetadataRow.value.valueJson);
-      if (threadRow.value.projectId === null) {
+      if (threadMetadata === null) {
         return Option.none<ProjectionThreadCheckpointContext>();
       }
-      const projectMetadata = yield* deviceStateRepository.getByKey({
-        key: `${PROJECT_METADATA_PREFIX}${threadRow.value.projectId}`,
-      });
-      if (threadMetadata === null || Option.isNone(projectMetadata)) {
-        return Option.none<ProjectionThreadCheckpointContext>();
-      }
-      const decodedProjectMetadata = parseProjectMetadata(projectMetadata.value.valueJson);
-      if (decodedProjectMetadata === null) {
-        return Option.none<ProjectionThreadCheckpointContext>();
-      }
+      const settings = yield* serverSettingsService.getSettings.pipe(
+        Effect.mapError(
+          toPersistenceSqlError(
+            "ProjectionSnapshotQuery.getThreadCheckpointContext:getSettings:query",
+          ),
+        ),
+      );
+      const projectRows = yield* listProjectRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionSnapshotQuery.getThreadCheckpointContext:listProjects:query"),
+        ),
+      );
+      const projectFolderSlug =
+        threadRow.value.projectId === null
+          ? null
+          : (projectRows.find((row) => row.projectId === threadRow.value.projectId)?.folderSlug ??
+            null);
       return Option.some({
         threadId: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
-        workspaceRoot: decodedProjectMetadata.workspaceRoot,
+        resolvedWorkspacePath: resolveThreadWorkspacePath({
+          workspaceRoot: settings.workspaceRoot,
+          projectFolderSlug,
+          folderSlug: threadRow.value.folderSlug,
+          path,
+        }),
         worktreePath: threadMetadata.worktreePath,
         checkpoints: [],
       });
@@ -614,7 +608,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   return {
     getSnapshot,
     getCounts,
-    getActiveProjectByWorkspaceRoot,
     getFirstActiveThreadIdByProjectId,
     getThreadCheckpointContext,
   } satisfies ProjectionSnapshotQueryShape;

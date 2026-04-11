@@ -38,13 +38,17 @@ export function findActiveProjectById(
   return readModel.projects.find((project) => project.id === projectId && project.deletedAt === null);
 }
 
-export function findActiveProjectByWorkspaceRoot(
+export function findActiveProjectByFolderSlug(
   readModel: OrchestrationReadModel,
-  workspaceRoot: string,
+  folderSlug: string,
 ): OrchestrationProject | undefined {
   return readModel.projects.find(
-    (project) => project.deletedAt === null && project.workspaceRoot === workspaceRoot,
+    (project) => project.deletedAt === null && project.folderSlug === folderSlug,
   );
+}
+
+function isSafeFolderSlug(folderSlug: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(folderSlug);
 }
 
 export function listThreadsByProjectId(
@@ -119,19 +123,58 @@ export function requireProjectAbsent(input: {
   );
 }
 
-export function requireProjectWorkspaceAbsent(input: {
+export function requireFolderSlugSafe(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
-  readonly workspaceRoot: string;
+  readonly folderSlug: string;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  const existingProject = findActiveProjectByWorkspaceRoot(input.readModel, input.workspaceRoot);
+  if (isSafeFolderSlug(input.folderSlug)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Folder slug '${input.folderSlug}' is invalid. Slugs must be lowercase kebab-case path segments.`,
+    ),
+  );
+}
+
+export function requireProjectFolderSlugAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly folderSlug: string;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const existingProject = findActiveProjectByFolderSlug(input.readModel, input.folderSlug);
   if (!existingProject) {
     return Effect.void;
   }
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Workspace '${input.workspaceRoot}' is already tracked by project '${existingProject.id}'.`,
+      `Folder slug '${input.folderSlug}' is already tracked by project '${existingProject.id}'.`,
+    ),
+  );
+}
+
+export function requireThreadFolderSlugAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly projectId: ProjectId | null;
+  readonly folderSlug: string;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const existingThread = input.readModel.threads.find(
+    (thread) =>
+      thread.deletedAt === null &&
+      thread.projectId === input.projectId &&
+      thread.folderSlug === input.folderSlug,
+  );
+  if (!existingThread) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Folder slug '${input.folderSlug}' is already tracked by thread '${existingThread.id}'.`,
     ),
   );
 }

@@ -627,7 +627,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   return {
     id: ProjectId.makeUnsafe("project-1"),
     name: "Project",
-    cwd: "/tmp/project",
+    folderSlug: "project",
+    cwd: null,
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.4",
@@ -645,6 +646,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     id: ThreadId.makeUnsafe("thread-1"),
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project-1"),
+    folderSlug: "thread",
+    resolvedWorkspacePath: "/tmp/project/papers/thread",
     title: "Thread",
     modelSelection: {
       provider: "codex",

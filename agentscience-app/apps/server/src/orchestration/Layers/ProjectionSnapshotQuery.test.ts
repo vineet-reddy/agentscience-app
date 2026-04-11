@@ -1,16 +1,20 @@
 import { MessageId, ProjectId, ThreadId } from "@agentscience/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it } from "vitest";
 
 import { DeviceStateRepositoryLive } from "../../persistence/Layers/DeviceState.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 
 const testLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
   Layer.provideMerge(DeviceStateRepositoryLive),
+  Layer.provideMerge(ServerSettingsService.layerTest({ workspaceRoot: "/tmp/AgentScience" })),
   Layer.provideMerge(SqlitePersistenceMemory),
+  Layer.provideMerge(NodeServices.layer),
 );
 
 describe("ProjectionSnapshotQuery", () => {
@@ -21,17 +25,17 @@ describe("ProjectionSnapshotQuery", () => {
 
       yield* sql`
         INSERT INTO research_projects (
-          project_id, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+          project_id, user_id, folder_slug, title, sharing_strategy, sync_state, created_at, updated_at
         ) VALUES (
-          'project-1', 'local-user', 'Project 1', 'local_only', 'local_only',
+          'project-1', 'local-user', 'project-1', 'Project 1', 'local_only', 'local_only',
           '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:01.000Z'
         )
       `;
       yield* sql`
         INSERT INTO research_chats (
-          chat_id, project_id, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+          chat_id, project_id, folder_slug, user_id, title, sharing_strategy, sync_state, created_at, updated_at
         ) VALUES (
-          'thread-1', 'project-1', 'local-user', 'Thread 1', 'local_only', 'local_only',
+          'thread-1', 'project-1', 'thread-1', 'local-user', 'Thread 1', 'local_only', 'local_only',
           '2026-02-24T00:00:02.000Z', '2026-02-24T00:00:03.000Z'
         )
       `;
@@ -55,7 +59,7 @@ describe("ProjectionSnapshotQuery", () => {
         INSERT INTO device_state (key, value_json, updated_at) VALUES
         (
           'local.project.project-1',
-          '{"workspaceRoot":"/tmp/project-1","defaultModelSelection":{"provider":"codex","model":"gpt-5-codex"},"scripts":[],"deletedAt":null}',
+          '{"defaultModelSelection":{"provider":"codex","model":"gpt-5-codex"},"scripts":[],"deletedAt":null}',
           '2026-02-24T00:00:01.000Z'
         ),
         (
@@ -74,7 +78,7 @@ describe("ProjectionSnapshotQuery", () => {
       {
         id: ProjectId.makeUnsafe("project-1"),
         title: "Project 1",
-        workspaceRoot: "/tmp/project-1",
+        folderSlug: "project-1",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -89,6 +93,8 @@ describe("ProjectionSnapshotQuery", () => {
       {
         id: ThreadId.makeUnsafe("thread-1"),
         projectId: ProjectId.makeUnsafe("project-1"),
+        folderSlug: "thread-1",
+        resolvedWorkspacePath: "/tmp/AgentScience/Projects/project-1/papers/thread-1",
         title: "Thread 1",
         modelSelection: {
           provider: "codex",
@@ -138,17 +144,17 @@ describe("ProjectionSnapshotQuery", () => {
 
       yield* sql`
         INSERT INTO research_projects (
-          project_id, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+          project_id, user_id, folder_slug, title, sharing_strategy, sync_state, created_at, updated_at
         ) VALUES (
-          'project-ctx', 'local-user', 'Context Project', 'local_only', 'local_only',
+          'project-ctx', 'local-user', 'context-project', 'Context Project', 'local_only', 'local_only',
           '2026-02-25T00:00:00.000Z', '2026-02-25T00:00:01.000Z'
         )
       `;
       yield* sql`
         INSERT INTO research_chats (
-          chat_id, project_id, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+          chat_id, project_id, folder_slug, user_id, title, sharing_strategy, sync_state, created_at, updated_at
         ) VALUES (
-          'thread-ctx', 'project-ctx', 'local-user', 'Context Thread', 'local_only', 'local_only',
+          'thread-ctx', 'project-ctx', 'context-thread', 'local-user', 'Context Thread', 'local_only', 'local_only',
           '2026-02-25T00:00:02.000Z', '2026-02-25T00:00:03.000Z'
         )
       `;
@@ -156,7 +162,7 @@ describe("ProjectionSnapshotQuery", () => {
         INSERT INTO device_state (key, value_json, updated_at) VALUES
         (
           'local.project.project-ctx',
-          '{"workspaceRoot":"/tmp/context-project","defaultModelSelection":null,"scripts":[],"deletedAt":null}',
+          '{"defaultModelSelection":null,"scripts":[],"deletedAt":null}',
           '2026-02-25T00:00:01.000Z'
         ),
         (
@@ -167,7 +173,7 @@ describe("ProjectionSnapshotQuery", () => {
       `;
 
       return {
-        project: yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/context-project"),
+        snapshot: yield* snapshotQuery.getSnapshot(),
         firstThreadId: yield* snapshotQuery.getFirstActiveThreadIdByProjectId(
           ProjectId.makeUnsafe("project-ctx"),
         ),
@@ -177,21 +183,20 @@ describe("ProjectionSnapshotQuery", () => {
       };
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
-    expect(Option.isSome(result.project)).toBe(true);
     expect(Option.isSome(result.firstThreadId)).toBe(true);
     expect(Option.isSome(result.context)).toBe(true);
-    if (Option.isSome(result.project)) {
-      expect(result.project.value).toEqual({
+    expect(result.snapshot.projects).toEqual([
+      {
         id: ProjectId.makeUnsafe("project-ctx"),
         title: "Context Project",
-        workspaceRoot: "/tmp/context-project",
+        folderSlug: "context-project",
         defaultModelSelection: null,
         scripts: [],
         createdAt: "2026-02-25T00:00:00.000Z",
         updatedAt: "2026-02-25T00:00:01.000Z",
         deletedAt: null,
-      });
-    }
+      },
+    ]);
     if (Option.isSome(result.firstThreadId)) {
       expect(result.firstThreadId.value).toEqual(ThreadId.makeUnsafe("thread-ctx"));
     }
@@ -199,7 +204,7 @@ describe("ProjectionSnapshotQuery", () => {
       expect(result.context.value).toEqual({
         threadId: ThreadId.makeUnsafe("thread-ctx"),
         projectId: ProjectId.makeUnsafe("project-ctx"),
-        workspaceRoot: "/tmp/context-project",
+        resolvedWorkspacePath: "/tmp/AgentScience/Projects/context-project/papers/context-thread",
         worktreePath: "/tmp/context-worktree",
         checkpoints: [],
       });
@@ -213,17 +218,17 @@ describe("ProjectionSnapshotQuery", () => {
 
       yield* sql`
         INSERT INTO research_projects (
-          project_id, user_id, workspace_root, title, sharing_strategy, sync_state, created_at, updated_at
+          project_id, user_id, folder_slug, title, sharing_strategy, sync_state, created_at, updated_at
         ) VALUES (
-          'project-fallback', 'local-user', '/tmp/fallback-project', 'Fallback Project', 'local_only', 'local_only',
+          'project-fallback', 'local-user', 'fallback-project', 'Fallback Project', 'local_only', 'local_only',
           '2026-02-26T00:00:00.000Z', '2026-02-26T00:00:01.000Z'
         )
       `;
       yield* sql`
         INSERT INTO research_chats (
-          chat_id, project_id, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+          chat_id, project_id, folder_slug, user_id, title, sharing_strategy, sync_state, created_at, updated_at
         ) VALUES (
-          'thread-fallback', 'project-fallback', 'local-user', 'Fallback Thread', 'local_only', 'local_only',
+          'thread-fallback', 'project-fallback', 'fallback-thread', 'local-user', 'Fallback Thread', 'local_only', 'local_only',
           '2026-02-26T00:00:02.000Z', '2026-02-26T00:00:03.000Z'
         )
       `;
@@ -238,7 +243,6 @@ describe("ProjectionSnapshotQuery", () => {
 
       return {
         snapshot: yield* snapshotQuery.getSnapshot(),
-        project: yield* snapshotQuery.getActiveProjectByWorkspaceRoot("/tmp/fallback-project"),
       };
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
@@ -246,7 +250,7 @@ describe("ProjectionSnapshotQuery", () => {
       {
         id: ProjectId.makeUnsafe("project-fallback"),
         title: "Fallback Project",
-        workspaceRoot: "/tmp/fallback-project",
+        folderSlug: "fallback-project",
         defaultModelSelection: null,
         scripts: [],
         createdAt: "2026-02-26T00:00:00.000Z",
@@ -254,6 +258,5 @@ describe("ProjectionSnapshotQuery", () => {
         deletedAt: null,
       },
     ]);
-    expect(Option.isSome(snapshot.project)).toBe(true);
   });
 });

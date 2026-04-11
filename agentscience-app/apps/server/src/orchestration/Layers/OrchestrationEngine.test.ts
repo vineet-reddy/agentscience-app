@@ -29,6 +29,7 @@ import {
 } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
@@ -47,6 +48,7 @@ async function createOrchestrationSystem() {
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     Layer.provide(SqlitePersistenceMemory),
     Layer.provideMerge(ServerConfigLayer),
+    Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(NodeServices.layer),
   );
   const runtime = ManagedRuntime.make(orchestrationLayer);
@@ -100,7 +102,7 @@ describe("OrchestrationEngine", () => {
         {
           id: asProjectId("project-bootstrap"),
           title: "Bootstrap Project",
-          workspaceRoot: "/tmp/project-bootstrap",
+          folderSlug: "project-bootstrap",
           defaultModelSelection: {
             provider: "codex" as const,
             model: "gpt-5-codex",
@@ -115,6 +117,8 @@ describe("OrchestrationEngine", () => {
         {
           id: ThreadId.makeUnsafe("thread-bootstrap"),
           projectId: asProjectId("project-bootstrap"),
+          folderSlug: "thread-bootstrap",
+          resolvedWorkspacePath: "/tmp/AgentScience/Projects/project-bootstrap/papers/thread-bootstrap",
           title: "Bootstrap Thread",
           modelSelection: {
             provider: "codex" as const,
@@ -143,7 +147,6 @@ describe("OrchestrationEngine", () => {
         Layer.succeed(ProjectionSnapshotQuery, {
           getSnapshot: () => Effect.succeed(projectionSnapshot),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
-          getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
         }),
@@ -157,6 +160,7 @@ describe("OrchestrationEngine", () => {
       Layer.provide(Layer.succeed(OrchestrationEventStore, failOnHistoricalReplayStore)),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
       Layer.provide(SqlitePersistenceMemory),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
     );
 
     const runtime = ManagedRuntime.make(layer);
@@ -184,7 +188,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-1-create"),
         projectId: asProjectId("project-1"),
         title: "Project 1",
-        workspaceRoot: "/tmp/project-1",
+        folderSlug: "project-1",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -198,6 +202,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-1-create"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         projectId: asProjectId("project-1"),
+        folderSlug: "thread-1",
         title: "Thread",
         modelSelection: {
           provider: "codex",
@@ -244,7 +249,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-atomic-create"),
         projectId: asProjectId("project-atomic"),
         title: "Atomic Project",
-        workspaceRoot: "/tmp/project-atomic",
+        folderSlug: "project-atomic",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -261,7 +266,7 @@ describe("OrchestrationEngine", () => {
 
     expect(project).toMatchObject({
       title: "Atomic Project",
-      workspaceRoot: "/tmp/project-atomic",
+      folderSlug: "project-atomic",
     });
     expect(projectThreads).toHaveLength(0);
 
@@ -279,7 +284,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-archive-create"),
         projectId: asProjectId("project-archive"),
         title: "Project Archive",
-        workspaceRoot: "/tmp/project-archive",
+        folderSlug: "project-archive",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -293,6 +298,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-archive-create"),
         threadId: ThreadId.makeUnsafe("thread-archive"),
         projectId: asProjectId("project-archive"),
+        folderSlug: "thread-archive",
         title: "Archive me",
         modelSelection: {
           provider: "codex",
@@ -346,7 +352,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-replay-create"),
         projectId: asProjectId("project-replay"),
         title: "Replay Project",
-        workspaceRoot: "/tmp/project-replay",
+        folderSlug: "project-replay",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -360,6 +366,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-replay-create"),
         threadId: ThreadId.makeUnsafe("thread-replay"),
         projectId: asProjectId("project-replay"),
+        folderSlug: "thread-replay",
         title: "replay",
         modelSelection: {
           provider: "codex",
@@ -404,7 +411,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-stream-create"),
         projectId: asProjectId("project-stream"),
         title: "Stream Project",
-        workspaceRoot: "/tmp/project-stream",
+        folderSlug: "project-stream",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -428,6 +435,7 @@ describe("OrchestrationEngine", () => {
           commandId: CommandId.makeUnsafe("cmd-stream-thread-create"),
           threadId: ThreadId.makeUnsafe("thread-stream"),
           projectId: asProjectId("project-stream"),
+          folderSlug: "thread-stream",
           title: "domain-stream",
           modelSelection: {
             provider: "codex",
@@ -465,7 +473,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-ack-create"),
         projectId: asProjectId("project-ack"),
         title: "Ack Project",
-        workspaceRoot: "/tmp/project-ack",
+        folderSlug: "project-ack",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -480,6 +488,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-ack-create"),
         threadId: ThreadId.makeUnsafe("thread-ack"),
         projectId: asProjectId("project-ack"),
+        folderSlug: "thread-ack",
         title: "Ack Thread",
         modelSelection: {
           provider: "codex",
@@ -517,6 +526,7 @@ describe("OrchestrationEngine", () => {
           commandId: CommandId.makeUnsafe("cmd-thread-missing-project"),
           threadId: ThreadId.makeUnsafe("thread-missing-project"),
           projectId: asProjectId("project-missing"),
+          folderSlug: "thread-missing-project",
           title: "Missing Project Thread",
           modelSelection: {
             provider: "codex",
@@ -554,7 +564,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-turn-diff-create"),
         projectId: asProjectId("project-turn-diff"),
         title: "Turn Diff Project",
-        workspaceRoot: "/tmp/project-turn-diff",
+        folderSlug: "project-turn-diff",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -568,6 +578,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-turn-diff-create"),
         threadId: ThreadId.makeUnsafe("thread-turn-diff"),
         projectId: asProjectId("project-turn-diff"),
+        folderSlug: "thread-turn-diff",
         title: "Turn diff thread",
         modelSelection: {
           provider: "codex",
@@ -660,6 +671,7 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
         Layer.provideMerge(ServerConfigLayer),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
@@ -672,7 +684,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-flaky-create"),
         projectId: asProjectId("project-flaky"),
         title: "Flaky Project",
-        workspaceRoot: "/tmp/project-flaky",
+        folderSlug: "project-flaky",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -688,6 +700,7 @@ describe("OrchestrationEngine", () => {
           commandId: CommandId.makeUnsafe("cmd-flaky-1"),
           threadId: ThreadId.makeUnsafe("thread-flaky-fail"),
           projectId: asProjectId("project-flaky"),
+          folderSlug: "thread-flaky-fail",
           title: "flaky-fail",
           modelSelection: {
             provider: "codex",
@@ -708,6 +721,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-flaky-2"),
         threadId: ThreadId.makeUnsafe("thread-flaky-ok"),
         projectId: asProjectId("project-flaky"),
+        folderSlug: "thread-flaky-ok",
         title: "flaky-ok",
         modelSelection: {
           provider: "codex",
@@ -755,6 +769,8 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
+        Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
@@ -766,7 +782,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-atomic-create"),
         projectId: asProjectId("project-atomic"),
         title: "Atomic Project",
-        workspaceRoot: "/tmp/project-atomic",
+        folderSlug: "project-atomic",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -780,6 +796,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-atomic-create"),
         threadId: ThreadId.makeUnsafe("thread-atomic"),
         projectId: asProjectId("project-atomic"),
+        folderSlug: "thread-atomic",
         title: "atomic",
         modelSelection: {
           provider: "codex",
@@ -897,6 +914,8 @@ describe("OrchestrationEngine", () => {
         Layer.provide(Layer.succeed(OrchestrationEventStore, nonTransactionalStore)),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
+        Layer.provideMerge(NodeServices.layer),
       ),
     );
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
@@ -908,7 +927,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-sync-create"),
         projectId: asProjectId("project-sync"),
         title: "Sync Project",
-        workspaceRoot: "/tmp/project-sync",
+        folderSlug: "project-sync",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -922,6 +941,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-sync-create"),
         threadId: ThreadId.makeUnsafe("thread-sync"),
         projectId: asProjectId("project-sync"),
+        folderSlug: "thread-sync",
         title: "sync-before",
         modelSelection: {
           provider: "codex",
@@ -993,7 +1013,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-project-duplicate-create"),
         projectId: asProjectId("project-duplicate"),
         title: "Duplicate Project",
-        workspaceRoot: "/tmp/project-duplicate",
+        folderSlug: "project-duplicate",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -1008,6 +1028,7 @@ describe("OrchestrationEngine", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-duplicate-1"),
         threadId: ThreadId.makeUnsafe("thread-duplicate"),
         projectId: asProjectId("project-duplicate"),
+        folderSlug: "thread-duplicate",
         title: "duplicate",
         modelSelection: {
           provider: "codex",
@@ -1028,6 +1049,7 @@ describe("OrchestrationEngine", () => {
           commandId: CommandId.makeUnsafe("cmd-thread-duplicate-2"),
           threadId: ThreadId.makeUnsafe("thread-duplicate"),
           projectId: asProjectId("project-duplicate"),
+          folderSlug: "thread-duplicate",
           title: "duplicate",
           modelSelection: {
             provider: "codex",

@@ -55,6 +55,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-1",
             projectId: "project-1",
+            folderSlug: "demo",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -75,6 +76,8 @@ describe("orchestration projector", () => {
       {
         id: "thread-1",
         projectId: "project-1",
+        folderSlug: "demo",
+        resolvedWorkspacePath: null,
         title: "demo",
         modelSelection: {
           provider: "codex",
@@ -116,6 +119,7 @@ describe("orchestration projector", () => {
             payload: {
               // missing required threadId
               projectId: "project-1",
+              folderSlug: "demo",
               title: "demo",
               modelSelection: {
                 provider: "codex",
@@ -148,6 +152,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-1",
             projectId: "project-1",
+            folderSlug: "demo",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -251,6 +256,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-1",
             projectId: "project-1",
+            folderSlug: "demo",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -317,6 +323,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-1",
             projectId: "project-1",
+            folderSlug: "demo",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -374,6 +381,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-1",
             projectId: "project-1",
+            folderSlug: "demo",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -461,6 +469,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-1",
             projectId: "project-1",
+            folderSlug: "demo",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -676,6 +685,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-revert",
             projectId: "project-1",
+            folderSlug: "demo",
             title: "demo",
             modelSelection: {
               provider: "codex",
@@ -829,6 +839,7 @@ describe("orchestration projector", () => {
           payload: {
             threadId: "thread-capped",
             projectId: "project-1",
+            folderSlug: "capped",
             title: "capped",
             modelSelection: {
               provider: "codex",

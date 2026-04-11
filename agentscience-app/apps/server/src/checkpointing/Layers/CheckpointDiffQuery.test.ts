@@ -14,7 +14,7 @@ import { CheckpointDiffQuery } from "../Services/CheckpointDiffQuery.ts";
 function makeThreadCheckpointContext(input: {
   readonly projectId: ProjectId;
   readonly threadId: ThreadId;
-  readonly workspaceRoot: string;
+  readonly resolvedWorkspacePath: string;
   readonly worktreePath: string | null;
   readonly checkpointTurnCount: number;
   readonly checkpointRef: CheckpointRef;
@@ -22,7 +22,7 @@ function makeThreadCheckpointContext(input: {
   return {
     threadId: input.threadId,
     projectId: input.projectId,
-    workspaceRoot: input.workspaceRoot,
+    resolvedWorkspacePath: input.resolvedWorkspacePath,
     worktreePath: input.worktreePath,
     checkpoints: [
       {
@@ -53,7 +53,7 @@ describe("CheckpointDiffQueryLive", () => {
     const threadCheckpointContext = makeThreadCheckpointContext({
       projectId,
       threadId,
-      workspaceRoot: "/tmp/workspace",
+      resolvedWorkspacePath: "/tmp/workspace",
       worktreePath: null,
       checkpointTurnCount: 1,
       checkpointRef: toCheckpointRef,
@@ -83,7 +83,6 @@ describe("CheckpointDiffQueryLive", () => {
           getSnapshot: () =>
             Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
-          getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.some(threadCheckpointContext)),
         }),
@@ -137,7 +136,6 @@ describe("CheckpointDiffQueryLive", () => {
           getSnapshot: () =>
             Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
-          getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
         }),

@@ -28,7 +28,7 @@ describe("decider project scripts", () => {
           commandId: CommandId.makeUnsafe("cmd-project-create-scripts"),
           projectId: asProjectId("project-scripts"),
           title: "Scripts",
-          workspaceRoot: "/tmp/scripts",
+          folderSlug: "scripts",
           createdAt: now,
         },
         readModel,
@@ -58,7 +58,7 @@ describe("decider project scripts", () => {
         payload: {
           projectId: asProjectId("project-scripts"),
           title: "Scripts",
-          workspaceRoot: "/tmp/scripts",
+          folderSlug: "scripts",
           defaultModelSelection: null,
           scripts: [],
           createdAt: now,
@@ -112,7 +112,7 @@ describe("decider project scripts", () => {
         payload: {
           projectId: asProjectId("project-1"),
           title: "Project",
-          workspaceRoot: "/tmp/project",
+          folderSlug: "project",
           defaultModelSelection: null,
           scripts: [],
           createdAt: now,
@@ -135,6 +135,7 @@ describe("decider project scripts", () => {
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           projectId: asProjectId("project-1"),
+          folderSlug: "thread",
           title: "Thread",
           modelSelection: {
             provider: "codex",
@@ -221,7 +222,7 @@ describe("decider project scripts", () => {
         payload: {
           projectId: asProjectId("project-1"),
           title: "Project",
-          workspaceRoot: "/tmp/project",
+          folderSlug: "project",
           defaultModelSelection: null,
           scripts: [],
           createdAt: now,
@@ -244,6 +245,7 @@ describe("decider project scripts", () => {
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           projectId: asProjectId("project-1"),
+          folderSlug: "thread",
           title: "Thread",
           modelSelection: {
             provider: "codex",
@@ -303,7 +305,7 @@ describe("decider project scripts", () => {
         payload: {
           projectId: asProjectId("project-1"),
           title: "Project",
-          workspaceRoot: "/tmp/project",
+          folderSlug: "project",
           defaultModelSelection: null,
           scripts: [],
           createdAt: now,
@@ -326,6 +328,7 @@ describe("decider project scripts", () => {
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           projectId: asProjectId("project-1"),
+          folderSlug: "thread",
           title: "Thread",
           modelSelection: {
             provider: "codex",

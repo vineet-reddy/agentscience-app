@@ -17,6 +17,8 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 ] as const;
 
 interface PersistedUiState {
+  expandedProjectFolderSlugs?: string[];
+  projectOrderFolderSlugs?: string[];
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
 }
@@ -34,7 +36,7 @@ export interface UiState extends UiProjectState, UiThreadState {}
 
 export interface SyncProjectInput {
   id: ProjectId;
-  cwd: string;
+  folderSlug: string;
 }
 
 export interface SyncThreadInput {
@@ -48,9 +50,9 @@ const initialState: UiState = {
   threadLastVisitedAtById: {},
 };
 
-const persistedExpandedProjectCwds = new Set<string>();
-const persistedProjectOrderCwds: string[] = [];
-const currentProjectCwdById = new Map<ProjectId, string>();
+const persistedExpandedProjectFolderSlugs = new Set<string>();
+const persistedProjectOrderFolderSlugs: string[] = [];
+const currentProjectFolderSlugById = new Map<ProjectId, string>();
 let legacyKeysCleanedUp = false;
 
 function readPersistedState(): UiState {
@@ -78,16 +80,20 @@ function readPersistedState(): UiState {
 }
 
 function hydratePersistedProjectState(parsed: PersistedUiState): void {
-  persistedExpandedProjectCwds.clear();
-  persistedProjectOrderCwds.length = 0;
-  for (const cwd of parsed.expandedProjectCwds ?? []) {
-    if (typeof cwd === "string" && cwd.length > 0) {
-      persistedExpandedProjectCwds.add(cwd);
+  persistedExpandedProjectFolderSlugs.clear();
+  persistedProjectOrderFolderSlugs.length = 0;
+  for (const folderSlug of parsed.expandedProjectFolderSlugs ?? parsed.expandedProjectCwds ?? []) {
+    if (typeof folderSlug === "string" && folderSlug.length > 0) {
+      persistedExpandedProjectFolderSlugs.add(folderSlug);
     }
   }
-  for (const cwd of parsed.projectOrderCwds ?? []) {
-    if (typeof cwd === "string" && cwd.length > 0 && !persistedProjectOrderCwds.includes(cwd)) {
-      persistedProjectOrderCwds.push(cwd);
+  for (const folderSlug of parsed.projectOrderFolderSlugs ?? parsed.projectOrderCwds ?? []) {
+    if (
+      typeof folderSlug === "string" &&
+      folderSlug.length > 0 &&
+      !persistedProjectOrderFolderSlugs.includes(folderSlug)
+    ) {
+      persistedProjectOrderFolderSlugs.push(folderSlug);
     }
   }
 }
@@ -97,21 +103,21 @@ function persistState(state: UiState): void {
     return;
   }
   try {
-    const expandedProjectCwds = Object.entries(state.projectExpandedById)
+    const expandedProjectFolderSlugs = Object.entries(state.projectExpandedById)
       .filter(([, expanded]) => expanded)
       .flatMap(([projectId]) => {
-        const cwd = currentProjectCwdById.get(projectId as ProjectId);
-        return cwd ? [cwd] : [];
+        const folderSlug = currentProjectFolderSlugById.get(projectId as ProjectId);
+        return folderSlug ? [folderSlug] : [];
       });
-    const projectOrderCwds = state.projectOrder.flatMap((projectId) => {
-      const cwd = currentProjectCwdById.get(projectId);
-      return cwd ? [cwd] : [];
+    const projectOrderFolderSlugs = state.projectOrder.flatMap((projectId) => {
+      const folderSlug = currentProjectFolderSlugById.get(projectId);
+      return folderSlug ? [folderSlug] : [];
     });
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
-        expandedProjectCwds,
-        projectOrderCwds,
+        expandedProjectFolderSlugs,
+        projectOrderFolderSlugs,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -148,35 +154,42 @@ function projectOrdersEqual(left: readonly ProjectId[], right: readonly ProjectI
 }
 
 export function syncProjects(state: UiState, projects: readonly SyncProjectInput[]): UiState {
-  const previousProjectCwdById = new Map(currentProjectCwdById);
-  const previousProjectIdByCwd = new Map(
-    [...previousProjectCwdById.entries()].map(([projectId, cwd]) => [cwd, projectId] as const),
+  const previousProjectFolderSlugById = new Map(currentProjectFolderSlugById);
+  const previousProjectIdByFolderSlug = new Map(
+    [...previousProjectFolderSlugById.entries()].map(([projectId, folderSlug]) => [
+      folderSlug,
+      projectId,
+    ] as const),
   );
-  currentProjectCwdById.clear();
+  currentProjectFolderSlugById.clear();
   for (const project of projects) {
-    currentProjectCwdById.set(project.id, project.cwd);
+    currentProjectFolderSlugById.set(project.id, project.folderSlug);
   }
-  const cwdMappingChanged =
-    previousProjectCwdById.size !== currentProjectCwdById.size ||
-    projects.some((project) => previousProjectCwdById.get(project.id) !== project.cwd);
+  const folderSlugMappingChanged =
+    previousProjectFolderSlugById.size !== currentProjectFolderSlugById.size ||
+    projects.some(
+      (project) => previousProjectFolderSlugById.get(project.id) !== project.folderSlug,
+    );
 
   const nextExpandedById: Record<string, boolean> = {};
   const previousExpandedById = state.projectExpandedById;
-  const persistedOrderByCwd = new Map(
-    persistedProjectOrderCwds.map((cwd, index) => [cwd, index] as const),
+  const persistedOrderByFolderSlug = new Map(
+    persistedProjectOrderFolderSlugs.map((folderSlug, index) => [folderSlug, index] as const),
   );
   const mappedProjects = projects.map((project, index) => {
-    const previousProjectIdForCwd = previousProjectIdByCwd.get(project.cwd);
+    const previousProjectIdForFolderSlug = previousProjectIdByFolderSlug.get(project.folderSlug);
     const expanded =
       previousExpandedById[project.id] ??
-      (previousProjectIdForCwd ? previousExpandedById[previousProjectIdForCwd] : undefined) ??
-      (persistedExpandedProjectCwds.size > 0
-        ? persistedExpandedProjectCwds.has(project.cwd)
+      (previousProjectIdForFolderSlug
+        ? previousExpandedById[previousProjectIdForFolderSlug]
+        : undefined) ??
+      (persistedExpandedProjectFolderSlugs.size > 0
+        ? persistedExpandedProjectFolderSlugs.has(project.folderSlug)
         : true);
     nextExpandedById[project.id] = expanded;
     return {
       id: project.id,
-      cwd: project.cwd,
+      folderSlug: project.folderSlug,
       incomingIndex: index,
     };
   });
@@ -184,8 +197,8 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
   const nextProjectOrder =
     state.projectOrder.length > 0
       ? (() => {
-          const nextProjectIdByCwd = new Map(
-            mappedProjects.map((project) => [project.cwd, project.id] as const),
+          const nextProjectIdByFolderSlug = new Map(
+            mappedProjects.map((project) => [project.folderSlug, project.id] as const),
           );
           const usedProjectIds = new Set<ProjectId>();
           const orderedProjectIds: ProjectId[] = [];
@@ -194,8 +207,10 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
             const matchedProjectId =
               (projectId in nextExpandedById ? projectId : undefined) ??
               (() => {
-                const previousCwd = previousProjectCwdById.get(projectId);
-                return previousCwd ? nextProjectIdByCwd.get(previousCwd) : undefined;
+                const previousFolderSlug = previousProjectFolderSlugById.get(projectId);
+                return previousFolderSlug
+                  ? nextProjectIdByFolderSlug.get(previousFolderSlug)
+                  : undefined;
               })();
             if (!matchedProjectId || usedProjectIds.has(matchedProjectId)) {
               continue;
@@ -218,8 +233,8 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
             id: project.id,
             incomingIndex: project.incomingIndex,
             orderIndex:
-              persistedOrderByCwd.get(project.cwd) ??
-              persistedProjectOrderCwds.length + project.incomingIndex,
+              persistedOrderByFolderSlug.get(project.folderSlug) ??
+              persistedProjectOrderFolderSlugs.length + project.incomingIndex,
           }))
           .toSorted((left, right) => {
             const byOrder = left.orderIndex - right.orderIndex;
@@ -233,7 +248,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
   if (
     recordsEqual(state.projectExpandedById, nextExpandedById) &&
     projectOrdersEqual(state.projectOrder, nextProjectOrder) &&
-    !cwdMappingChanged
+    !folderSlugMappingChanged
   ) {
     return state;
   }

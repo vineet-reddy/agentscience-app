@@ -330,7 +330,9 @@ function EventRouter() {
     const reconcileSnapshotDerivedState = () => {
       const threads = useStore.getState().threads;
       const projects = useStore.getState().projects;
-      syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+      syncProjects(
+        projects.map((project) => ({ id: project.id, folderSlug: project.folderSlug })),
+      );
       syncThreads(
         threads.map((thread) => ({
           id: thread.id,
@@ -393,7 +395,9 @@ function EventRouter() {
       applyOrchestrationEvents(uiEvents);
       if (needsProjectUiSync) {
         const projects = useStore.getState().projects;
-        syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+        syncProjects(
+          projects.map((project) => ({ id: project.id, folderSlug: project.folderSlug })),
+        );
       }
       const needsThreadUiSync = nextEvents.some(
         (event) => event.type === "thread.created" || event.type === "thread.deleted",

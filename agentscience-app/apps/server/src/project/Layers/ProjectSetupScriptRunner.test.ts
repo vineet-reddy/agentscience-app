@@ -1,8 +1,10 @@
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { OrchestrationReadModel } from "@agentscience/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { ProjectSetupScriptRunner } from "../Services/ProjectSetupScriptRunner.ts";
 import { ProjectSetupScriptRunnerLive } from "./ProjectSetupScriptRunner.ts";
@@ -17,7 +19,7 @@ const emptySnapshot = (
       {
         id: "project-1",
         title: "Project",
-        workspaceRoot: "/repo/project",
+        folderSlug: "project",
         defaultModelSelection: null,
         scripts,
         createdAt: "2026-01-01T00:00:00.000Z",
@@ -59,6 +61,8 @@ describe("ProjectSetupScriptRunner", () => {
                 subscribe: () => Effect.succeed(() => undefined),
               }),
             ),
+            Layer.provideMerge(ServerSettingsService.layerTest({ workspaceRoot: "/repo" })),
+            Layer.provideMerge(NodeServices.layer),
           ),
         ),
       ),
@@ -127,6 +131,8 @@ describe("ProjectSetupScriptRunner", () => {
                 subscribe: () => Effect.succeed(() => undefined),
               }),
             ),
+            Layer.provideMerge(ServerSettingsService.layerTest({ workspaceRoot: "/repo" })),
+            Layer.provideMerge(NodeServices.layer),
           ),
         ),
       ),
@@ -135,7 +141,7 @@ describe("ProjectSetupScriptRunner", () => {
     const result = await Effect.runPromise(
       runner.runForThread({
         threadId: "thread-1",
-        projectCwd: "/repo/project",
+        projectCwd: "/repo/Projects/project",
         worktreePath: "/repo/worktrees/a",
       }),
     );
@@ -153,7 +159,7 @@ describe("ProjectSetupScriptRunner", () => {
       cwd: "/repo/worktrees/a",
       worktreePath: "/repo/worktrees/a",
       env: {
-        AGENTSCIENCE_PROJECT_ROOT: "/repo/project",
+        AGENTSCIENCE_PROJECT_ROOT: "/repo/Projects/project",
         AGENTSCIENCE_WORKTREE_PATH: "/repo/worktrees/a",
       },
     });

@@ -24,6 +24,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     id: ThreadId.makeUnsafe("thread-1"),
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project-1"),
+    folderSlug: "thread",
+    resolvedWorkspacePath: "/tmp/project/papers/thread",
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -58,7 +60,8 @@ function makeState(thread: Thread): AppState {
       {
         id: ProjectId.makeUnsafe("project-1"),
         name: "Project",
-        cwd: "/tmp/project",
+        folderSlug: "project",
+        cwd: null,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -104,6 +107,8 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
   return {
     id: ThreadId.makeUnsafe("thread-1"),
     projectId: ProjectId.makeUnsafe("project-1"),
+    folderSlug: "thread",
+    resolvedWorkspacePath: "/tmp/project/papers/thread",
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -135,7 +140,7 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
       {
         id: ProjectId.makeUnsafe("project-1"),
         title: "Project",
-        workspaceRoot: "/tmp/project",
+        folderSlug: "project",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5.3-codex",
@@ -156,7 +161,7 @@ function makeReadModelProject(
   return {
     id: ProjectId.makeUnsafe("project-1"),
     title: "Project",
-    workspaceRoot: "/tmp/project",
+    folderSlug: "project",
     defaultModelSelection: {
       provider: "codex",
       model: "gpt-5.3-codex",
@@ -219,7 +224,8 @@ describe("store read model sync", () => {
         {
           id: project2,
           name: "Project 2",
-          cwd: "/tmp/project-2",
+          folderSlug: "project-2",
+          cwd: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -229,7 +235,8 @@ describe("store read model sync", () => {
         {
           id: project1,
           name: "Project 1",
-          cwd: "/tmp/project-1",
+          folderSlug: "project-1",
+          cwd: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -249,17 +256,17 @@ describe("store read model sync", () => {
         makeReadModelProject({
           id: project1,
           title: "Project 1",
-          workspaceRoot: "/tmp/project-1",
+          folderSlug: "project-1",
         }),
         makeReadModelProject({
           id: project2,
           title: "Project 2",
-          workspaceRoot: "/tmp/project-2",
+          folderSlug: "project-2",
         }),
         makeReadModelProject({
           id: project3,
           title: "Project 3",
-          workspaceRoot: "/tmp/project-3",
+          folderSlug: "project-3",
         }),
       ],
       threads: [],
@@ -313,7 +320,7 @@ describe("incremental orchestration updates", () => {
     expect(nextAfterThreadDelete).toBe(state);
   });
 
-  it("reuses an existing project row when project.created arrives with a new id for the same cwd", () => {
+  it("appends a distinct project row when project.created arrives with a new id", () => {
     const originalProjectId = ProjectId.makeUnsafe("project-1");
     const recreatedProjectId = ProjectId.makeUnsafe("project-2");
     const state: AppState = {
@@ -321,7 +328,8 @@ describe("incremental orchestration updates", () => {
         {
           id: originalProjectId,
           name: "Project",
-          cwd: "/tmp/project",
+          folderSlug: "project-1",
+          cwd: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -340,7 +348,7 @@ describe("incremental orchestration updates", () => {
       makeEvent("project.created", {
         projectId: recreatedProjectId,
         title: "Project Recreated",
-        workspaceRoot: "/tmp/project",
+        folderSlug: "project-2",
         defaultModelSelection: {
           provider: "codex",
           model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -351,10 +359,10 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.projects).toHaveLength(1);
-    expect(next.projects[0]?.id).toBe(recreatedProjectId);
-    expect(next.projects[0]?.cwd).toBe("/tmp/project");
-    expect(next.projects[0]?.name).toBe("Project Recreated");
+    expect(next.projects).toHaveLength(2);
+    expect(next.projects[1]?.id).toBe(recreatedProjectId);
+    expect(next.projects[1]?.folderSlug).toBe("project-2");
+    expect(next.projects[1]?.name).toBe("Project Recreated");
   });
 
   it("removes stale project index entries when thread.created recreates a thread under a new project", () => {
@@ -370,7 +378,8 @@ describe("incremental orchestration updates", () => {
         {
           id: originalProjectId,
           name: "Project 1",
-          cwd: "/tmp/project-1",
+          folderSlug: "project-1",
+          cwd: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -380,7 +389,8 @@ describe("incremental orchestration updates", () => {
         {
           id: recreatedProjectId,
           name: "Project 2",
-          cwd: "/tmp/project-2",
+          folderSlug: "project-2",
+          cwd: null,
           defaultModelSelection: {
             provider: "codex",
             model: DEFAULT_MODEL_BY_PROVIDER.codex,
@@ -401,6 +411,7 @@ describe("incremental orchestration updates", () => {
       makeEvent("thread.created", {
         threadId,
         projectId: recreatedProjectId,
+        folderSlug: "recovered-thread",
         title: "Recovered thread",
         modelSelection: {
           provider: "codex",

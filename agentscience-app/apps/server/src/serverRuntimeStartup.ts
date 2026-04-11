@@ -1,11 +1,9 @@
-import { CommandId, type ModelSelection, ProjectId, ThreadId } from "@agentscience/contracts";
 import {
   Data,
   Deferred,
   Effect,
   Exit,
   Layer,
-  Option,
   Path,
   Queue,
   Ref,
@@ -16,7 +14,6 @@ import {
 import { ServerConfig } from "./config";
 import { Keybindings } from "./keybindings";
 import { Open } from "./open";
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
@@ -145,56 +142,7 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
 
 const autoBootstrapWelcome = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
-  const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
-  const orchestrationEngine = yield* OrchestrationEngineService;
   const path = yield* Path.Path;
-
-  let bootstrapProjectId: ProjectId | undefined;
-  let bootstrapThreadId: ThreadId | undefined;
-
-  if (serverConfig.autoBootstrapProjectFromCwd) {
-    yield* Effect.gen(function* () {
-      const existingProject = yield* projectionReadModelQuery.getActiveProjectByWorkspaceRoot(
-        serverConfig.cwd,
-      );
-      let nextProjectId: ProjectId;
-      let nextProjectDefaultModelSelection: ModelSelection;
-
-      if (Option.isNone(existingProject)) {
-        const createdAt = new Date().toISOString();
-        nextProjectId = ProjectId.makeUnsafe(crypto.randomUUID());
-        const bootstrapProjectTitle = path.basename(serverConfig.cwd) || "project";
-        nextProjectDefaultModelSelection = {
-          provider: "codex",
-          model: "gpt-5-codex",
-        };
-        yield* orchestrationEngine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe(crypto.randomUUID()),
-          projectId: nextProjectId,
-          title: bootstrapProjectTitle,
-          workspaceRoot: serverConfig.cwd,
-          defaultModelSelection: nextProjectDefaultModelSelection,
-          createdAt,
-        });
-      } else {
-        nextProjectId = existingProject.value.id;
-        nextProjectDefaultModelSelection = existingProject.value.defaultModelSelection ?? {
-          provider: "codex",
-          model: "gpt-5-codex",
-        };
-      }
-
-      const existingThreadId =
-        yield* projectionReadModelQuery.getFirstActiveThreadIdByProjectId(nextProjectId);
-      if (Option.isNone(existingThreadId)) {
-        return;
-      } else {
-        bootstrapProjectId = nextProjectId;
-        bootstrapThreadId = existingThreadId.value;
-      }
-    });
-  }
 
   const segments = serverConfig.cwd.split(/[/\\]/).filter(Boolean);
   const projectName = segments[segments.length - 1] ?? "project";
@@ -202,8 +150,6 @@ const autoBootstrapWelcome = Effect.gen(function* () {
   return {
     cwd: serverConfig.cwd,
     projectName,
-    ...(bootstrapProjectId ? { bootstrapProjectId } : {}),
-    ...(bootstrapThreadId ? { bootstrapThreadId } : {}),
   } as const;
 });
 
@@ -300,8 +246,6 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
     yield* Effect.logDebug("startup phase: publishing welcome event", {
       cwd: welcome.cwd,
       projectName: welcome.projectName,
-      bootstrapProjectId: welcome.bootstrapProjectId,
-      bootstrapThreadId: welcome.bootstrapThreadId,
     });
     yield* runStartupPhase(
       "welcome.publish",

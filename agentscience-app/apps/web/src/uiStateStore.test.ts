@@ -74,16 +74,16 @@ describe("uiStateStore pure functions", () => {
     });
 
     const next = syncProjects(initialState, [
-      { id: project1, cwd: "/tmp/project-1" },
-      { id: project2, cwd: "/tmp/project-2" },
-      { id: project3, cwd: "/tmp/project-3" },
+      { id: project1, folderSlug: "project-1" },
+      { id: project2, folderSlug: "project-2" },
+      { id: project3, folderSlug: "project-3" },
     ]);
 
     expect(next.projectOrder).toEqual([project2, project1, project3]);
     expect(next.projectExpandedById[project2]).toBe(false);
   });
 
-  it("syncProjects preserves manual order when a project is recreated with the same cwd", () => {
+  it("syncProjects preserves manual order when a project is recreated with the same folder slug", () => {
     const oldProject1 = ProjectId.makeUnsafe("project-1");
     const oldProject2 = ProjectId.makeUnsafe("project-2");
     const recreatedProject2 = ProjectId.makeUnsafe("project-2b");
@@ -96,21 +96,21 @@ describe("uiStateStore pure functions", () => {
         projectOrder: [oldProject2, oldProject1],
       }),
       [
-        { id: oldProject1, cwd: "/tmp/project-1" },
-        { id: oldProject2, cwd: "/tmp/project-2" },
+        { id: oldProject1, folderSlug: "project-1" },
+        { id: oldProject2, folderSlug: "project-2" },
       ],
     );
 
     const next = syncProjects(initialState, [
-      { id: oldProject1, cwd: "/tmp/project-1" },
-      { id: recreatedProject2, cwd: "/tmp/project-2" },
+      { id: oldProject1, folderSlug: "project-1" },
+      { id: recreatedProject2, folderSlug: "project-2" },
     ]);
 
     expect(next.projectOrder).toEqual([recreatedProject2, oldProject1]);
     expect(next.projectExpandedById[recreatedProject2]).toBe(false);
   });
 
-  it("syncProjects returns a new state when only project cwd changes", () => {
+  it("syncProjects returns a new state when only the project folder slug changes", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const initialState = syncProjects(
       makeUiState({
@@ -119,10 +119,10 @@ describe("uiStateStore pure functions", () => {
         },
         projectOrder: [project1],
       }),
-      [{ id: project1, cwd: "/tmp/project-1" }],
+      [{ id: project1, folderSlug: "project-1" }],
     );
 
-    const next = syncProjects(initialState, [{ id: project1, cwd: "/tmp/project-1-renamed" }]);
+    const next = syncProjects(initialState, [{ id: project1, folderSlug: "project-1-renamed" }]);
 
     expect(next).not.toBe(initialState);
     expect(next.projectOrder).toEqual([project1]);

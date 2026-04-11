@@ -104,7 +104,7 @@ const makeDefaultOrchestrationReadModel = () => {
       {
         id: defaultProjectId,
         title: "Default Project",
-        workspaceRoot: "/tmp/default-project",
+        folderSlug: "default-project",
         defaultModelSelection,
         scripts: [],
         createdAt: now,
@@ -116,6 +116,8 @@ const makeDefaultOrchestrationReadModel = () => {
       {
         id: defaultThreadId,
         projectId: defaultProjectId,
+        folderSlug: "default-thread",
+        resolvedWorkspacePath: "/tmp/AgentScience/Projects/default-project/papers/default-thread",
         title: "Default Thread",
         modelSelection: defaultModelSelection,
         interactionMode: "default" as const,
@@ -1902,7 +1904,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           {
             id: ProjectId.makeUnsafe("project-a"),
             title: "Project A",
-            workspaceRoot: "/tmp/project-a",
+            folderSlug: "project-a",
             defaultModelSelection,
             scripts: [],
             createdAt: now,
@@ -1914,6 +1916,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           {
             id: ThreadId.makeUnsafe("thread-1"),
             projectId: ProjectId.makeUnsafe("project-a"),
+            folderSlug: "thread-a",
+            resolvedWorkspacePath: "/tmp/AgentScience/Projects/project-a/papers/thread-a",
             title: "Thread A",
             modelSelection: defaultModelSelection,
             interactionMode: "default" as const,
@@ -2110,6 +2114,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               bootstrap: {
                 createThread: {
                   projectId: defaultProjectId,
+                  folderSlug: "bootstrap-thread",
                   title: "Bootstrap Thread",
                   modelSelection: defaultModelSelection,
                   runtimeMode: "full-access",
@@ -2225,6 +2230,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             bootstrap: {
               createThread: {
                 projectId: defaultProjectId,
+                folderSlug: "bootstrap-thread",
                 title: "Bootstrap Thread",
                 modelSelection: defaultModelSelection,
                 runtimeMode: "full-access",
@@ -2341,6 +2347,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             bootstrap: {
               createThread: {
                 projectId: defaultProjectId,
+                folderSlug: "bootstrap-thread",
                 title: "Bootstrap Thread",
                 modelSelection: defaultModelSelection,
                 runtimeMode: "full-access",
@@ -2424,6 +2431,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             bootstrap: {
               createThread: {
                 projectId: defaultProjectId,
+                folderSlug: "bootstrap-thread",
                 title: "Bootstrap Thread",
                 modelSelection: defaultModelSelection,
                 runtimeMode: "full-access",

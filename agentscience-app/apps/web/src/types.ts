@@ -81,7 +81,8 @@ export interface TurnDiffSummary {
 export interface Project {
   id: ProjectId;
   name: string;
-  cwd: string;
+  folderSlug: string;
+  cwd: string | null;
   defaultModelSelection: ModelSelection | null;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
@@ -92,6 +93,8 @@ export interface Thread {
   id: ThreadId;
   codexThreadId: string | null;
   projectId: ProjectId | null;
+  folderSlug: string;
+  resolvedWorkspacePath: string | null;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;

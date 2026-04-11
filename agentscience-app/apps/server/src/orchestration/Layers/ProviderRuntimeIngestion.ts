@@ -531,10 +531,7 @@ const make = Effect.fn("make")(function* () {
     if (!thread) {
       return false;
     }
-    const workspaceCwd = resolveThreadWorkspaceCwd({
-      thread,
-      projects: readModel.projects,
-    });
+    const workspaceCwd = resolveThreadWorkspaceCwd({ thread });
     if (!workspaceCwd) {
       return false;
     }

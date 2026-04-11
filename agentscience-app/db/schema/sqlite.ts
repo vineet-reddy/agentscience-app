@@ -34,7 +34,7 @@ export const researchProjects = sqliteTable(
     projectId: text("project_id").primaryKey(),
     userId: text("user_id").notNull(),
     workspaceId: text("workspace_id"),
-    workspaceRoot: text("workspace_root"),
+    folderSlug: text("folder_slug").notNull(),
     title: text("title").notNull(),
     description: text("description"),
     status: text("status").notNull().default("active"),
@@ -49,10 +49,7 @@ export const researchProjects = sqliteTable(
     archivedAt: text("archived_at"),
   },
   (table) => [
-    uniqueIndex("idx_sqlite_research_projects_user_workspace_root").on(
-      table.userId,
-      table.workspaceRoot,
-    ),
+    uniqueIndex("idx_sqlite_research_projects_user_folder_slug").on(table.userId, table.folderSlug),
     index("idx_sqlite_research_projects_user_updated").on(table.userId, table.updatedAt),
   ],
 );
@@ -61,11 +58,12 @@ export const researchChats = sqliteTable(
   "research_chats",
   {
     chatId: text("chat_id").primaryKey(),
-    projectId: text("project_id")
-      .notNull()
-      .references(() => researchProjects.projectId, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => researchProjects.projectId, {
+      onDelete: "cascade",
+    }),
     userId: text("user_id").notNull(),
     workspaceId: text("workspace_id"),
+    folderSlug: text("folder_slug").notNull(),
     title: text("title").notNull(),
     agentProfile: text("agent_profile").notNull().default("agentscience"),
     status: text("status").notNull().default("active"),

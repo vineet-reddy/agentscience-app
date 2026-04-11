@@ -155,15 +155,14 @@ const make = Effect.gen(function* () {
   // a git repository.
   const resolveCheckpointCwd = Effect.fn("resolveCheckpointCwd")(function* (input: {
     readonly threadId: ThreadId;
-    readonly thread: { readonly projectId: ProjectId | null; readonly worktreePath: string | null };
-    readonly projects: ReadonlyArray<{ readonly id: ProjectId; readonly workspaceRoot: string }>;
+    readonly thread: {
+      readonly resolvedWorkspacePath: string | null;
+      readonly worktreePath: string | null;
+    };
     readonly preferSessionRuntime: boolean;
   }): Effect.fn.Return<string | undefined> {
     const fromSession = yield* resolveSessionRuntimeForThread(input.threadId);
-    const fromThread = resolveThreadWorkspaceCwd({
-      thread: input.thread,
-      projects: input.projects,
-    });
+    const fromThread = resolveThreadWorkspaceCwd({ thread: input.thread });
 
     const cwd = input.preferSessionRuntime
       ? (Option.match(fromSession, {
@@ -353,7 +352,6 @@ const make = Effect.gen(function* () {
       const checkpointCwd = yield* resolveCheckpointCwd({
         threadId: thread.id,
         thread,
-        projects: readModel.projects,
         preferSessionRuntime: true,
       });
       if (!checkpointCwd) {
@@ -429,7 +427,6 @@ const make = Effect.gen(function* () {
     const checkpointCwd = yield* resolveCheckpointCwd({
       threadId,
       thread,
-      projects: readModel.projects,
       preferSessionRuntime: true,
     });
     if (!checkpointCwd) {
@@ -464,7 +461,6 @@ const make = Effect.gen(function* () {
       const checkpointCwd = yield* resolveCheckpointCwd({
         threadId: thread.id,
         thread,
-        projects: readModel.projects,
         preferSessionRuntime: false,
       });
       if (!checkpointCwd) {
@@ -526,7 +522,6 @@ const make = Effect.gen(function* () {
     const checkpointCwd = yield* resolveCheckpointCwd({
       threadId,
       thread,
-      projects: readModel.projects,
       preferSessionRuntime: false,
     });
     if (!checkpointCwd) {

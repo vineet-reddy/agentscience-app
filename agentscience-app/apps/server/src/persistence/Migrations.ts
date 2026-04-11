@@ -35,6 +35,8 @@ import Migration0019 from "./Migrations/019_ProjectionSnapshotLookupIndexes.ts";
 import Migration0020 from "./Migrations/020_AgentScienceLocalSchema.ts";
 import Migration0021 from "./Migrations/021_AgentScienceProjectWorkspaceRoot.ts";
 import Migration0022 from "./Migrations/022_NullableThreadProjectIds.ts";
+import Migration0023 from "./Migrations/023_WorkspaceRefactor.ts";
+import Migration0024 from "./Migrations/024_NullableThreadProjectIds.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -69,6 +71,8 @@ export const migrationEntries = [
   [20, "AgentScienceLocalSchema", Migration0020],
   [21, "AgentScienceProjectWorkspaceRoot", Migration0021],
   [22, "NullableThreadProjectIds", Migration0022],
+  [23, "WorkspaceRefactor", Migration0023],
+  [24, "NullableThreadProjectIds", Migration0024],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

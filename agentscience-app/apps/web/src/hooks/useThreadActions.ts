@@ -97,7 +97,8 @@ export function useThreadActions() {
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;
-      const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
+      const projectWorkspacePath = thread.resolvedWorkspacePath ?? threadProject?.cwd ?? null;
+      const canDeleteWorktree = orphanedWorktreePath !== null && projectWorkspacePath !== null;
       const shouldDeleteWorktree =
         canDeleteWorktree &&
         (await api.dialogs.confirm(
@@ -155,13 +156,13 @@ export function useThreadActions() {
         }
       }
 
-      if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
+      if (!shouldDeleteWorktree || !orphanedWorktreePath || !projectWorkspacePath) {
         return;
       }
 
       try {
         await removeWorktreeMutation.mutateAsync({
-          cwd: threadProject.cwd,
+          cwd: projectWorkspacePath,
           path: orphanedWorktreePath,
           force: true,
         });
@@ -169,7 +170,7 @@ export function useThreadActions() {
         const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
         console.error("Failed to remove orphaned worktree after thread deletion", {
           threadId,
-          projectCwd: threadProject.cwd,
+          projectCwd: projectWorkspacePath,
           worktreePath: orphanedWorktreePath,
           error,
         });

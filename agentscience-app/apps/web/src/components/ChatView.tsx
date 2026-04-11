@@ -124,6 +124,7 @@ import {
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -447,23 +448,23 @@ function PersistentThreadTerminalDrawer({
   const cwd = useMemo(
     () =>
       launchContext?.cwd ??
-      (project
+      (serverThread?.resolvedWorkspacePath
         ? projectScriptCwd({
-            project: { cwd: project.cwd },
+            project: { cwd: serverThread.resolvedWorkspacePath },
             worktreePath: effectiveWorktreePath,
           })
         : null),
-    [effectiveWorktreePath, launchContext?.cwd, project],
+    [effectiveWorktreePath, launchContext?.cwd, serverThread?.resolvedWorkspacePath],
   );
   const runtimeEnv = useMemo(
     () =>
-      project
+      serverThread?.resolvedWorkspacePath
         ? projectScriptRuntimeEnv({
-            project: { cwd: project.cwd },
+            project: { cwd: serverThread.resolvedWorkspacePath },
             worktreePath: effectiveWorktreePath,
           })
         : {},
-    [effectiveWorktreePath, project],
+    [effectiveWorktreePath, serverThread?.resolvedWorkspacePath],
   );
 
   const bumpFocusRequestId = useCallback(() => {
@@ -753,6 +754,17 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const threads = useStore((state) => state.threads);
   const serverThreadIds = useMemo(() => threads.map((thread) => thread.id), [threads]);
+  const nextThreadFolderSlug = useCallback(
+    (projectId: ProjectId | null, title: string) =>
+      nextWorkspaceSlug(
+        title,
+        threads
+          .filter((thread) => thread.projectId === projectId)
+          .map((thread) => thread.folderSlug),
+        "paper",
+      ),
+    [threads],
+  );
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const draftThreadIds = useMemo(
     () => Object.keys(draftThreadsByThreadId) as ThreadId[],
@@ -1381,7 +1393,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [activeLatestTurn, completionSummary, latestTurnSettled, timelineEntries]);
   const gitCwd = activeProject
     ? projectScriptCwd({
-        project: { cwd: activeProject.cwd },
+        project: { cwd: activeThread?.resolvedWorkspacePath ?? activeProject.cwd ?? "" },
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
@@ -1517,7 +1529,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => providerStatuses.find((status) => status.provider === selectedProvider) ?? null,
     [selectedProvider, providerStatuses],
   );
-  const activeProjectCwd = activeProject?.cwd ?? null;
+  const activeProjectCwd = activeThread?.resolvedWorkspacePath ?? activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
   const activeTerminalLaunchContext =
@@ -1728,13 +1740,15 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ) => {
       const api = readNativeApi();
       if (!api || !activeThreadId || !activeProject || !activeThread) return;
+      const projectWorkspacePath = activeThread.resolvedWorkspacePath ?? activeProject.cwd;
+      if (!projectWorkspacePath) return;
       if (options?.rememberAsLastInvoked !== false) {
         setLastInvokedScriptByProjectId((current) => {
           if (current[activeProject.id] === script.id) return current;
           return { ...current, [activeProject.id]: script.id };
         });
       }
-      const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
+      const targetCwd = options?.cwd ?? gitCwd ?? projectWorkspacePath;
       const baseTerminalId =
         terminalState.activeTerminalId ||
         terminalState.terminalIds[0] ||
@@ -1762,7 +1776,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       const runtimeEnv = projectScriptRuntimeEnv({
         project: {
-          cwd: activeProject.cwd,
+          cwd: projectWorkspacePath,
         },
         worktreePath: targetWorktreePath,
         ...(options?.env ? { extraEnv: options.env } : {}),
@@ -1870,7 +1884,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       await persistProjectScripts({
         projectId: activeProject.id,
-        projectCwd: activeProject.cwd,
+        projectCwd: activeThread?.resolvedWorkspacePath ?? activeProject.cwd ?? "",
         previousScripts: activeProject.scripts,
         nextScripts,
         keybinding: input.keybinding,
@@ -1904,7 +1918,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       await persistProjectScripts({
         projectId: activeProject.id,
-        projectCwd: activeProject.cwd,
+        projectCwd: activeThread?.resolvedWorkspacePath ?? activeProject.cwd ?? "",
         previousScripts: activeProject.scripts,
         nextScripts,
         keybinding: input.keybinding,
@@ -1923,7 +1937,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       try {
         await persistProjectScripts({
           projectId: activeProject.id,
-          projectCwd: activeProject.cwd,
+          projectCwd: activeThread?.resolvedWorkspacePath ?? activeProject.cwd ?? "",
           previousScripts: activeProject.scripts,
           nextScripts,
           keybinding: null,
@@ -3045,6 +3059,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 ? {
                     createThread: {
                       projectId: activeProject?.id ?? null,
+                      folderSlug: nextThreadFolderSlug(activeProject?.id ?? null, title),
                       title,
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
@@ -3058,7 +3073,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               ...(baseBranchForWorktree && activeProject
                 ? {
                     prepareWorktree: {
-                      projectCwd: activeProject.cwd,
+                      projectCwd: activeThread.resolvedWorkspacePath ?? activeProject.cwd ?? "",
                       baseBranch: baseBranchForWorktree,
                       branch: buildTemporaryWorktreeBranchName(),
                     },
@@ -3449,6 +3464,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         commandId: newCommandId(),
         threadId: nextThreadId,
         projectId: activeProject?.id ?? null,
+        folderSlug: nextThreadFolderSlug(activeProject?.id ?? null, nextThreadTitle),
         title: nextThreadTitle,
         modelSelection: nextThreadModelSelection,
         runtimeMode,

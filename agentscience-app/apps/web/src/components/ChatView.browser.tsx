@@ -260,7 +260,7 @@ function createSnapshotForTargetUser(options: {
       {
         id: PROJECT_ID,
         title: "Project",
-        workspaceRoot: "/repo/project",
+        folderSlug: "project",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -275,6 +275,8 @@ function createSnapshotForTargetUser(options: {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
+        folderSlug: "browser-test-thread",
+        resolvedWorkspacePath: "/repo/project/papers/browser-test-thread",
         title: "Browser test thread",
         modelSelection: {
           provider: "codex",
@@ -333,6 +335,8 @@ function addThreadToSnapshot(
       {
         id: threadId,
         projectId: PROJECT_ID,
+        folderSlug: "new-thread",
+        resolvedWorkspacePath: "/repo/project/papers/new-thread",
         title: "New thread",
         modelSelection: {
           provider: "codex",
@@ -380,6 +384,7 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
     payload: {
       threadId,
       projectId: PROJECT_ID,
+      folderSlug: "new-thread",
       title: "New thread",
       modelSelection: {
         provider: "codex",

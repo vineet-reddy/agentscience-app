@@ -84,7 +84,7 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
       commandId: " cmd-1 ",
       projectId: " project-1 ",
       title: " Project Title ",
-      workspaceRoot: " /tmp/workspace ",
+      folderSlug: " project-title ",
       defaultModelSelection: {
         provider: "codex",
         model: " gpt-5.2 ",
@@ -94,7 +94,7 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
     assert.strictEqual(parsed.commandId, "cmd-1");
     assert.strictEqual(parsed.projectId, "project-1");
     assert.strictEqual(parsed.title, "Project Title");
-    assert.strictEqual(parsed.workspaceRoot, "/tmp/workspace");
+    assert.strictEqual(parsed.folderSlug, "project-title");
     assert.deepStrictEqual(parsed.defaultModelSelection, {
       provider: "codex",
       model: "gpt-5.2",
@@ -107,7 +107,7 @@ it.effect("decodes historical project.created payloads with a default provider",
     const parsed = yield* decodeProjectCreatedPayload({
       projectId: "project-1",
       title: "Project Title",
-      workspaceRoot: "/tmp/workspace",
+      folderSlug: "project-title",
       defaultModelSelection: {
         provider: "codex",
         model: "gpt-5.4",
@@ -142,7 +142,7 @@ it.effect("rejects command fields that become empty after trim", () =>
         commandId: "cmd-1",
         projectId: "project-1",
         title: "  ",
-        workspaceRoot: "/tmp/workspace",
+        folderSlug: "project-title",
         createdAt: "2026-01-01T00:00:00.000Z",
       }),
     );
@@ -210,6 +210,7 @@ it.effect("accepts bootstrap metadata in thread.turn.start", () =>
       bootstrap: {
         createThread: {
           projectId: "project-1",
+          folderSlug: "bootstrap-thread",
           title: "Bootstrap thread",
           modelSelection: {
             provider: "codex",
@@ -241,6 +242,7 @@ it.effect("decodes thread.created runtime mode for historical events", () =>
     const parsed = yield* decodeThreadCreatedPayload({
       threadId: "thread-1",
       projectId: "project-1",
+      folderSlug: "thread-title",
       title: "Thread title",
       modelSelection: {
         provider: "codex",
