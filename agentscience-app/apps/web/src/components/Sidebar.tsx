@@ -35,6 +35,7 @@ import {
   buildSidebarThreadEntries,
   type SidebarThreadEntryRecord,
 } from "./Sidebar.logic";
+import { dispatchCommandAndSyncSnapshot } from "./Sidebar.rename";
 import { toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
 import {
@@ -101,6 +102,7 @@ export default function Sidebar() {
   const projects = useStore((state) => state.projects);
   const sidebarThreadsById = useStore((state) => state.sidebarThreadsById);
   const threadIdsByProjectId = useStore((state) => state.threadIdsByProjectId);
+  const syncServerReadModel = useStore((state) => state.syncServerReadModel);
   const draftThreadsByThreadId = useComposerDraftStore(
     (state) => state.draftThreadsByThreadId,
   );
@@ -266,12 +268,12 @@ export default function Sidebar() {
     }
 
     try {
-      await api.orchestration.dispatchCommand({
+      await dispatchCommandAndSyncSnapshot(api, {
         type: "project.meta.update",
         commandId: newCommandId(),
         projectId,
         title: nextTitle,
-      });
+      }, syncServerReadModel);
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -301,12 +303,12 @@ export default function Sidebar() {
     }
 
     try {
-      await api.orchestration.dispatchCommand({
+      await dispatchCommandAndSyncSnapshot(api, {
         type: "thread.meta.update",
         commandId: newCommandId(),
         threadId,
         title: nextTitle,
-      });
+      }, syncServerReadModel);
     } catch (error) {
       toastManager.add({
         type: "error",
