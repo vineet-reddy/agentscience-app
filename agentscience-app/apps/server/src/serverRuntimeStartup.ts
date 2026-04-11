@@ -10,6 +10,10 @@ import {
   Scope,
   ServiceMap,
 } from "effect";
+import {
+  PERSONALITY_CONTENT_HASH,
+  PERSONALITY_VERSION,
+} from "@agentscience/personality";
 
 import { ServerConfig } from "./config";
 import { Open } from "./open";
@@ -194,6 +198,10 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Scope.close(reactorScope, Exit.void));
 
   const startup = Effect.gen(function* () {
+    yield* Effect.logInfo("agentscience personality loaded", {
+      personalityVersion: PERSONALITY_VERSION,
+      personalityContentHash: PERSONALITY_CONTENT_HASH,
+    });
     yield* Effect.logDebug("startup phase: starting server settings runtime");
     yield* runStartupPhase(
       "settings.start",

@@ -38,6 +38,7 @@
         "agentscience-server": "./dist/bin.mjs",
       },
       "dependencies": {
+        "@agentscience/personality": "^1.0.1",
         "@effect/platform-bun": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/sql-sqlite-bun": "catalog:",
@@ -181,6 +182,8 @@
     "@agentscience/contracts": ["@agentscience/contracts@workspace:packages/contracts"],
 
     "@agentscience/desktop": ["@agentscience/desktop@workspace:apps/desktop"],
+
+    "@agentscience/personality": ["@agentscience/personality@1.0.1", "", {}, "sha512-DZTJWZf9FI06805KtrGh4W9UEXuDRVd1bNP4fgcI7XxkABcoCYCg/5GRmemgkpuxGizqhtIBeYqcKq7RekwXkA=="],
 
     "@agentscience/scripts": ["@agentscience/scripts@workspace:scripts"],
 

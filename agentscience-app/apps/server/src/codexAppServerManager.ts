@@ -18,6 +18,10 @@ import {
   RuntimeMode,
   ProviderInteractionMode,
 } from "@agentscience/contracts";
+import {
+  compileCodexDeveloperInstructions,
+  loadPersonality,
+} from "@agentscience/personality";
 import { normalizeModelSlug } from "@agentscience/shared/model";
 import { Effect, ServiceMap } from "effect";
 
@@ -289,6 +293,20 @@ The \`request_user_input\` tool is unavailable in Default mode. If you call it w
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
 </collaboration_mode>`;
 
+const AGENTSCIENCE_PERSONALITY = loadPersonality();
+
+export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version;
+export const AGENTSCIENCE_PERSONALITY_CONTENT_HASH = AGENTSCIENCE_PERSONALITY.contentHash;
+
+export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): string {
+  const collaborationModeInstructions =
+    mode === "plan"
+      ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
+      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
+
+  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${collaborationModeInstructions}`;
+}
+
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: "on-request" | "never";
   readonly sandbox: "workspace-write" | "danger-full-access";
@@ -354,10 +372,7 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
-          ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-          : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      developer_instructions: buildCodexModeDeveloperInstructions(input.interactionMode),
     },
   };
 }

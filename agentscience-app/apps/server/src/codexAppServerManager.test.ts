@@ -6,9 +6,8 @@ import path from "node:path";
 import { ApprovalRequestId, ThreadId } from "@agentscience/contracts";
 
 import {
+  buildCodexModeDeveloperInstructions,
   buildCodexInitializeParams,
-  CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
-  CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   CodexAppServerManager,
   classifyCodexStderrLine,
   isRecoverableThreadResumeError,
@@ -570,7 +569,7 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.3-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: buildCodexModeDeveloperInstructions("plan"),
         },
       },
     });
@@ -600,10 +599,28 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.3-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: buildCodexModeDeveloperInstructions("default"),
         },
       },
     });
+  });
+
+  it("injects AgentScience personality tags into every collaboration mode turn", async () => {
+    const { manager, sendRequest } = createSendTurnHarness();
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Help me start a paper",
+      interactionMode: "default",
+    });
+
+    const requestParams = sendRequest.mock.calls[0]?.[2] as {
+      collaborationMode?: { settings?: { developer_instructions?: string } };
+    };
+
+    expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain(
+      "<agentscience_personality>",
+    );
   });
 
   it("keeps the session model when interaction mode is set without an explicit model", async () => {
@@ -631,7 +648,7 @@ describe("sendTurn", () => {
         settings: {
           model: "gpt-5.2-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: buildCodexModeDeveloperInstructions("plan"),
         },
       },
     });
