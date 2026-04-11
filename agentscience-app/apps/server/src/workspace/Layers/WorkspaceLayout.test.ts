@@ -174,4 +174,65 @@ it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
         }),
     );
   });
+
+  describe("moveWorkspaceRoot", () => {
+    it.effect("moves the workspace tree into an empty destination root", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceLayout = yield* WorkspaceLayout;
+        const tempDir = yield* makeTempDir();
+        const fromWorkspaceRoot = path.join(tempDir, "AgentScience");
+        const toWorkspaceRoot = path.join(tempDir, "MovedAgentScience");
+
+        yield* workspaceLayout.ensureRoot(fromWorkspaceRoot);
+        yield* workspaceLayout.createPaperFolder({
+          workspaceRoot: fromWorkspaceRoot,
+          projectFolderSlug: null,
+          folderSlug: "demo-paper",
+        });
+
+        yield* workspaceLayout.moveWorkspaceRoot({
+          fromWorkspaceRoot,
+          toWorkspaceRoot,
+        });
+
+        const movedStat = yield* fileSystem.stat(
+          path.join(toWorkspaceRoot, "Papers", "demo-paper"),
+        );
+        expect(movedStat.type).toBe("Directory");
+        const previousRoot = yield* fileSystem
+          .stat(fromWorkspaceRoot)
+          .pipe(Effect.catch(() => Effect.succeed(null)));
+        expect(previousRoot).toBeNull();
+      }),
+    );
+
+    it.effect("refuses to move into a non-empty destination root", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceLayout = yield* WorkspaceLayout;
+        const tempDir = yield* makeTempDir();
+        const fromWorkspaceRoot = path.join(tempDir, "AgentScience");
+        const toWorkspaceRoot = path.join(tempDir, "MovedAgentScience");
+
+        yield* workspaceLayout.ensureRoot(fromWorkspaceRoot);
+        yield* fileSystem.makeDirectory(toWorkspaceRoot, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(toWorkspaceRoot, "keep.txt"),
+          "occupied",
+        );
+
+        const exit = yield* workspaceLayout
+          .moveWorkspaceRoot({
+            fromWorkspaceRoot,
+            toWorkspaceRoot,
+          })
+          .pipe(Effect.exit);
+
+        expect(exit._tag).toBe("Failure");
+      }),
+    );
+  });
 });

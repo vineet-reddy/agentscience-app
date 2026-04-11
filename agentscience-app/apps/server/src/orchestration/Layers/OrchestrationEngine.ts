@@ -3,6 +3,7 @@ import type {
   OrchestrationReadModel,
   ProjectId,
   ThreadId,
+  WorkspaceAggregateId,
 } from "@agentscience/contracts";
 import { OrchestrationCommand } from "@agentscience/contracts";
 import {
@@ -51,8 +52,8 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+  readonly aggregateKind: "project" | "thread" | "workspace";
+  readonly aggregateId: ProjectId | ThreadId | WorkspaceAggregateId;
 } {
   switch (command.type) {
     case "project.create":
@@ -61,6 +62,11 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
+      };
+    case "workspace.rootChange":
+      return {
+        aggregateKind: "workspace",
+        aggregateId: "workspace-root",
       };
     default:
       return {
@@ -179,13 +185,18 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           .pipe(
             Effect.catchTag("SqlError", (sqlError) =>
               Effect.fail(
-                toPersistenceSqlError("OrchestrationEngine.processEnvelope:transaction")(sqlError),
+                toPersistenceSqlError(
+                  "OrchestrationEngine.processEnvelope:transaction",
+                )(sqlError),
               ),
             ),
           );
 
         readModel = committedCommand.nextReadModel;
-        for (const [index, event] of committedCommand.committedEvents.entries()) {
+        for (const [
+          index,
+          event,
+        ] of committedCommand.committedEvents.entries()) {
           yield* PubSub.publish(eventPubSub, event);
           if (index === 0) {
             yield* Metric.update(
@@ -201,7 +212,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
         return { sequence: committedCommand.lastSequence };
-      }).pipe(Effect.withSpan(`orchestration.command.${envelope.command.type}`)),
+      }).pipe(
+        Effect.withSpan(`orchestration.command.${envelope.command.type}`),
+      ),
     ).pipe(
       Effect.flatMap((exit) =>
         Effect.gen(function* () {
@@ -272,7 +285,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   yield* projectionPipeline.bootstrap;
   readModel = yield* projectionSnapshotQuery.getSnapshot();
 
-  const worker = Effect.forever(Queue.take(commandQueue).pipe(Effect.flatMap(processEnvelope)));
+  const worker = Effect.forever(
+    Queue.take(commandQueue).pipe(Effect.flatMap(processEnvelope)),
+  );
   yield* Effect.forkScoped(worker);
   yield* Effect.logDebug("orchestration engine started").pipe(
     Effect.annotateLogs({ sequence: readModel.snapshotSequence }),
@@ -281,13 +296,21 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const getReadModel: OrchestrationEngineShape["getReadModel"] = () =>
     Effect.sync((): OrchestrationReadModel => readModel);
 
-  const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive) =>
-    eventStore.readFromSequence(fromSequenceExclusive);
+  const readEvents: OrchestrationEngineShape["readEvents"] = (
+    fromSequenceExclusive,
+  ) => eventStore.readFromSequence(fromSequenceExclusive);
 
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
     Effect.gen(function* () {
-      const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
-      yield* Queue.offer(commandQueue, { command, result, startedAtMs: Date.now() });
+      const result = yield* Deferred.make<
+        { sequence: number },
+        OrchestrationDispatchError
+      >();
+      yield* Queue.offer(commandQueue, {
+        command,
+        result,
+        startedAtMs: Date.now(),
+      });
       return yield* Deferred.await(result);
     });
 

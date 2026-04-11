@@ -14,6 +14,7 @@ import {
   OrchestrationCommandReceiptStatus,
   ProjectId,
   ThreadId,
+  WorkspaceAggregateId,
 } from "@agentscience/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
@@ -23,13 +24,14 @@ import type { OrchestrationCommandReceiptRepositoryError } from "../Errors.ts";
 export const OrchestrationCommandReceipt = Schema.Struct({
   commandId: CommandId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, WorkspaceAggregateId]),
   acceptedAt: IsoDateTime,
   resultSequence: NonNegativeInt,
   status: OrchestrationCommandReceiptStatus,
   error: Schema.NullOr(Schema.String),
 });
-export type OrchestrationCommandReceipt = typeof OrchestrationCommandReceipt.Type;
+export type OrchestrationCommandReceipt =
+  typeof OrchestrationCommandReceipt.Type;
 
 export const GetByCommandIdInput = Schema.Struct({
   commandId: CommandId,

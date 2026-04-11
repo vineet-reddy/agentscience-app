@@ -123,6 +123,10 @@ type WorkspaceSideEffect =
       readonly fromProjectFolderSlug: string | null;
       readonly toProjectFolderSlug: string | null;
       readonly folderSlug: string;
+    }
+  | {
+      readonly type: "workspace.rootChange";
+      readonly newRoot: string;
     };
 
 const materializeAttachmentsForProjection = Effect.fn(
@@ -531,7 +535,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
   const serverSettingsService = yield* ServerSettingsService;
 
   const runWorkspaceSideEffects = Effect.fn("runWorkspaceSideEffects")(
-    function* (sideEffects: AttachmentSideEffects) {
+    function* (
+      sideEffects: AttachmentSideEffects,
+      options: {
+        readonly allowWorkspaceRootChange: boolean;
+      },
+    ) {
       if (sideEffects.workspaceOperations.length === 0) {
         return;
       }
@@ -560,6 +569,27 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               toProjectFolderSlug: operation.toProjectFolderSlug,
               folderSlug: operation.folderSlug,
             });
+
+          case "workspace.rootChange":
+            if (!options.allowWorkspaceRootChange) {
+              return Effect.void;
+            }
+            if (settings.workspaceRoot === operation.newRoot) {
+              return Effect.void;
+            }
+            return workspaceLayout
+              .moveWorkspaceRoot({
+                fromWorkspaceRoot: settings.workspaceRoot,
+                toWorkspaceRoot: operation.newRoot,
+              })
+              .pipe(
+                Effect.flatMap(() =>
+                  serverSettingsService.updateSettings({
+                    workspaceRoot: operation.newRoot,
+                  }),
+                ),
+                Effect.asVoid,
+              );
         }
       });
     },
@@ -990,6 +1020,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           sideEffects.workspaceOperations.push({
             type: "project.create",
             folderSlug: event.payload.folderSlug,
+          });
+          return;
+
+        case "workspace.root-changed":
+          sideEffects.workspaceOperations.push({
+            type: "workspace.rootChange",
+            newRoot: event.payload.newRoot,
           });
           return;
 
@@ -2250,6 +2287,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
   const runProjectorForEvent = Effect.fn("runProjectorForEvent")(function* (
     projector: ProjectorDefinition,
     event: OrchestrationEvent,
+    options: {
+      readonly allowWorkspaceRootChange: boolean;
+    },
   ) {
     const attachmentSideEffects: AttachmentSideEffects = {
       deletedThreadIds: new Set<string>(),
@@ -2279,7 +2319,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
         }),
       ),
     );
-    yield* runWorkspaceSideEffects(attachmentSideEffects).pipe(
+    yield* runWorkspaceSideEffects(attachmentSideEffects, options).pipe(
       Effect.catch((cause) =>
         Effect.logWarning("failed to apply projected workspace side-effects", {
           projector: projector.name,
@@ -2302,7 +2342,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
             eventStore.readFromSequence(
               Option.isSome(stateRow) ? stateRow.value.lastAppliedSequence : 0,
             ),
-            (event) => runProjectorForEvent(projector, event),
+            (event) =>
+              runProjectorForEvent(projector, event, {
+                allowWorkspaceRootChange: false,
+              }),
           ),
         ),
       );
@@ -2312,7 +2355,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
   ) =>
     Effect.forEach(
       projectors,
-      (projector) => runProjectorForEvent(projector, event),
+      (projector) =>
+        runProjectorForEvent(projector, event, {
+          allowWorkspaceRootChange: true,
+        }),
       {
         concurrency: 1,
       },

@@ -2,7 +2,8 @@ export type OrchestrationRecoveryReason =
   | "bootstrap"
   | "sequence-gap"
   | "resubscribe"
-  | "replay-failed";
+  | "replay-failed"
+  | "workspace-root-changed";
 
 export interface OrchestrationRecoveryPhase {
   kind: "snapshot" | "replay";
@@ -39,7 +40,10 @@ type SequencedEvent = Readonly<{ sequence: number }>;
 export function deriveReplayRetryDecision(input: {
   previousTracker: ReplayRetryTracker | null;
   completion: ReplayRecoveryCompletion;
-  recoveryState: Pick<OrchestrationRecoveryState, "latestSequence" | "highestObservedSequence">;
+  recoveryState: Pick<
+    OrchestrationRecoveryState,
+    "latestSequence" | "highestObservedSequence"
+  >;
   baseDelayMs: number;
   maxNoProgressRetries: number;
 }): ReplayRetryDecision {
@@ -63,9 +67,11 @@ export function deriveReplayRetryDecision(input: {
   const sameFrontier =
     previousTracker !== null &&
     previousTracker.latestSequence === input.recoveryState.latestSequence &&
-    previousTracker.highestObservedSequence === input.recoveryState.highestObservedSequence;
+    previousTracker.highestObservedSequence ===
+      input.recoveryState.highestObservedSequence;
 
-  const attempts = sameFrontier && previousTracker !== null ? previousTracker.attempts + 1 : 1;
+  const attempts =
+    sameFrontier && previousTracker !== null ? previousTracker.attempts + 1 : 1;
   if (attempts > input.maxNoProgressRetries) {
     return {
       shouldRetry: false,
@@ -101,7 +107,10 @@ export function createOrchestrationRecoveryCoordinator() {
   });
 
   const observeSequence = (sequence: number) => {
-    state.highestObservedSequence = Math.max(state.highestObservedSequence, sequence);
+    state.highestObservedSequence = Math.max(
+      state.highestObservedSequence,
+      sequence,
+    );
   };
 
   const resolveReplayNeedAfterRecovery = () => {
@@ -121,7 +130,9 @@ export function createOrchestrationRecoveryCoordinator() {
       return snapshotState();
     },
 
-    classifyDomainEvent(sequence: number): "ignore" | "defer" | "recover" | "apply" {
+    classifyDomainEvent(
+      sequence: number,
+    ): "ignore" | "defer" | "recover" | "apply" {
       observeSequence(sequence);
       if (sequence <= state.latestSequence) {
         return "ignore";
@@ -137,7 +148,9 @@ export function createOrchestrationRecoveryCoordinator() {
       return "apply";
     },
 
-    markEventBatchApplied<T extends SequencedEvent>(events: ReadonlyArray<T>): ReadonlyArray<T> {
+    markEventBatchApplied<T extends SequencedEvent>(
+      events: ReadonlyArray<T>,
+    ): ReadonlyArray<T> {
       const nextEvents = events
         .filter((event) => event.sequence > state.latestSequence)
         .toSorted((left, right) => left.sequence - right.sequence);
@@ -145,8 +158,12 @@ export function createOrchestrationRecoveryCoordinator() {
         return [];
       }
 
-      state.latestSequence = nextEvents.at(-1)?.sequence ?? state.latestSequence;
-      state.highestObservedSequence = Math.max(state.highestObservedSequence, state.latestSequence);
+      state.latestSequence =
+        nextEvents.at(-1)?.sequence ?? state.latestSequence;
+      state.highestObservedSequence = Math.max(
+        state.highestObservedSequence,
+        state.latestSequence,
+      );
       return nextEvents;
     },
 
@@ -165,7 +182,10 @@ export function createOrchestrationRecoveryCoordinator() {
 
     completeSnapshotRecovery(snapshotSequence: number): boolean {
       state.latestSequence = Math.max(state.latestSequence, snapshotSequence);
-      state.highestObservedSequence = Math.max(state.highestObservedSequence, state.latestSequence);
+      state.highestObservedSequence = Math.max(
+        state.highestObservedSequence,
+        state.latestSequence,
+      );
       state.bootstrapped = true;
       state.inFlight = null;
       return resolveReplayNeedAfterRecovery().shouldReplay;
@@ -192,7 +212,8 @@ export function createOrchestrationRecoveryCoordinator() {
 
     completeReplayRecovery(): ReplayRecoveryCompletion {
       const replayMadeProgress =
-        replayStartSequence !== null && state.latestSequence > replayStartSequence;
+        replayStartSequence !== null &&
+        state.latestSequence > replayStartSequence;
       replayStartSequence = null;
       state.inFlight = null;
       const replayResolution = resolveReplayNeedAfterRecovery();

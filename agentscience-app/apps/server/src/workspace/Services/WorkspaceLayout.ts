@@ -30,6 +30,10 @@ export interface WorkspaceLayoutShape {
     toProjectFolderSlug: string | null;
     folderSlug: string;
   }) => Effect.Effect<void, WorkspaceLayoutError>;
+  readonly moveWorkspaceRoot: (input: {
+    fromWorkspaceRoot: string;
+    toWorkspaceRoot: string;
+  }) => Effect.Effect<void, WorkspaceLayoutError>;
 }
 
 export class WorkspaceLayout extends ServiceMap.Service<

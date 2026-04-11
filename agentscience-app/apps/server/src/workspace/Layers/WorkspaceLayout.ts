@@ -143,11 +143,102 @@ export const makeWorkspaceLayout = Effect.gen(function* () {
     );
   });
 
+  const moveWorkspaceRoot: WorkspaceLayoutShape["moveWorkspaceRoot"] =
+    Effect.fn("WorkspaceLayout.moveWorkspaceRoot")(function* (input) {
+      const fromWorkspaceRoot = path.resolve(
+        expandHomePath(input.fromWorkspaceRoot.trim(), path),
+      );
+      const toWorkspaceRoot = path.resolve(
+        expandHomePath(input.toWorkspaceRoot.trim(), path),
+      );
+
+      if (fromWorkspaceRoot === toWorkspaceRoot) {
+        return yield* Effect.void;
+      }
+
+      yield* fileSystem
+        .makeDirectory(path.dirname(toWorkspaceRoot), {
+          recursive: true,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new WorkspaceLayoutError({
+                workspaceRoot: input.toWorkspaceRoot,
+                operation:
+                  "workspaceLayout.moveWorkspaceRoot.prepareDestination",
+                detail: cause.message,
+                cause,
+              }),
+          ),
+        );
+
+      const destinationExists = yield* fileSystem.exists(toWorkspaceRoot).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceLayoutError({
+              workspaceRoot: input.toWorkspaceRoot,
+              operation: "workspaceLayout.moveWorkspaceRoot.inspectDestination",
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+
+      if (destinationExists) {
+        const destinationEntries = yield* fileSystem
+          .readDirectory(toWorkspaceRoot, { recursive: false })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new WorkspaceLayoutError({
+                  workspaceRoot: input.toWorkspaceRoot,
+                  operation:
+                    "workspaceLayout.moveWorkspaceRoot.inspectDestination",
+                  detail: cause.message,
+                  cause,
+                }),
+            ),
+          );
+        if (destinationEntries.length > 0) {
+          return yield* new WorkspaceLayoutError({
+            workspaceRoot: input.toWorkspaceRoot,
+            operation: "workspaceLayout.moveWorkspaceRoot",
+            detail: "Target workspace root must be empty.",
+          });
+        }
+        yield* fileSystem.remove(toWorkspaceRoot, { recursive: true }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new WorkspaceLayoutError({
+                workspaceRoot: input.toWorkspaceRoot,
+                operation: "workspaceLayout.moveWorkspaceRoot.clearDestination",
+                detail: cause.message,
+                cause,
+              }),
+          ),
+        );
+      }
+
+      yield* fileSystem.rename(fromWorkspaceRoot, toWorkspaceRoot).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceLayoutError({
+              workspaceRoot: input.fromWorkspaceRoot,
+              operation: "workspaceLayout.moveWorkspaceRoot",
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+    });
+
   return {
     ensureRoot,
     createProjectFolder,
     createPaperFolder,
     movePaperFolder,
+    moveWorkspaceRoot,
   } satisfies WorkspaceLayoutShape;
 });
 

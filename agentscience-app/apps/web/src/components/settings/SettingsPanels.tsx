@@ -10,8 +10,16 @@ import {
   XIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  CommandId,
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type ServerProvider,
@@ -47,13 +55,28 @@ import {
 } from "../../modelSelection";
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
-import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
+import {
+  formatRelativeTime,
+  formatRelativeTimeLabel,
+} from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "../ui/empty";
 import { Input } from "../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -127,7 +150,8 @@ function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
     return {
       headline: "Checking provider status",
-      detail: "Waiting for the server to report installation and authentication details.",
+      detail:
+        "Waiting for the server to report installation and authentication details.",
     };
   }
   if (!provider.enabled) {
@@ -161,7 +185,8 @@ function getProviderSummary(provider: ServerProvider | undefined) {
     return {
       headline: "Needs attention",
       detail:
-        provider.message ?? "The provider is installed, but the server could not fully verify it.",
+        provider.message ??
+        "The provider is installed, but the server could not fully verify it.",
     };
   }
   if (provider.status === "error") {
@@ -172,7 +197,9 @@ function getProviderSummary(provider: ServerProvider | undefined) {
   }
   return {
     headline: "Available",
-    detail: provider.message ?? "Installed and ready, but authentication could not be verified.",
+    detail:
+      provider.message ??
+      "Installed and ready, but authentication could not be verified.",
   };
 }
 
@@ -190,9 +217,15 @@ function useRelativeTimeTick(intervalMs = 1_000) {
   return tick;
 }
 
-function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
+function ProviderLastChecked({
+  lastCheckedAt,
+}: {
+  lastCheckedAt: string | null;
+}) {
   useRelativeTimeTick();
-  const lastCheckedRelative = lastCheckedAt ? formatRelativeTime(lastCheckedAt) : null;
+  const lastCheckedRelative = lastCheckedAt
+    ? formatRelativeTime(lastCheckedAt)
+    : null;
 
   if (!lastCheckedRelative) {
     return null;
@@ -202,7 +235,10 @@ function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }
     <span className="text-[11px] text-muted-foreground/60">
       {lastCheckedRelative.suffix ? (
         <>
-          Checked <span className="font-mono tabular-nums">{lastCheckedRelative.value}</span>{" "}
+          Checked{" "}
+          <span className="font-mono tabular-nums">
+            {lastCheckedRelative.value}
+          </span>{" "}
           {lastCheckedRelative.suffix}
         </>
       ) : (
@@ -265,7 +301,11 @@ function SettingsRow({
             </span>
           </div>
           <p className="text-xs text-muted-foreground">{description}</p>
-          {status ? <div className="pt-1 text-[11px] text-muted-foreground">{status}</div> : null}
+          {status ? (
+            <div className="pt-1 text-[11px] text-muted-foreground">
+              {status}
+            </div>
+          ) : null}
         </div>
         {control ? (
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
@@ -278,7 +318,13 @@ function SettingsRow({
   );
 }
 
-function SettingResetButton({ label, onClick }: { label: string; onClick: () => void }) {
+function SettingResetButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -305,7 +351,9 @@ function SettingResetButton({ label, onClick }: { label: string; onClick: () => 
 function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">{children}</div>
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        {children}
+      </div>
     </div>
   );
 }
@@ -314,7 +362,9 @@ function AboutVersionTitle() {
   return (
     <span className="inline-flex items-center gap-2">
       <span>Version</span>
-      <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
+      <code className="text-[11px] font-medium text-muted-foreground">
+        {APP_VERSION}
+      </code>
     </span>
   );
 }
@@ -329,7 +379,9 @@ function AboutVersionSection() {
     const bridge = window.desktopBridge;
     if (!bridge) return;
 
-    const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
+    const action = updateState
+      ? resolveDesktopUpdateButtonAction(updateState)
+      : "none";
 
     if (action === "download") {
       void bridge
@@ -341,7 +393,8 @@ function AboutVersionSection() {
           toastManager.add({
             type: "error",
             title: "Could not download update",
-            description: error instanceof Error ? error.message : "Download failed.",
+            description:
+              error instanceof Error ? error.message : "Download failed.",
           });
         });
       return;
@@ -363,7 +416,8 @@ function AboutVersionSection() {
           toastManager.add({
             type: "error",
             title: "Could not install update",
-            description: error instanceof Error ? error.message : "Install failed.",
+            description:
+              error instanceof Error ? error.message : "Install failed.",
           });
         });
       return;
@@ -379,7 +433,8 @@ function AboutVersionSection() {
             type: "error",
             title: "Could not check for updates",
             description:
-              result.state.message ?? "Automatic updates are not available in this build.",
+              result.state.message ??
+              "Automatic updates are not available in this build.",
           });
         }
       })
@@ -387,26 +442,36 @@ function AboutVersionSection() {
         toastManager.add({
           type: "error",
           title: "Could not check for updates",
-          description: error instanceof Error ? error.message : "Update check failed.",
+          description:
+            error instanceof Error ? error.message : "Update check failed.",
         });
       });
   }, [queryClient, updateState]);
 
-  const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
-  const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
+  const action = updateState
+    ? resolveDesktopUpdateButtonAction(updateState)
+    : "none";
+  const buttonTooltip = updateState
+    ? getDesktopUpdateButtonTooltip(updateState)
+    : null;
   const buttonDisabled =
     action === "none"
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
-  const actionLabel: Record<string, string> = { download: "Download", install: "Install" };
+  const actionLabel: Record<string, string> = {
+    download: "Download",
+    install: "Install",
+  };
   const statusLabel: Record<string, string> = {
     checking: "Checking…",
     downloading: "Downloading…",
     "up-to-date": "Up to Date",
   };
   const buttonLabel =
-    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
+    actionLabel[action] ??
+    statusLabel[updateState?.status ?? ""] ??
+    "Check for Updates";
   const description =
     action === "download" || action === "install"
       ? "Update available."
@@ -446,11 +511,14 @@ export function useSettingsRestore(onRestored?: () => void) {
     settings.textGenerationModelSelection ?? null,
     DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
   );
-  const areProviderSettingsDirty = PROVIDER_SETTINGS.some((providerSettings) => {
-    const currentSettings = settings.providers[providerSettings.provider];
-    const defaultSettings = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
-    return !Equal.equals(currentSettings, defaultSettings);
-  });
+  const areProviderSettingsDirty = PROVIDER_SETTINGS.some(
+    (providerSettings) => {
+      const currentSettings = settings.providers[providerSettings.provider];
+      const defaultSettings =
+        DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
+      return !Equal.equals(currentSettings, defaultSettings);
+    },
+  );
 
   const changedSettingLabels = useMemo(
     () => [
@@ -461,16 +529,20 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
         : []),
-      ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
+      ...(settings.enableAssistantStreaming !==
+      DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
         ? ["Assistant output"]
         : []),
-      ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
+      ...(settings.defaultThreadEnvMode !==
+      DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
-      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
+      ...(settings.confirmThreadArchive !==
+      DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
-      ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
+      ...(settings.confirmThreadDelete !==
+      DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
       ...(isGitWritingModelDirty ? ["Git writing model"] : []),
@@ -493,9 +565,10 @@ export function useSettingsRestore(onRestored?: () => void) {
     if (changedSettingLabels.length === 0) return;
     const api = readNativeApi();
     const confirmed = await (api ?? ensureNativeApi()).dialogs.confirm(
-      ["Restore default settings?", `This will reset: ${changedSettingLabels.join(", ")}.`].join(
-        "\n",
-      ),
+      [
+        "Restore default settings?",
+        `This will reset: ${changedSettingLabels.join(", ")}.`,
+      ].join("\n"),
     );
     if (!confirmed) return;
 
@@ -514,6 +587,7 @@ export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const [isChangingWorkspaceRoot, setIsChangingWorkspaceRoot] = useState(false);
   const [openingPathByTarget, setOpeningPathByTarget] = useState({
     keybindings: false,
     logsDirectory: false,
@@ -521,10 +595,14 @@ export function GeneralSettingsPanel() {
   const [openPathErrorByTarget, setOpenPathErrorByTarget] = useState<
     Partial<Record<"keybindings" | "logsDirectory", string | null>>
   >({});
-  const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
+  const [openProviderDetails, setOpenProviderDetails] = useState<
+    Record<ProviderKind, boolean>
+  >({
     codex: Boolean(
-      settings.providers.codex.binaryPath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
-      settings.providers.codex.homePath !== DEFAULT_UNIFIED_SETTINGS.providers.codex.homePath ||
+      settings.providers.codex.binaryPath !==
+        DEFAULT_UNIFIED_SETTINGS.providers.codex.binaryPath ||
+      settings.providers.codex.homePath !==
+        DEFAULT_UNIFIED_SETTINGS.providers.codex.homePath ||
       settings.providers.codex.customModels.length > 0,
     ),
   });
@@ -538,7 +616,9 @@ export function GeneralSettingsPanel() {
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const refreshingRef = useRef(false);
-  const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
+  const modelListRefs = useRef<
+    Partial<Record<ProviderKind, HTMLDivElement | null>>
+  >({});
   const refreshProviders = useCallback(() => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
@@ -558,6 +638,58 @@ export function GeneralSettingsPanel() {
   const availableEditors = useServerAvailableEditors();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
+  const canChangeWorkspaceRoot = isElectron;
+
+  const handleChangeWorkspaceRoot = useCallback(async () => {
+    if (!canChangeWorkspaceRoot || isChangingWorkspaceRoot) {
+      return;
+    }
+
+    const api = ensureNativeApi();
+    const nextWorkspaceRoot = await api.dialogs.pickFolder();
+    if (!nextWorkspaceRoot || nextWorkspaceRoot === settings.workspaceRoot) {
+      return;
+    }
+
+    const confirmed = await api.dialogs.confirm(
+      [
+        "Move the Agent Science workspace?",
+        "",
+        `From: ${settings.workspaceRoot}`,
+        `To: ${nextWorkspaceRoot}`,
+        "",
+        "The destination folder must be empty.",
+      ].join("\n"),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsChangingWorkspaceRoot(true);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "workspace.rootChange",
+        commandId: CommandId.makeUnsafe(
+          `workspace-root-change:${crypto.randomUUID()}`,
+        ),
+        newRoot: nextWorkspaceRoot,
+      });
+      toastManager.add({
+        type: "success",
+        title: "Workspace moved",
+        description: `Agent Science is now using ${nextWorkspaceRoot}.`,
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to move workspace",
+        description:
+          error instanceof Error ? error.message : "An unknown error occurred.",
+      });
+    } finally {
+      setIsChangingWorkspaceRoot(false);
+    }
+  }, [canChangeWorkspaceRoot, isChangingWorkspaceRoot, settings.workspaceRoot]);
   const codexHomePath = settings.providers.codex.homePath;
   const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
   const diagnosticsDescription = (() => {
@@ -568,11 +700,18 @@ export function GeneralSettingsPanel() {
     if (observability?.otlpMetricsEnabled && observability.otlpMetricsUrl) {
       exports.push(`metrics to ${observability.otlpMetricsUrl}`);
     }
-    const mode = observability?.localTracingEnabled ? "Local trace file" : "Terminal logs only";
-    return exports.length > 0 ? `${mode}. OTLP exporting ${exports.join(" and ")}.` : `${mode}.`;
+    const mode = observability?.localTracingEnabled
+      ? "Local trace file"
+      : "Terminal logs only";
+    return exports.length > 0
+      ? `${mode}. OTLP exporting ${exports.join(" and ")}.`
+      : `${mode}.`;
   })();
 
-  const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
+  const textGenerationModelSelection = resolveAppModelSelectionState(
+    settings,
+    serverProviders,
+  );
   const textGenProvider = textGenerationModelSelection.provider;
   const textGenModel = textGenerationModelSelection.model;
   const textGenModelOptions = textGenerationModelSelection.options;
@@ -588,7 +727,11 @@ export function GeneralSettingsPanel() {
   );
 
   const openInPreferredEditor = useCallback(
-    (target: "keybindings" | "logsDirectory", path: string | null, failureMessage: string) => {
+    (
+      target: "keybindings" | "logsDirectory",
+      path: string | null,
+      failureMessage: string,
+    ) => {
       if (!path) return;
       setOpenPathErrorByTarget((existing) => ({ ...existing, [target]: null }));
       setOpeningPathByTarget((existing) => ({ ...existing, [target]: true }));
@@ -599,7 +742,10 @@ export function GeneralSettingsPanel() {
           ...existing,
           [target]: "No available editors found.",
         }));
-        setOpeningPathByTarget((existing) => ({ ...existing, [target]: false }));
+        setOpeningPathByTarget((existing) => ({
+          ...existing,
+          [target]: false,
+        }));
         return;
       }
 
@@ -612,18 +758,29 @@ export function GeneralSettingsPanel() {
           }));
         })
         .finally(() => {
-          setOpeningPathByTarget((existing) => ({ ...existing, [target]: false }));
+          setOpeningPathByTarget((existing) => ({
+            ...existing,
+            [target]: false,
+          }));
         });
     },
     [availableEditors],
   );
 
   const openKeybindingsFile = useCallback(() => {
-    openInPreferredEditor("keybindings", keybindingsConfigPath, "Unable to open keybindings file.");
+    openInPreferredEditor(
+      "keybindings",
+      keybindingsConfigPath,
+      "Unable to open keybindings file.",
+    );
   }, [keybindingsConfigPath, openInPreferredEditor]);
 
   const openLogsDirectory = useCallback(() => {
-    openInPreferredEditor("logsDirectory", logsDirectoryPath, "Unable to open logs folder.");
+    openInPreferredEditor(
+      "logsDirectory",
+      logsDirectoryPath,
+      "Unable to open logs folder.",
+    );
   }, [logsDirectoryPath, openInPreferredEditor]);
 
   const openKeybindingsError = openPathErrorByTarget.keybindings ?? null;
@@ -646,7 +803,9 @@ export function GeneralSettingsPanel() {
       if (
         serverProviders
           .find((candidate) => candidate.provider === provider)
-          ?.models.some((option) => !option.isCustom && option.slug === normalized)
+          ?.models.some(
+            (option) => !option.isCustom && option.slug === normalized,
+          )
       ) {
         setCustomModelErrorByProvider((existing) => ({
           ...existing,
@@ -689,7 +848,8 @@ export function GeneralSettingsPanel() {
 
       const el = modelListRefs.current[provider];
       if (!el) return;
-      const scrollToEnd = () => el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      const scrollToEnd = () =>
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
       requestAnimationFrame(scrollToEnd);
       const observer = new MutationObserver(() => {
         scrollToEnd();
@@ -727,8 +887,10 @@ export function GeneralSettingsPanel() {
       (candidate) => candidate.provider === providerSettings.provider,
     );
     const providerConfig = settings.providers[providerSettings.provider];
-    const defaultProviderConfig = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
-    const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
+    const defaultProviderConfig =
+      DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
+    const statusKey =
+      liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
     const models: ReadonlyArray<ServerProviderModel> =
       liveProvider?.models ??
@@ -761,7 +923,8 @@ export function GeneralSettingsPanel() {
   const lastCheckedAt =
     serverProviders.length > 0
       ? serverProviders.reduce(
-          (latest, provider) => (provider.checkedAt > latest ? provider.checkedAt : latest),
+          (latest, provider) =>
+            provider.checkedAt > latest ? provider.checkedAt : latest,
           serverProviders[0]!.checkedAt,
         )
       : null;
@@ -773,26 +936,41 @@ export function GeneralSettingsPanel() {
           description="Choose how Agent Science looks across the app."
           resetAction={
             theme !== "system" ? (
-              <SettingResetButton label="theme" onClick={() => setTheme("system")} />
+              <SettingResetButton
+                label="theme"
+                onClick={() => setTheme("system")}
+              />
             ) : null
           }
           control={
             <Select
               value={theme}
               onValueChange={(value) => {
-                if (value === "system" || value === "light" || value === "dark") {
+                if (
+                  value === "system" ||
+                  value === "light" ||
+                  value === "dark"
+                ) {
                   setTheme(value);
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
+              <SelectTrigger
+                className="w-full sm:w-40"
+                aria-label="Theme preference"
+              >
                 <SelectValue>
-                  {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
+                  {THEME_OPTIONS.find((option) => option.value === theme)
+                    ?.label ?? "System"}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
                 {THEME_OPTIONS.map((option) => (
-                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                  <SelectItem
+                    hideIndicator
+                    key={option.value}
+                    value={option.value}
+                  >
                     {option.label}
                   </SelectItem>
                 ))}
@@ -809,13 +987,28 @@ export function GeneralSettingsPanel() {
               {settings.workspaceRoot}
             </span>
           }
+          control={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleChangeWorkspaceRoot()}
+              disabled={!canChangeWorkspaceRoot || isChangingWorkspaceRoot}
+            >
+              {isChangingWorkspaceRoot ? (
+                <LoaderIcon className="size-3 animate-spin" />
+              ) : null}
+              Change...
+            </Button>
+          }
         />
 
         <SettingsRow
           title="Time format"
           description="System default follows your browser or OS clock preference."
           resetAction={
-            settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat ? (
+            settings.timestampFormat !==
+            DEFAULT_UNIFIED_SETTINGS.timestampFormat ? (
               <SettingResetButton
                 label="time format"
                 onClick={() =>
@@ -830,13 +1023,22 @@ export function GeneralSettingsPanel() {
             <Select
               value={settings.timestampFormat}
               onValueChange={(value) => {
-                if (value === "locale" || value === "12-hour" || value === "24-hour") {
+                if (
+                  value === "locale" ||
+                  value === "12-hour" ||
+                  value === "24-hour"
+                ) {
                   updateSettings({ timestampFormat: value });
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
-                <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
+              <SelectTrigger
+                className="w-full sm:w-40"
+                aria-label="Timestamp format"
+              >
+                <SelectValue>
+                  {TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}
+                </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
                 <SelectItem hideIndicator value="locale">
@@ -871,7 +1073,9 @@ export function GeneralSettingsPanel() {
           control={
             <Switch
               checked={settings.diffWordWrap}
-              onCheckedChange={(checked) => updateSettings({ diffWordWrap: Boolean(checked) })}
+              onCheckedChange={(checked) =>
+                updateSettings({ diffWordWrap: Boolean(checked) })
+              }
               aria-label="Wrap diff lines by default"
             />
           }
@@ -887,7 +1091,8 @@ export function GeneralSettingsPanel() {
                 label="assistant output"
                 onClick={() =>
                   updateSettings({
-                    enableAssistantStreaming: DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
+                    enableAssistantStreaming:
+                      DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming,
                   })
                 }
               />
@@ -908,12 +1113,14 @@ export function GeneralSettingsPanel() {
           title="New threads"
           description="Pick the default workspace mode for newly created draft threads."
           resetAction={
-            settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ? (
+            settings.defaultThreadEnvMode !==
+            DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode ? (
               <SettingResetButton
                 label="new threads"
                 onClick={() =>
                   updateSettings({
-                    defaultThreadEnvMode: DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
+                    defaultThreadEnvMode:
+                      DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode,
                   })
                 }
               />
@@ -928,9 +1135,14 @@ export function GeneralSettingsPanel() {
                 }
               }}
             >
-              <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
+              <SelectTrigger
+                className="w-full sm:w-44"
+                aria-label="Default thread mode"
+              >
                 <SelectValue>
-                  {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
+                  {settings.defaultThreadEnvMode === "worktree"
+                    ? "New worktree"
+                    : "Local"}
                 </SelectValue>
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -949,12 +1161,14 @@ export function GeneralSettingsPanel() {
           title="Archive confirmation"
           description="Require a second click on the inline archive action before a thread is archived."
           resetAction={
-            settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive ? (
+            settings.confirmThreadArchive !==
+            DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive ? (
               <SettingResetButton
                 label="archive confirmation"
                 onClick={() =>
                   updateSettings({
-                    confirmThreadArchive: DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
+                    confirmThreadArchive:
+                      DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive,
                   })
                 }
               />
@@ -975,12 +1189,14 @@ export function GeneralSettingsPanel() {
           title="Delete confirmation"
           description="Ask before deleting a thread and its chat history."
           resetAction={
-            settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete ? (
+            settings.confirmThreadDelete !==
+            DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete ? (
               <SettingResetButton
                 label="delete confirmation"
                 onClick={() =>
                   updateSettings({
-                    confirmThreadDelete: DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
+                    confirmThreadDelete:
+                      DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete,
                   })
                 }
               />
@@ -1038,8 +1254,9 @@ export function GeneralSettingsPanel() {
               <TraitsPicker
                 provider={textGenProvider}
                 models={
-                  serverProviders.find((provider) => provider.provider === textGenProvider)
-                    ?.models ?? []
+                  serverProviders.find(
+                    (provider) => provider.provider === textGenProvider,
+                  )?.models ?? []
                 }
                 model={textGenModel}
                 prompt=""
@@ -1099,21 +1316,31 @@ export function GeneralSettingsPanel() {
         }
       >
         {providerCards.map((providerCard) => {
-          const customModelInput = customModelInputByProvider[providerCard.provider];
-          const customModelError = customModelErrorByProvider[providerCard.provider] ?? null;
+          const customModelInput =
+            customModelInputByProvider[providerCard.provider];
+          const customModelError =
+            customModelErrorByProvider[providerCard.provider] ?? null;
           const providerDisplayName =
             PROVIDER_DISPLAY_NAMES[providerCard.provider] ?? providerCard.title;
 
           return (
-            <div key={providerCard.provider} className="border-t border-border first:border-t-0">
+            <div
+              key={providerCard.provider}
+              className="border-t border-border first:border-t-0"
+            >
               <div className="px-4 py-4 sm:px-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex min-h-5 items-center gap-1.5">
                       <span
-                        className={cn("size-2 shrink-0 rounded-full", providerCard.statusStyle.dot)}
+                        className={cn(
+                          "size-2 shrink-0 rounded-full",
+                          providerCard.statusStyle.dot,
+                        )}
                       />
-                      <h3 className="text-sm font-medium text-foreground">{providerDisplayName}</h3>
+                      <h3 className="text-sm font-medium text-foreground">
+                        {providerDisplayName}
+                      </h3>
                       {providerCard.versionLabel ? (
                         <code className="text-xs text-muted-foreground">
                           {providerCard.versionLabel}
@@ -1128,7 +1355,9 @@ export function GeneralSettingsPanel() {
                                 providers: {
                                   ...settings.providers,
                                   [providerCard.provider]:
-                                    DEFAULT_UNIFIED_SETTINGS.providers[providerCard.provider],
+                                    DEFAULT_UNIFIED_SETTINGS.providers[
+                                      providerCard.provider
+                                    ],
                                 },
                               });
                               setCustomModelErrorByProvider((existing) => ({
@@ -1142,7 +1371,9 @@ export function GeneralSettingsPanel() {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {providerCard.summary.headline}
-                      {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
+                      {providerCard.summary.detail
+                        ? ` - ${providerCard.summary.detail}`
+                        : null}
                     </p>
                   </div>
                   <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
@@ -1153,7 +1384,8 @@ export function GeneralSettingsPanel() {
                       onClick={() =>
                         setOpenProviderDetails((existing) => ({
                           ...existing,
-                          [providerCard.provider]: !existing[providerCard.provider],
+                          [providerCard.provider]:
+                            !existing[providerCard.provider],
                         }))
                       }
                       aria-label={`Toggle ${providerDisplayName} details`}
@@ -1161,7 +1393,8 @@ export function GeneralSettingsPanel() {
                       <ChevronDownIcon
                         className={cn(
                           "size-3.5 transition-transform",
-                          openProviderDetails[providerCard.provider] && "rotate-180",
+                          openProviderDetails[providerCard.provider] &&
+                            "rotate-180",
                         )}
                       />
                     </Button>
@@ -1170,7 +1403,8 @@ export function GeneralSettingsPanel() {
                       onCheckedChange={(checked) => {
                         const isDisabling = !checked;
                         const shouldClearModelSelection =
-                          isDisabling && textGenProvider === providerCard.provider;
+                          isDisabling &&
+                          textGenProvider === providerCard.provider;
                         updateSettings({
                           providers: {
                             ...settings.providers,
@@ -1273,7 +1507,9 @@ export function GeneralSettingsPanel() {
                     ) : null}
 
                     <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                      <div className="text-xs font-medium text-foreground">Models</div>
+                      <div className="text-xs font-medium text-foreground">
+                        Models
+                      </div>
                       <div className="mt-1 text-xs text-muted-foreground">
                         {providerCard.models.length} model
                         {providerCard.models.length === 1 ? "" : "s"} available.
@@ -1287,15 +1523,18 @@ export function GeneralSettingsPanel() {
                         {providerCard.models.map((model) => {
                           const caps = model.capabilities;
                           const capLabels: string[] = [];
-                          if (caps?.supportsFastMode) capLabels.push("Fast mode");
-                          if (caps?.supportsThinkingToggle) capLabels.push("Thinking");
+                          if (caps?.supportsFastMode)
+                            capLabels.push("Fast mode");
+                          if (caps?.supportsThinkingToggle)
+                            capLabels.push("Thinking");
                           if (
                             caps?.reasoningEffortLevels &&
                             caps.reasoningEffortLevels.length > 0
                           ) {
                             capLabels.push("Reasoning");
                           }
-                          const hasDetails = capLabels.length > 0 || model.name !== model.slug;
+                          const hasDetails =
+                            capLabels.length > 0 || model.name !== model.slug;
 
                           return (
                             <div
@@ -1341,13 +1580,18 @@ export function GeneralSettingsPanel() {
                               ) : null}
                               {model.isCustom ? (
                                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                                  <span className="text-[10px] text-muted-foreground">custom</span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    custom
+                                  </span>
                                   <button
                                     type="button"
                                     className="text-muted-foreground transition-colors hover:text-foreground"
                                     aria-label={`Remove ${model.slug}`}
                                     onClick={() =>
-                                      removeCustomModel(providerCard.provider, model.slug)
+                                      removeCustomModel(
+                                        providerCard.provider,
+                                        model.slug,
+                                      )
                                     }
                                   >
                                     <XIcon className="size-3" />
@@ -1399,7 +1643,9 @@ export function GeneralSettingsPanel() {
                       </div>
 
                       {customModelError ? (
-                        <p className="mt-2 text-xs text-destructive">{customModelError}</p>
+                        <p className="mt-2 text-xs text-destructive">
+                          {customModelError}
+                        </p>
                       ) : null}
                     </div>
                   </div>
@@ -1420,9 +1666,13 @@ export function GeneralSettingsPanel() {
                 {keybindingsConfigPath ?? "Resolving keybindings path..."}
               </span>
               {openKeybindingsError ? (
-                <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
+                <span className="mt-1 block text-destructive">
+                  {openKeybindingsError}
+                </span>
               ) : (
-                <span className="mt-1 block">Opens in your preferred editor.</span>
+                <span className="mt-1 block">
+                  Opens in your preferred editor.
+                </span>
               )}
             </>
           }
@@ -1457,7 +1707,9 @@ export function GeneralSettingsPanel() {
                 {logsDirectoryPath ?? "Resolving logs directory..."}
               </span>
               {openDiagnosticsError ? (
-                <span className="mt-1 block text-destructive">{openDiagnosticsError}</span>
+                <span className="mt-1 block text-destructive">
+                  {openDiagnosticsError}
+                </span>
               ) : null}
             </>
           }
@@ -1482,16 +1734,23 @@ export function ArchivedThreadsPanel() {
   const threads = useStore((store) => store.threads);
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
   const archivedGroups = useMemo(() => {
-    const projectById = new Map(projects.map((project) => [project.id, project] as const));
+    const projectById = new Map(
+      projects.map((project) => [project.id, project] as const),
+    );
     return [...projectById.values()]
       .map((project) => ({
         project,
         threads: threads
-          .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
+          .filter(
+            (thread) =>
+              thread.projectId === project.id && thread.archivedAt !== null,
+          )
           .toSorted((left, right) => {
             const leftKey = left.archivedAt ?? left.createdAt;
             const rightKey = right.archivedAt ?? right.createdAt;
-            return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
+            return (
+              rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id)
+            );
           }),
       }))
       .filter((group) => group.threads.length > 0);
@@ -1516,7 +1775,8 @@ export function ArchivedThreadsPanel() {
           toastManager.add({
             type: "error",
             title: "Failed to unarchive thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
+            description:
+              error instanceof Error ? error.message : "An error occurred.",
           });
         }
         return;
@@ -1539,7 +1799,9 @@ export function ArchivedThreadsPanel() {
             </EmptyMedia>
             <EmptyHeader>
               <EmptyTitle>No archived threads</EmptyTitle>
-              <EmptyDescription>Archived threads will appear here.</EmptyDescription>
+              <EmptyDescription>
+                Archived threads will appear here.
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         </SettingsSection>
@@ -1563,9 +1825,14 @@ export function ArchivedThreadsPanel() {
                 }}
               >
                 <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-sm font-medium text-foreground">{thread.title}</h3>
+                  <h3 className="truncate text-sm font-medium text-foreground">
+                    {thread.title}
+                  </h3>
                   <p className="text-xs text-muted-foreground">
-                    Archived {formatRelativeTimeLabel(thread.archivedAt ?? thread.createdAt)}
+                    Archived{" "}
+                    {formatRelativeTimeLabel(
+                      thread.archivedAt ?? thread.createdAt,
+                    )}
                     {" \u00b7 Created "}
                     {formatRelativeTimeLabel(thread.createdAt)}
                   </p>
@@ -1580,7 +1847,10 @@ export function ArchivedThreadsPanel() {
                       toastManager.add({
                         type: "error",
                         title: "Failed to unarchive thread",
-                        description: error instanceof Error ? error.message : "An error occurred.",
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : "An error occurred.",
                       });
                     })
                   }

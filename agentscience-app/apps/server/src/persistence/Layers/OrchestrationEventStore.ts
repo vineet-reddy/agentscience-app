@@ -10,6 +10,7 @@ import {
   OrchestrationEventType,
   ProjectId,
   ThreadId,
+  WorkspaceAggregateId,
 } from "@agentscience/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -27,12 +28,14 @@ import {
 
 const decodeEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
-const EventMetadataFromJsonString = Schema.fromJsonString(OrchestrationEventMetadata);
+const EventMetadataFromJsonString = Schema.fromJsonString(
+  OrchestrationEventMetadata,
+);
 
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  streamId: Schema.Union([ProjectId, ThreadId]),
+  streamId: Schema.Union([ProjectId, ThreadId, WorkspaceAggregateId]),
   type: OrchestrationEventType,
   causationEventId: Schema.NullOr(EventId),
   correlationId: Schema.NullOr(CommandId),
@@ -48,7 +51,7 @@ const OrchestrationEventPersistedRowSchema = Schema.Struct({
   eventId: EventId,
   type: OrchestrationEventType,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, WorkspaceAggregateId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -86,7 +89,10 @@ function inferActorKind(
   return "client";
 }
 
-function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
+function toPersistenceSqlOrDecodeError(
+  sqlOperation: string,
+  decodeOperation: string,
+) {
   return (cause: unknown): OrchestrationEventStoreError =>
     Schema.isSchemaError(cause)
       ? toPersistenceDecodeError(decodeOperation)(cause)
@@ -200,7 +206,11 @@ const makeEventStore = Effect.gen(function* () {
       ),
       Effect.flatMap((row) =>
         decodeEvent(row).pipe(
-          Effect.mapError(toPersistenceDecodeError("OrchestrationEventStore.append:rowToEvent")),
+          Effect.mapError(
+            toPersistenceDecodeError(
+              "OrchestrationEventStore.append:rowToEvent",
+            ),
+          ),
         ),
       ),
     );
@@ -232,7 +242,9 @@ const makeEventStore = Effect.gen(function* () {
             Effect.forEach(rows, (row) =>
               decodeEvent(row).pipe(
                 Effect.mapError(
-                  toPersistenceDecodeError("OrchestrationEventStore.readFromSequence:rowToEvent"),
+                  toPersistenceDecodeError(
+                    "OrchestrationEventStore.readFromSequence:rowToEvent",
+                  ),
                 ),
               ),
             ),
@@ -264,4 +276,7 @@ const makeEventStore = Effect.gen(function* () {
   } satisfies OrchestrationEventStoreShape;
 });
 
-export const OrchestrationEventStoreLive = Layer.effect(OrchestrationEventStore, makeEventStore);
+export const OrchestrationEventStoreLive = Layer.effect(
+  OrchestrationEventStore,
+  makeEventStore,
+);

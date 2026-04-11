@@ -31,13 +31,14 @@ import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
-const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
+const makeProjectionPipelinePrefixedTestLayer = (
+  prefix: string,
+  workspaceRoot = "/tmp/AgentScience",
+) =>
   OrchestrationProjectionPipelineLive.pipe(
     Layer.provideMerge(OrchestrationEventStoreLive),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
-    Layer.provideMerge(
-      ServerSettingsService.layerTest({ workspaceRoot: "/tmp/AgentScience" }),
-    ),
+    Layer.provideMerge(ServerSettingsService.layerTest({ workspaceRoot })),
     Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -2111,5 +2112,57 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         },
       ]);
     }),
+  );
+
+  it.effect(
+    "moves the workspace root and persists the new location on live events",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const engine = yield* OrchestrationEngineService;
+        const serverSettings = yield* ServerSettingsService;
+        const workspaceRoot = path.join(
+          "/tmp",
+          `agentscience-workspace-root-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        );
+        const nextWorkspaceRoot = `${workspaceRoot}-moved`;
+        const paperPath = path.join(workspaceRoot, "Papers", "demo-paper");
+        const movedPaperPath = path.join(
+          nextWorkspaceRoot,
+          "Papers",
+          "demo-paper",
+        );
+
+        yield* fileSystem
+          .remove(workspaceRoot, { recursive: true, force: true })
+          .pipe(Effect.ignore({ log: false }));
+        yield* fileSystem
+          .remove(nextWorkspaceRoot, { recursive: true, force: true })
+          .pipe(Effect.ignore({ log: false }));
+        yield* serverSettings.updateSettings({ workspaceRoot });
+        yield* fileSystem.makeDirectory(paperPath, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(paperPath, "paper.md"),
+          "# Demo paper\n",
+        );
+
+        yield* engine.dispatch({
+          type: "workspace.rootChange",
+          commandId: CommandId.makeUnsafe("cmd-workspace-root-changed"),
+          newRoot: nextWorkspaceRoot,
+        });
+
+        assert.isTrue(yield* exists(path.join(movedPaperPath, "paper.md")));
+        assert.isFalse(yield* exists(workspaceRoot));
+        assert.equal(
+          (yield* serverSettings.getSettings).workspaceRoot,
+          nextWorkspaceRoot,
+        );
+
+        yield* fileSystem
+          .remove(nextWorkspaceRoot, { recursive: true, force: true })
+          .pipe(Effect.ignore({ log: false }));
+      }),
   );
 });

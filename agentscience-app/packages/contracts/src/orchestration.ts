@@ -90,6 +90,8 @@ const CHAT_ATTACHMENT_ID_MAX_CHARS = 128;
 // Correlation id is command id by design in this model.
 export const CorrelationId = CommandId;
 export type CorrelationId = typeof CorrelationId.Type;
+export const WorkspaceAggregateId = Schema.Literal("workspace-root");
+export type WorkspaceAggregateId = typeof WorkspaceAggregateId.Type;
 
 const ChatAttachmentId = TrimmedNonEmptyString.check(
   Schema.isMaxLength(CHAT_ATTACHMENT_ID_MAX_CHARS),
@@ -397,6 +399,12 @@ const PaperMoveCommand = Schema.Struct({
   targetProjectId: Schema.NullOr(ProjectId),
 });
 
+const WorkspaceRootChangeCommand = Schema.Struct({
+  type: Schema.Literal("workspace.rootChange"),
+  commandId: CommandId,
+  newRoot: TrimmedNonEmptyString,
+});
+
 const ThreadDeleteCommand = Schema.Struct({
   type: Schema.Literal("thread.delete"),
   commandId: CommandId,
@@ -557,6 +565,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadCreateCommand,
   ThreadProjectSetCommand,
   PaperMoveCommand,
+  WorkspaceRootChangeCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -580,6 +589,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadCreateCommand,
   ThreadProjectSetCommand,
   PaperMoveCommand,
+  WorkspaceRootChangeCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -685,6 +695,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.created",
   "thread.project-set",
   "paper.moved",
+  "workspace.root-changed",
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
@@ -709,6 +720,7 @@ export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 export const OrchestrationAggregateKind = Schema.Literals([
   "project",
   "thread",
+  "workspace",
 ]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals([
@@ -768,6 +780,11 @@ export const PaperMovedPayload = Schema.Struct({
   threadId: ThreadId,
   fromProjectId: Schema.NullOr(ProjectId),
   toProjectId: Schema.NullOr(ProjectId),
+  updatedAt: IsoDateTime,
+});
+
+export const WorkspaceRootChangedPayload = Schema.Struct({
+  newRoot: TrimmedNonEmptyString,
   updatedAt: IsoDateTime,
 });
 
@@ -912,7 +929,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, WorkspaceAggregateId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -950,6 +967,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("paper.moved"),
     payload: PaperMovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("workspace.root-changed"),
+    payload: WorkspaceRootChangedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

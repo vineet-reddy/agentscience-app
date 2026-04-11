@@ -251,6 +251,23 @@ export const decideOrchestrationCommand = Effect.fn(
       };
     }
 
+    case "workspace.rootChange": {
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "workspace",
+          aggregateId: "workspace-root",
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "workspace.root-changed",
+        payload: {
+          newRoot: command.newRoot,
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     case "thread.delete": {
       yield* requireThread({
         readModel,
