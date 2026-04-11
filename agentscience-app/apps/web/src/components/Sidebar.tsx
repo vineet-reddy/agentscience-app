@@ -453,7 +453,7 @@ export default function Sidebar() {
                               />
                             ) : (
                               <>
-                                <div className="truncate font-display text-[1.0625rem] leading-snug text-sidebar-foreground">
+                                <div className="truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
                                   {thread.title}
                                 </div>
                                 <div className="mt-1 text-xs text-sidebar-foreground/60">
@@ -645,7 +645,7 @@ export default function Sidebar() {
                                     <>
                                       <div
                                         className={cn(
-                                          "truncate font-display text-[1.0625rem] leading-snug",
+                                          "truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em]",
                                           routeThreadId === thread.id
                                             ? "text-sidebar-foreground"
                                             : "text-sidebar-foreground",
