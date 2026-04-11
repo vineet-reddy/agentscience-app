@@ -802,6 +802,16 @@ export function GeneralSettingsPanel() {
         />
 
         <SettingsRow
+          title="Workspace location"
+          description="Agent Science stores standalone papers in `Papers/` and projects in `Projects/` under this root."
+          status={
+            <span className="block break-all font-mono text-[11px] text-foreground">
+              {settings.workspaceRoot}
+            </span>
+          }
+        />
+
+        <SettingsRow
           title="Time format"
           description="System default follows your browser or OS clock preference."
           resetAction={

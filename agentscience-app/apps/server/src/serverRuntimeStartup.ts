@@ -22,6 +22,7 @@ import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReac
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+import { WorkspaceLayout } from "./workspace/Services/WorkspaceLayout.ts";
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -240,6 +241,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   const orchestrationReactor = yield* OrchestrationReactor;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const serverSettings = yield* ServerSettingsService;
+  const workspaceLayout = yield* WorkspaceLayout;
 
   const commandGate = yield* makeCommandGate;
   const httpListening = yield* Deferred.make<void>();
@@ -275,6 +277,15 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
           }),
         ),
         Effect.forkScoped,
+      ),
+    );
+
+    yield* Effect.logDebug("startup phase: ensuring workspace root");
+    yield* runStartupPhase(
+      "workspace.ensureRoot",
+      serverSettings.ready.pipe(
+        Effect.flatMap(() => serverSettings.getSettings),
+        Effect.flatMap((settings) => workspaceLayout.ensureRoot(settings.workspaceRoot)),
       ),
     );
 

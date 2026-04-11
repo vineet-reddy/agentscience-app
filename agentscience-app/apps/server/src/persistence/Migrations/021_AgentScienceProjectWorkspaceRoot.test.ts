@@ -3,13 +3,9 @@ import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
+import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
-const testLayer = Layer.unwrap(
-  Effect.promise(async () => {
-    const SqliteClient = await import("@effect/sql-sqlite-bun/SqliteClient");
-    return SqliteClient.layer({ filename: ":memory:" });
-  }),
-);
+const testLayer = Layer.mergeAll(NodeSqliteClient.layerMemory());
 
 describe("021_AgentScienceProjectWorkspaceRoot", () => {
   it("backfills workspace roots and replaces the legacy title uniqueness index", async () => {

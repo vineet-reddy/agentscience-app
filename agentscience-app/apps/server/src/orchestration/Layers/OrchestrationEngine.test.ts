@@ -233,7 +233,7 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
-  it("creates a usable initial thread as part of project.create", async () => {
+  it("creates a project without synthesizing an initial thread", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
     const createdAt = now();
@@ -263,14 +263,7 @@ describe("OrchestrationEngine", () => {
       title: "Atomic Project",
       workspaceRoot: "/tmp/project-atomic",
     });
-    expect(projectThreads).toHaveLength(1);
-    expect(projectThreads[0]).toMatchObject({
-      title: "New thread",
-      runtimeMode: "full-access",
-      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-      branch: null,
-      worktreePath: null,
-    });
+    expect(projectThreads).toHaveLength(0);
 
     await system.dispose();
   });
@@ -394,7 +387,6 @@ describe("OrchestrationEngine", () => {
     );
     expect(events.map((event) => event.type)).toEqual([
       "project.created",
-      "thread.created",
       "thread.created",
       "thread.deleted",
     ]);
@@ -729,8 +721,8 @@ describe("OrchestrationEngine", () => {
       }),
     );
 
-    expect(result.sequence).toBe(3);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(3);
+    expect(result.sequence).toBe(2);
+    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
     await runtime.dispose();
   });
 
@@ -828,12 +820,11 @@ describe("OrchestrationEngine", () => {
     expect(eventsAfterFailure.map((event) => event.type)).toEqual([
       "project.created",
       "thread.created",
-      "thread.created",
     ]);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(3);
+    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
 
     const retryResult = await runtime.runPromise(engine.dispatch(turnStartCommand));
-    expect(retryResult.sequence).toBe(5);
+    expect(retryResult.sequence).toBe(4);
 
     const eventsAfterRetry = await runtime.runPromise(
       Stream.runCollect(engine.readEvents(0)).pipe(
@@ -842,7 +833,6 @@ describe("OrchestrationEngine", () => {
     );
     expect(eventsAfterRetry.map((event) => event.type)).toEqual([
       "project.created",
-      "thread.created",
       "thread.created",
       "thread.message-sent",
       "thread.turn-start-requested",
@@ -960,7 +950,7 @@ describe("OrchestrationEngine", () => {
     const updatedThread = readModelAfterFailure.threads.find(
       (thread) => thread.id === "thread-sync",
     );
-    expect(readModelAfterFailure.snapshotSequence).toBe(4);
+    expect(readModelAfterFailure.snapshotSequence).toBe(3);
     expect(updatedThread?.title).toBe("sync-after-failed-projection");
 
     await runtime.dispose();

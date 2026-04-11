@@ -85,6 +85,7 @@ import {
 } from "./project/Services/ProjectSetupScriptRunner.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
+import { WorkspaceLayoutLive } from "./workspace/Layers/WorkspaceLayout.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
@@ -138,6 +139,7 @@ const makeDefaultOrchestrationReadModel = () => {
 
 const workspaceAndProjectServicesLayer = Layer.mergeAll(
   WorkspacePathsLive,
+  WorkspaceLayoutLive,
   WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
   WorkspaceFileSystemLive.pipe(
     Layer.provide(WorkspacePathsLive),

@@ -35,21 +35,9 @@ describe("decider project scripts", () => {
       }),
     );
 
-    expect(Array.isArray(result)).toBe(true);
     const events = Array.isArray(result) ? result : [result];
-    expect(events.map((event) => event.type)).toEqual(["project.created", "thread.created"]);
+    expect(events.map((event) => event.type)).toEqual(["project.created"]);
     expect((events[0]?.payload as { scripts: unknown[] }).scripts).toEqual([]);
-    expect(events[1]).toMatchObject({
-      type: "thread.created",
-      payload: {
-        projectId: asProjectId("project-scripts"),
-        title: "New thread",
-        runtimeMode: "full-access",
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        branch: null,
-        worktreePath: null,
-      },
-    });
   });
 
   it("propagates scripts in project.meta.update payload", async () => {
