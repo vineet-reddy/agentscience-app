@@ -52,10 +52,8 @@ function SettingsContentLayout() {
         )}
 
         {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
-            <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
-              Settings
-            </span>
+          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-6">
+            <span className="font-display text-[1.0625rem] text-ink">Settings</span>
             <div className="ms-auto flex items-center gap-2">
               <Button
                 size="xs"

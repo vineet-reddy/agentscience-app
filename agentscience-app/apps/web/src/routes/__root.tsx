@@ -65,9 +65,12 @@ function RootRouteView() {
     return (
       <div className="flex h-screen flex-col bg-background text-foreground">
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">
-            Connecting to {APP_DISPLAY_NAME} server...
-          </p>
+          <div className="flex flex-col items-center gap-3">
+            <p className="font-display text-[1.5rem] text-ink">AgentScience</p>
+            <p className="text-[0.8125rem] text-ink-light">
+              Connecting to server…
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -95,22 +98,19 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
   const details = errorDetails(error);
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
-      <div className="pointer-events-none absolute inset-0 opacity-80">
-        <div className="absolute inset-x-0 top-0 h-44 bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--color-red-500)_16%,transparent),transparent)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(145deg,color-mix(in_srgb,var(--background)_90%,var(--color-black))_0%,var(--background)_55%)]" />
-      </div>
-
-      <section className="relative w-full max-w-xl rounded-2xl border border-border/80 bg-card/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-8">
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+    <div className="flex min-h-screen items-center justify-center bg-background px-6 py-12 text-foreground">
+      <section className="w-full max-w-[560px]">
+        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-faint">
           {APP_DISPLAY_NAME}
         </p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
+        <h1 className="mt-4 font-display text-[2rem] leading-[1.15] text-ink sm:text-[2.25rem]">
           Something went wrong.
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{message}</p>
+        <p className="mt-3 text-[0.9375rem] leading-relaxed text-ink-light">{message}</p>
 
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-6 h-px w-full bg-rule" />
+
+        <div className="mt-6 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => reset()}>
             Try again
           </Button>
@@ -119,12 +119,12 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
           </Button>
         </div>
 
-        <details className="group mt-5 overflow-hidden rounded-lg border border-border/70 bg-background/55">
-          <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-muted-foreground">
+        <details className="mt-8 border-t border-rule pt-4">
+          <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-light">
             <span className="group-open:hidden">Show error details</span>
             <span className="hidden group-open:inline">Hide error details</span>
           </summary>
-          <pre className="max-h-56 overflow-auto border-t border-border/70 bg-background/80 px-3 py-2 text-xs text-foreground/85">
+          <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-rule bg-[var(--code-bg)] p-3 font-mono text-[0.75rem] leading-relaxed text-ink">
             {details}
           </pre>
         </details>
