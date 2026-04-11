@@ -1,4 +1,10 @@
-import { CommandId, EventId, MessageId, ProjectId, ThreadId } from "@agentscience/contracts";
+import {
+  CommandId,
+  EventId,
+  MessageId,
+  ProjectId,
+  ThreadId,
+} from "@agentscience/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -15,9 +21,13 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 const testLayer = OrchestrationProjectionPipelineLive.pipe(
   Layer.provideMerge(OrchestrationEventStoreLive),
   Layer.provideMerge(
-    ServerConfig.layerTest(process.cwd(), { prefix: "agentscience-agent-science-pipeline-" }),
+    ServerConfig.layerTest(process.cwd(), {
+      prefix: "agentscience-agent-science-pipeline-",
+    }),
   ),
-  Layer.provideMerge(ServerSettingsService.layerTest()),
+  Layer.provideMerge(
+    ServerSettingsService.layerTest({ workspaceRoot: "/tmp/AgentScience" }),
+  ),
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provideMerge(NodeServices.layer),
 );
@@ -141,7 +151,11 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
     expect(result.projectRows).toEqual([
-      { projectId: "project-1", folderSlug: "project-1", defaultChatId: "thread-1" },
+      {
+        projectId: "project-1",
+        folderSlug: "project-1",
+        defaultChatId: "thread-1",
+      },
     ]);
     expect(result.messageRows).toEqual([
       { messageId: "message-1", contentMarkdown: "hello", sequenceNo: 1 },
@@ -253,7 +267,9 @@ describe("OrchestrationProjectionPipeline Agent Science", () => {
       `;
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
-    expect(rows).toEqual([{ count: 1, contentMarkdown: "hello", sequenceNo: 1 }]);
+    expect(rows).toEqual([
+      { count: 1, contentMarkdown: "hello", sequenceNo: 1 },
+    ]);
   });
 
   it("allows projects with duplicate titles when workspace roots differ", async () => {

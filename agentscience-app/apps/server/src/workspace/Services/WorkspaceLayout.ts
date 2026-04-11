@@ -12,9 +12,27 @@ export class WorkspaceLayoutError extends Schema.TaggedErrorClass<WorkspaceLayou
 ) {}
 
 export interface WorkspaceLayoutShape {
-  readonly ensureRoot: (workspaceRoot: string) => Effect.Effect<void, WorkspaceLayoutError>;
+  readonly ensureRoot: (
+    workspaceRoot: string,
+  ) => Effect.Effect<void, WorkspaceLayoutError>;
+  readonly createProjectFolder: (input: {
+    workspaceRoot: string;
+    folderSlug: string;
+  }) => Effect.Effect<void, WorkspaceLayoutError>;
+  readonly createPaperFolder: (input: {
+    workspaceRoot: string;
+    projectFolderSlug: string | null;
+    folderSlug: string;
+  }) => Effect.Effect<void, WorkspaceLayoutError>;
+  readonly movePaperFolder: (input: {
+    workspaceRoot: string;
+    fromProjectFolderSlug: string | null;
+    toProjectFolderSlug: string | null;
+    folderSlug: string;
+  }) => Effect.Effect<void, WorkspaceLayoutError>;
 }
 
-export class WorkspaceLayout extends ServiceMap.Service<WorkspaceLayout, WorkspaceLayoutShape>()(
-  "agentscience/workspace/Services/WorkspaceLayout",
-) {}
+export class WorkspaceLayout extends ServiceMap.Service<
+  WorkspaceLayout,
+  WorkspaceLayoutShape
+>()("agentscience/workspace/Services/WorkspaceLayout") {}

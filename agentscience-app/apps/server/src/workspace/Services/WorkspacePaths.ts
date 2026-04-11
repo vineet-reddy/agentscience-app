@@ -61,7 +61,10 @@ export interface WorkspacePathsShape {
    */
   readonly normalizeWorkspaceRoot: (
     workspaceRoot: string,
-  ) => Effect.Effect<string, WorkspaceRootNotExistsError | WorkspaceRootNotDirectoryError>;
+  ) => Effect.Effect<
+    string,
+    WorkspaceRootNotExistsError | WorkspaceRootNotDirectoryError
+  >;
 
   /**
    * Resolve a relative path within a validated workspace root.
@@ -75,11 +78,29 @@ export interface WorkspacePathsShape {
     { absolutePath: string; relativePath: string },
     WorkspacePathOutsideRootError
   >;
+
+  /**
+   * Resolve a project folder path beneath the workspace root.
+   */
+  readonly resolveProjectPath: (input: {
+    workspaceRoot: string;
+    folderSlug: string;
+  }) => string;
+
+  /**
+   * Resolve a paper folder path beneath the workspace root.
+   */
+  readonly resolvePaperPath: (input: {
+    workspaceRoot: string;
+    projectFolderSlug: string | null;
+    folderSlug: string;
+  }) => string;
 }
 
 /**
  * WorkspacePaths - Service tag for workspace path normalization and resolution.
  */
-export class WorkspacePaths extends ServiceMap.Service<WorkspacePaths, WorkspacePathsShape>()(
-  "agentscience/workspace/Services/WorkspacePaths",
-) {}
+export class WorkspacePaths extends ServiceMap.Service<
+  WorkspacePaths,
+  WorkspacePathsShape
+>()("agentscience/workspace/Services/WorkspacePaths") {}

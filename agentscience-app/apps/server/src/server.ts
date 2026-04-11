@@ -34,7 +34,10 @@ import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration";
 import { TerminalManagerLive } from "./terminal/Layers/Manager";
 import { GitManagerLive } from "./git/Layers/GitManager";
 import { KeybindingsLive } from "./keybindings";
-import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup";
+import {
+  ServerRuntimeStartup,
+  ServerRuntimeStartupLive,
+} from "./serverRuntimeStartup";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
@@ -53,10 +56,14 @@ import { ObservabilityLive } from "./observability/Layers/Observability";
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
     if (typeof Bun !== "undefined") {
-      const BunPTY = yield* Effect.promise(() => import("./terminal/Layers/BunPTY"));
+      const BunPTY = yield* Effect.promise(
+        () => import("./terminal/Layers/BunPTY"),
+      );
       return BunPTY.layer;
     } else {
-      const NodePTY = yield* Effect.promise(() => import("./terminal/Layers/NodePTY"));
+      const NodePTY = yield* Effect.promise(
+        () => import("./terminal/Layers/NodePTY"),
+      );
       return NodePTY.layer;
     }
   }),
@@ -89,10 +96,14 @@ const HttpServerLive = Layer.unwrap(
 const PlatformServicesLive = Layer.unwrap(
   Effect.gen(function* () {
     if (typeof Bun !== "undefined") {
-      const { layer } = yield* Effect.promise(() => import("@effect/platform-bun/BunServices"));
+      const { layer } = yield* Effect.promise(
+        () => import("@effect/platform-bun/BunServices"),
+      );
       return layer;
     } else {
-      const { layer } = yield* Effect.promise(() => import("@effect/platform-node/NodeServices"));
+      const { layer } = yield* Effect.promise(
+        () => import("@effect/platform-node/NodeServices"),
+      );
       return layer;
     }
   }),
@@ -111,9 +122,10 @@ const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationCommandReceiptRepositoryLive,
 );
 
-const OrchestrationProjectionPipelineLayerLive = OrchestrationProjectionPipelineLive.pipe(
-  Layer.provide(OrchestrationEventStoreLive),
-);
+const OrchestrationProjectionPipelineLayerLive =
+  OrchestrationProjectionPipelineLive.pipe(
+    Layer.provide(OrchestrationEventStoreLive),
+  );
 
 const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationProjectionSnapshotQueryLive,
@@ -123,7 +135,9 @@ const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
 
 const OrchestrationLayerLive = Layer.mergeAll(
   OrchestrationInfrastructureLayerLive,
-  OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureLayerLive)),
+  OrchestrationEngineLive.pipe(
+    Layer.provide(OrchestrationInfrastructureLayerLive),
+  ),
 );
 
 const CheckpointingLayerLive = Layer.empty.pipe(
@@ -134,12 +148,18 @@ const CheckpointingLayerLive = Layer.empty.pipe(
 const ProviderLayerLive = Layer.unwrap(
   Effect.gen(function* () {
     const { providerEventLogPath } = yield* ServerConfig;
-    const nativeEventLogger = yield* makeEventNdjsonLogger(providerEventLogPath, {
-      stream: "native",
-    });
-    const canonicalEventLogger = yield* makeEventNdjsonLogger(providerEventLogPath, {
-      stream: "canonical",
-    });
+    const nativeEventLogger = yield* makeEventNdjsonLogger(
+      providerEventLogPath,
+      {
+        stream: "native",
+      },
+    );
+    const canonicalEventLogger = yield* makeEventNdjsonLogger(
+      providerEventLogPath,
+      {
+        stream: "canonical",
+      },
+    );
     const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
       Layer.provide(ProviderSessionRuntimeRepositoryLive),
     );
@@ -152,11 +172,16 @@ const ProviderLayerLive = Layer.unwrap(
     );
     return makeProviderServiceLive(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,
-    ).pipe(Layer.provide(adapterRegistryLayer), Layer.provide(providerSessionDirectoryLayer));
+    ).pipe(
+      Layer.provide(adapterRegistryLayer),
+      Layer.provide(providerSessionDirectoryLayer),
+    );
   }),
 );
 
-const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
+const PersistenceLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(SqlitePersistenceLayerLive),
+);
 
 const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(ProjectSetupScriptRunnerLive),
@@ -167,19 +192,31 @@ const GitManagerLayerLive = GitManagerLive.pipe(
 
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
-  Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
+  Layer.provideMerge(
+    GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive)),
+  ),
   Layer.provideMerge(GitCoreLive),
 );
 
-const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
+const TerminalLayerLive = TerminalManagerLive.pipe(
+  Layer.provide(PtyAdapterLive),
+);
 
-const WorkspaceLayerLive = Layer.mergeAll(
-  WorkspacePathsLive,
-  WorkspaceLayoutLive,
-  WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
-  WorkspaceFileSystemLive.pipe(
-    Layer.provide(WorkspacePathsLive),
-    Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
+const WorkspaceLayerLive = Layer.empty.pipe(
+  Layer.provideMerge(WorkspacePathsLive),
+  Layer.provideMerge(
+    WorkspaceLayoutLive.pipe(Layer.provide(WorkspacePathsLive)),
+  ),
+  Layer.provideMerge(
+    WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
+  ),
+  Layer.provideMerge(
+    WorkspaceFileSystemLive.pipe(
+      Layer.provide(WorkspacePathsLive),
+      Layer.provide(
+        WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
+      ),
+    ),
   ),
 );
 

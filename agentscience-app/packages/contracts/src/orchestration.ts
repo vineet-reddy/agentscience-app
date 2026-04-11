@@ -51,13 +51,21 @@ export type CodexModelSelection = typeof CodexModelSelection.Type;
 export const ModelSelection = Schema.Union([CodexModelSelection]);
 export type ModelSelection = typeof ModelSelection.Type;
 
-export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);
+export const RuntimeMode = Schema.Literals([
+  "approval-required",
+  "full-access",
+]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
-export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
-export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);
+export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode =
+  "default";
+export const ProviderRequestKind = Schema.Literals([
+  "command",
+  "file-read",
+  "file-change",
+]);
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
 export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
 export type AssistantDeliveryMode = typeof AssistantDeliveryMode.Type;
@@ -68,7 +76,10 @@ export const ProviderApprovalDecision = Schema.Literals([
   "cancel",
 ]);
 export type ProviderApprovalDecision = typeof ProviderApprovalDecision.Type;
-export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unknown);
+export const ProviderUserInputAnswers = Schema.Record(
+  Schema.String,
+  Schema.Unknown,
+);
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
@@ -90,16 +101,26 @@ export const ChatImageAttachment = Schema.Struct({
   type: Schema.Literal("image"),
   id: ChatAttachmentId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
-  mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),
-  sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES)),
+  mimeType: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(100),
+    Schema.isPattern(/^image\//i),
+  ),
+  sizeBytes: NonNegativeInt.check(
+    Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES),
+  ),
 });
 export type ChatImageAttachment = typeof ChatImageAttachment.Type;
 
 const UploadChatImageAttachment = Schema.Struct({
   type: Schema.Literal("image"),
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
-  mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),
-  sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES)),
+  mimeType: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(100),
+    Schema.isPattern(/^image\//i),
+  ),
+  sizeBytes: NonNegativeInt.check(
+    Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES),
+  ),
   dataUrl: TrimmedNonEmptyString.check(
     Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_IMAGE_DATA_URL_CHARS),
   ),
@@ -142,7 +163,11 @@ export const OrchestrationProject = Schema.Struct({
 });
 export type OrchestrationProject = typeof OrchestrationProject.Type;
 
-export const OrchestrationMessageRole = Schema.Literals(["user", "assistant", "system"]);
+export const OrchestrationMessageRole = Schema.Literals([
+  "user",
+  "assistant",
+  "system",
+]);
 export type OrchestrationMessageRole = typeof OrchestrationMessageRole.Type;
 
 export const OrchestrationMessage = Schema.Struct({
@@ -158,14 +183,19 @@ export const OrchestrationMessage = Schema.Struct({
 export type OrchestrationMessage = typeof OrchestrationMessage.Type;
 
 export const OrchestrationProposedPlanId = TrimmedNonEmptyString;
-export type OrchestrationProposedPlanId = typeof OrchestrationProposedPlanId.Type;
+export type OrchestrationProposedPlanId =
+  typeof OrchestrationProposedPlanId.Type;
 
 export const OrchestrationProposedPlan = Schema.Struct({
   id: OrchestrationProposedPlanId,
   turnId: Schema.NullOr(TurnId),
   planMarkdown: TrimmedNonEmptyString,
-  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  implementationThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  implementedAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  implementationThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -191,7 +221,9 @@ export const OrchestrationSession = Schema.Struct({
   threadId: ThreadId,
   status: OrchestrationSessionStatus,
   providerName: Schema.NullOr(TrimmedNonEmptyString),
-  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  runtimeMode: RuntimeMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE),
+  ),
   activeTurnId: Schema.NullOr(TurnId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
   updatedAt: IsoDateTime,
@@ -204,10 +236,16 @@ export const OrchestrationCheckpointFile = Schema.Struct({
   additions: NonNegativeInt,
   deletions: NonNegativeInt,
 });
-export type OrchestrationCheckpointFile = typeof OrchestrationCheckpointFile.Type;
+export type OrchestrationCheckpointFile =
+  typeof OrchestrationCheckpointFile.Type;
 
-export const OrchestrationCheckpointStatus = Schema.Literals(["ready", "missing", "error"]);
-export type OrchestrationCheckpointStatus = typeof OrchestrationCheckpointStatus.Type;
+export const OrchestrationCheckpointStatus = Schema.Literals([
+  "ready",
+  "missing",
+  "error",
+]);
+export type OrchestrationCheckpointStatus =
+  typeof OrchestrationCheckpointStatus.Type;
 
 export const OrchestrationCheckpointSummary = Schema.Struct({
   turnId: TurnId,
@@ -218,7 +256,8 @@ export const OrchestrationCheckpointSummary = Schema.Struct({
   assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
 });
-export type OrchestrationCheckpointSummary = typeof OrchestrationCheckpointSummary.Type;
+export type OrchestrationCheckpointSummary =
+  typeof OrchestrationCheckpointSummary.Type;
 
 export const OrchestrationThreadActivityTone = Schema.Literals([
   "info",
@@ -226,7 +265,8 @@ export const OrchestrationThreadActivityTone = Schema.Literals([
   "approval",
   "error",
 ]);
-export type OrchestrationThreadActivityTone = typeof OrchestrationThreadActivityTone.Type;
+export type OrchestrationThreadActivityTone =
+  typeof OrchestrationThreadActivityTone.Type;
 
 export const OrchestrationThreadActivity = Schema.Struct({
   id: EventId,
@@ -238,7 +278,8 @@ export const OrchestrationThreadActivity = Schema.Struct({
   sequence: Schema.optional(NonNegativeInt),
   createdAt: IsoDateTime,
 });
-export type OrchestrationThreadActivity = typeof OrchestrationThreadActivity.Type;
+export type OrchestrationThreadActivity =
+  typeof OrchestrationThreadActivity.Type;
 
 const OrchestrationLatestTurnState = Schema.Literals([
   "running",
@@ -246,7 +287,8 @@ const OrchestrationLatestTurnState = Schema.Literals([
   "completed",
   "error",
 ]);
-export type OrchestrationLatestTurnState = typeof OrchestrationLatestTurnState.Type;
+export type OrchestrationLatestTurnState =
+  typeof OrchestrationLatestTurnState.Type;
 
 export const OrchestrationLatestTurn = Schema.Struct({
   turnId: TurnId,
@@ -277,10 +319,14 @@ export const OrchestrationThread = Schema.Struct({
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
-  archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  archivedAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
-  proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(Schema.withDecodingDefault(() => [])),
+  proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
   session: Schema.NullOr(OrchestrationSession),
@@ -342,6 +388,13 @@ const ThreadProjectSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   projectId: Schema.NullOr(ProjectId),
+});
+
+const PaperMoveCommand = Schema.Struct({
+  type: Schema.Literal("paper.move"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  targetProjectId: Schema.NullOr(ProjectId),
 });
 
 const ThreadDeleteCommand = Schema.Struct({
@@ -426,7 +479,9 @@ export const ThreadTurnStartCommand = Schema.Struct({
   }),
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
-  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  runtimeMode: RuntimeMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE),
+  ),
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
@@ -501,6 +556,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectDeleteCommand,
   ThreadCreateCommand,
   ThreadProjectSetCommand,
+  PaperMoveCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -523,6 +579,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ProjectDeleteCommand,
   ThreadCreateCommand,
   ThreadProjectSetCommand,
+  PaperMoveCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -612,7 +669,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
 ]);
-export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
+export type InternalOrchestrationCommand =
+  typeof InternalOrchestrationCommand.Type;
 
 export const OrchestrationCommand = Schema.Union([
   DispatchableClientOrchestrationCommand,
@@ -626,6 +684,7 @@ export const OrchestrationEventType = Schema.Literals([
   "project.deleted",
   "thread.created",
   "thread.project-set",
+  "paper.moved",
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
@@ -647,9 +706,16 @@ export const OrchestrationEventType = Schema.Literals([
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals([
+  "project",
+  "thread",
+]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
-export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
+export const OrchestrationActorKind = Schema.Literals([
+  "client",
+  "server",
+  "provider",
+]);
 
 export const ProjectCreatedPayload = Schema.Struct({
   projectId: ProjectId,
@@ -680,7 +746,9 @@ export const ThreadCreatedPayload = Schema.Struct({
   folderSlug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
-  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  runtimeMode: RuntimeMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE),
+  ),
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
@@ -693,6 +761,13 @@ export const ThreadCreatedPayload = Schema.Struct({
 export const ThreadProjectSetPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: Schema.NullOr(ProjectId),
+  updatedAt: IsoDateTime,
+});
+
+export const PaperMovedPayload = Schema.Struct({
+  threadId: ThreadId,
+  fromProjectId: Schema.NullOr(ProjectId),
+  toProjectId: Schema.NullOr(ProjectId),
   updatedAt: IsoDateTime,
 });
 
@@ -752,7 +827,9 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   messageId: MessageId,
   modelSelection: Schema.optional(ModelSelection),
   titleSeed: Schema.optional(TrimmedNonEmptyString),
-  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  runtimeMode: RuntimeMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE),
+  ),
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
@@ -871,6 +948,11 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("paper.moved"),
+    payload: PaperMovedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("thread.deleted"),
     payload: ThreadDeletedPayload,
   }),
@@ -962,8 +1044,12 @@ export const OrchestrationEvent = Schema.Union([
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
-export const OrchestrationCommandReceiptStatus = Schema.Literals(["accepted", "rejected"]);
-export type OrchestrationCommandReceiptStatus = typeof OrchestrationCommandReceiptStatus.Type;
+export const OrchestrationCommandReceiptStatus = Schema.Literals([
+  "accepted",
+  "rejected",
+]);
+export type OrchestrationCommandReceiptStatus =
+  typeof OrchestrationCommandReceiptStatus.Type;
 
 export const TurnCountRange = Schema.Struct({
   fromTurnCount: NonNegativeInt,
@@ -993,7 +1079,8 @@ export const ProviderSessionRuntimeStatus = Schema.Literals([
   "stopped",
   "error",
 ]);
-export type ProviderSessionRuntimeStatus = typeof ProviderSessionRuntimeStatus.Type;
+export type ProviderSessionRuntimeStatus =
+  typeof ProviderSessionRuntimeStatus.Type;
 
 const ProjectionThreadTurnStatus = Schema.Literals([
   "running",
@@ -1015,11 +1102,18 @@ const ProjectionCheckpointRow = Schema.Struct({
 });
 export type ProjectionCheckpointRow = typeof ProjectionCheckpointRow.Type;
 
-export const ProjectionPendingApprovalStatus = Schema.Literals(["pending", "resolved"]);
-export type ProjectionPendingApprovalStatus = typeof ProjectionPendingApprovalStatus.Type;
+export const ProjectionPendingApprovalStatus = Schema.Literals([
+  "pending",
+  "resolved",
+]);
+export type ProjectionPendingApprovalStatus =
+  typeof ProjectionPendingApprovalStatus.Type;
 
-export const ProjectionPendingApprovalDecision = Schema.NullOr(ProviderApprovalDecision);
-export type ProjectionPendingApprovalDecision = typeof ProjectionPendingApprovalDecision.Type;
+export const ProjectionPendingApprovalDecision = Schema.NullOr(
+  ProviderApprovalDecision,
+);
+export type ProjectionPendingApprovalDecision =
+  typeof ProjectionPendingApprovalDecision.Type;
 
 export const DispatchResult = Schema.Struct({
   sequence: NonNegativeInt,
@@ -1027,35 +1121,43 @@ export const DispatchResult = Schema.Struct({
 export type DispatchResult = typeof DispatchResult.Type;
 
 export const OrchestrationGetSnapshotInput = Schema.Struct({});
-export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput.Type;
+export type OrchestrationGetSnapshotInput =
+  typeof OrchestrationGetSnapshotInput.Type;
 const OrchestrationGetSnapshotResult = OrchestrationReadModel;
-export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
+export type OrchestrationGetSnapshotResult =
+  typeof OrchestrationGetSnapshotResult.Type;
 
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
   { unsafePreserveChecks: true },
 );
-export type OrchestrationGetTurnDiffInput = typeof OrchestrationGetTurnDiffInput.Type;
+export type OrchestrationGetTurnDiffInput =
+  typeof OrchestrationGetTurnDiffInput.Type;
 
 export const OrchestrationGetTurnDiffResult = ThreadTurnDiff;
-export type OrchestrationGetTurnDiffResult = typeof OrchestrationGetTurnDiffResult.Type;
+export type OrchestrationGetTurnDiffResult =
+  typeof OrchestrationGetTurnDiffResult.Type;
 
 export const OrchestrationGetFullThreadDiffInput = Schema.Struct({
   threadId: ThreadId,
   toTurnCount: NonNegativeInt,
 });
-export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThreadDiffInput.Type;
+export type OrchestrationGetFullThreadDiffInput =
+  typeof OrchestrationGetFullThreadDiffInput.Type;
 
 export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
-export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
+export type OrchestrationGetFullThreadDiffResult =
+  typeof OrchestrationGetFullThreadDiffResult.Type;
 
 export const OrchestrationReplayEventsInput = Schema.Struct({
   fromSequenceExclusive: NonNegativeInt,
 });
-export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInput.Type;
+export type OrchestrationReplayEventsInput =
+  typeof OrchestrationReplayEventsInput.Type;
 
 const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
-export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
+export type OrchestrationReplayEventsResult =
+  typeof OrchestrationReplayEventsResult.Type;
 
 export const OrchestrationRpcSchemas = {
   getSnapshot: {

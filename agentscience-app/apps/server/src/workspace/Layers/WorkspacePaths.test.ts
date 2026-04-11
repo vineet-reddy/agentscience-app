@@ -66,7 +66,9 @@ it.layer(TestLayer)("WorkspacePathsLive", (it) => {
         const filePath = path.join(cwd, "README.md");
         yield* writeTextFile(cwd, "README.md", "# hi\n");
 
-        const error = yield* workspacePaths.normalizeWorkspaceRoot(filePath).pipe(Effect.flip);
+        const error = yield* workspacePaths
+          .normalizeWorkspaceRoot(filePath)
+          .pipe(Effect.flip);
 
         expect(error.message).toContain("Workspace root is not a directory:");
       }),
@@ -108,6 +110,61 @@ it.layer(TestLayer)("WorkspacePathsLive", (it) => {
           "Workspace file path must be relative to the project root: ../escape.md",
         );
       }),
+    );
+  });
+
+  describe("resolveProjectPath", () => {
+    it.effect("resolves a project folder beneath the Projects directory", () =>
+      Effect.gen(function* () {
+        const workspacePaths = yield* WorkspacePaths;
+        const cwd = yield* makeTempDir();
+        const path = yield* Path.Path;
+
+        const resolved = workspacePaths.resolveProjectPath({
+          workspaceRoot: cwd,
+          folderSlug: "demo-project",
+        });
+
+        expect(resolved).toBe(path.join(cwd, "Projects", "demo-project"));
+      }),
+    );
+  });
+
+  describe("resolvePaperPath", () => {
+    it.effect("resolves an unassigned paper beneath the Papers directory", () =>
+      Effect.gen(function* () {
+        const workspacePaths = yield* WorkspacePaths;
+        const cwd = yield* makeTempDir();
+        const path = yield* Path.Path;
+
+        const resolved = workspacePaths.resolvePaperPath({
+          workspaceRoot: cwd,
+          projectFolderSlug: null,
+          folderSlug: "demo-paper",
+        });
+
+        expect(resolved).toBe(path.join(cwd, "Papers", "demo-paper"));
+      }),
+    );
+
+    it.effect(
+      "resolves a project paper beneath the project papers directory",
+      () =>
+        Effect.gen(function* () {
+          const workspacePaths = yield* WorkspacePaths;
+          const cwd = yield* makeTempDir();
+          const path = yield* Path.Path;
+
+          const resolved = workspacePaths.resolvePaperPath({
+            workspaceRoot: cwd,
+            projectFolderSlug: "demo-project",
+            folderSlug: "demo-paper",
+          });
+
+          expect(resolved).toBe(
+            path.join(cwd, "Projects", "demo-project", "papers", "demo-paper"),
+          );
+        }),
     );
   });
 });

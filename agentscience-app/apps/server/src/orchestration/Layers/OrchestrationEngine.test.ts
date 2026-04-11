@@ -8,7 +8,15 @@ import {
   TurnId,
   type OrchestrationEvent,
 } from "@agentscience/contracts";
-import { Effect, Layer, ManagedRuntime, Metric, Option, Queue, Stream } from "effect";
+import {
+  Effect,
+  Layer,
+  ManagedRuntime,
+  Metric,
+  Option,
+  Queue,
+  Stream,
+} from "effect";
 import { describe, expect, it } from "vitest";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
@@ -35,7 +43,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
+const asCheckpointRef = (value: string): CheckpointRef =>
+  CheckpointRef.makeUnsafe(value);
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
@@ -48,11 +57,15 @@ async function createOrchestrationSystem() {
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     Layer.provide(SqlitePersistenceMemory),
     Layer.provideMerge(ServerConfigLayer),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(
+      ServerSettingsService.layerTest({ workspaceRoot: "/tmp/AgentScience" }),
+    ),
     Layer.provideMerge(NodeServices.layer),
   );
   const runtime = ManagedRuntime.make(orchestrationLayer);
-  const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+  const engine = await runtime.runPromise(
+    Effect.service(OrchestrationEngineService),
+  );
   return {
     engine,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
@@ -72,7 +85,9 @@ const hasMetricSnapshot = (
   snapshots.some(
     (snapshot) =>
       snapshot.id === id &&
-      Object.entries(attributes).every(([key, value]) => snapshot.attributes?.[key] === value),
+      Object.entries(attributes).every(
+        ([key, value]) => snapshot.attributes?.[key] === value,
+      ),
   );
 
 describe("OrchestrationEngine", () => {
@@ -118,7 +133,8 @@ describe("OrchestrationEngine", () => {
           id: ThreadId.makeUnsafe("thread-bootstrap"),
           projectId: asProjectId("project-bootstrap"),
           folderSlug: "thread-bootstrap",
-          resolvedWorkspacePath: "/tmp/AgentScience/Projects/project-bootstrap/papers/thread-bootstrap",
+          resolvedWorkspacePath:
+            "/tmp/AgentScience/Projects/project-bootstrap/papers/thread-bootstrap",
           title: "Bootstrap Thread",
           modelSelection: {
             provider: "codex" as const,
@@ -147,7 +163,8 @@ describe("OrchestrationEngine", () => {
         Layer.succeed(ProjectionSnapshotQuery, {
           getSnapshot: () => Effect.succeed(projectionSnapshot),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
-          getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+          getFirstActiveThreadIdByProjectId: () =>
+            Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
         }),
       ),
@@ -157,15 +174,21 @@ describe("OrchestrationEngine", () => {
           projectEvent: () => Effect.void,
         } satisfies OrchestrationProjectionPipelineShape),
       ),
-      Layer.provide(Layer.succeed(OrchestrationEventStore, failOnHistoricalReplayStore)),
+      Layer.provide(
+        Layer.succeed(OrchestrationEventStore, failOnHistoricalReplayStore),
+      ),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
       Layer.provide(SqlitePersistenceMemory),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(
+        ServerSettingsService.layerTest({ workspaceRoot: "/tmp/AgentScience" }),
+      ),
     );
 
     const runtime = ManagedRuntime.make(layer);
 
-    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const engine = await runtime.runPromise(
+      Effect.service(OrchestrationEngineService),
+    );
     const readModel = await runtime.runPromise(engine.getReadModel());
 
     expect(readModel.snapshotSequence).toBe(7);
@@ -259,7 +282,9 @@ describe("OrchestrationEngine", () => {
     );
 
     const readModel = await system.run(engine.getReadModel());
-    const project = readModel.projects.find((entry) => entry.id === asProjectId("project-atomic"));
+    const project = readModel.projects.find(
+      (entry) => entry.id === asProjectId("project-atomic"),
+    );
     const projectThreads = readModel.threads.filter(
       (entry) => entry.projectId === asProjectId("project-atomic"),
     );
@@ -426,7 +451,9 @@ describe("OrchestrationEngine", () => {
         const eventQueue = yield* Queue.unbounded<OrchestrationEvent>();
         yield* Effect.forkScoped(
           Stream.take(engine.streamDomainEvents, 2).pipe(
-            Stream.runForEach((event) => Queue.offer(eventQueue, event).pipe(Effect.asVoid)),
+            Stream.runForEach((event) =>
+              Queue.offer(eventQueue, event).pipe(Effect.asVoid),
+            ),
           ),
         );
         yield* Effect.sleep("10 millis");
@@ -598,7 +625,9 @@ describe("OrchestrationEngine", () => {
         threadId: ThreadId.makeUnsafe("thread-turn-diff"),
         turnId: asTurnId("turn-1"),
         completedAt: createdAt,
-        checkpointRef: asCheckpointRef("refs/agentscience/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef(
+          "refs/agentscience/checkpoints/thread-turn-diff/turn/1",
+        ),
         status: "ready",
         files: [],
         checkpointTurnCount: 1,
@@ -613,7 +642,9 @@ describe("OrchestrationEngine", () => {
       {
         turnId: asTurnId("turn-1"),
         checkpointTurnCount: 1,
-        checkpointRef: asCheckpointRef("refs/agentscience/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef(
+          "refs/agentscience/checkpoints/thread-turn-diff/turn/1",
+        ),
         status: "ready",
         files: [],
         assistantMessageId: null,
@@ -625,7 +656,11 @@ describe("OrchestrationEngine", () => {
 
   it("keeps processing queued commands after a storage failure", async () => {
     type StoredEvent =
-      ReturnType<OrchestrationEventStoreShape["append"]> extends Effect.Effect<infer A, any, any>
+      ReturnType<OrchestrationEventStoreShape["append"]> extends Effect.Effect<
+        infer A,
+        any,
+        any
+      >
         ? A
         : never;
     const events: StoredEvent[] = [];
@@ -634,7 +669,10 @@ describe("OrchestrationEngine", () => {
 
     const flakyStore: OrchestrationEventStoreShape = {
       append(event) {
-        if (shouldFailFirstAppend && event.commandId === CommandId.makeUnsafe("cmd-flaky-1")) {
+        if (
+          shouldFailFirstAppend &&
+          event.commandId === CommandId.makeUnsafe("cmd-flaky-1")
+        ) {
           shouldFailFirstAppend = false;
           return Effect.fail(
             new PersistenceSqlError({
@@ -652,7 +690,9 @@ describe("OrchestrationEngine", () => {
         return Effect.succeed(savedEvent);
       },
       readFromSequence(sequenceExclusive) {
-        return Stream.fromIterable(events.filter((event) => event.sequence > sequenceExclusive));
+        return Stream.fromIterable(
+          events.filter((event) => event.sequence > sequenceExclusive),
+        );
       },
       readAll() {
         return Stream.fromIterable(events);
@@ -671,11 +711,17 @@ describe("OrchestrationEngine", () => {
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
         Layer.provideMerge(ServerConfigLayer),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            workspaceRoot: "/tmp/AgentScience",
+          }),
+        ),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
-    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const engine = await runtime.runPromise(
+      Effect.service(OrchestrationEngineService),
+    );
     const createdAt = now();
 
     await runtime.runPromise(
@@ -736,7 +782,9 @@ describe("OrchestrationEngine", () => {
     );
 
     expect(result.sequence).toBe(2);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
+    expect(
+      (await runtime.runPromise(engine.getReadModel())).snapshotSequence,
+    ).toBe(2);
     await runtime.dispose();
   });
 
@@ -765,15 +813,26 @@ describe("OrchestrationEngine", () => {
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-        Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
+        Layer.provide(
+          Layer.succeed(
+            OrchestrationProjectionPipeline,
+            flakyProjectionPipeline,
+          ),
+        ),
         Layer.provide(OrchestrationEventStoreLive),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            workspaceRoot: "/tmp/AgentScience",
+          }),
+        ),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
-    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const engine = await runtime.runPromise(
+      Effect.service(OrchestrationEngineService),
+    );
     const createdAt = now();
 
     await runtime.runPromise(
@@ -825,9 +884,9 @@ describe("OrchestrationEngine", () => {
       createdAt,
     };
 
-    await expect(runtime.runPromise(engine.dispatch(turnStartCommand))).rejects.toThrow(
-      "projection failed",
-    );
+    await expect(
+      runtime.runPromise(engine.dispatch(turnStartCommand)),
+    ).rejects.toThrow("projection failed");
 
     const eventsAfterFailure = await runtime.runPromise(
       Stream.runCollect(engine.readEvents(0)).pipe(
@@ -838,9 +897,13 @@ describe("OrchestrationEngine", () => {
       "project.created",
       "thread.created",
     ]);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
+    expect(
+      (await runtime.runPromise(engine.getReadModel())).snapshotSequence,
+    ).toBe(2);
 
-    const retryResult = await runtime.runPromise(engine.dispatch(turnStartCommand));
+    const retryResult = await runtime.runPromise(
+      engine.dispatch(turnStartCommand),
+    );
     expect(retryResult.sequence).toBe(4);
 
     const eventsAfterRetry = await runtime.runPromise(
@@ -855,7 +918,9 @@ describe("OrchestrationEngine", () => {
       "thread.turn-start-requested",
     ]);
     expect(
-      eventsAfterRetry.filter((event) => event.commandId === turnStartCommand.commandId),
+      eventsAfterRetry.filter(
+        (event) => event.commandId === turnStartCommand.commandId,
+      ),
     ).toHaveLength(2);
 
     await runtime.dispose();
@@ -863,7 +928,11 @@ describe("OrchestrationEngine", () => {
 
   it("reconciles in-memory state when append persists but projection fails", async () => {
     type StoredEvent =
-      ReturnType<OrchestrationEventStoreShape["append"]> extends Effect.Effect<infer A, any, any>
+      ReturnType<OrchestrationEventStoreShape["append"]> extends Effect.Effect<
+        infer A,
+        any,
+        any
+      >
         ? A
         : never;
     const events: StoredEvent[] = [];
@@ -880,7 +949,9 @@ describe("OrchestrationEngine", () => {
         return Effect.succeed(savedEvent);
       },
       readFromSequence(sequenceExclusive) {
-        return Stream.fromIterable(events.filter((event) => event.sequence > sequenceExclusive));
+        return Stream.fromIterable(
+          events.filter((event) => event.sequence > sequenceExclusive),
+        );
       },
       readAll() {
         return Stream.fromIterable(events);
@@ -910,15 +981,28 @@ describe("OrchestrationEngine", () => {
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-        Layer.provide(Layer.succeed(OrchestrationProjectionPipeline, flakyProjectionPipeline)),
-        Layer.provide(Layer.succeed(OrchestrationEventStore, nonTransactionalStore)),
+        Layer.provide(
+          Layer.succeed(
+            OrchestrationProjectionPipeline,
+            flakyProjectionPipeline,
+          ),
+        ),
+        Layer.provide(
+          Layer.succeed(OrchestrationEventStore, nonTransactionalStore),
+        ),
         Layer.provide(OrchestrationCommandReceiptRepositoryLive),
         Layer.provide(SqlitePersistenceMemory),
-        Layer.provideMerge(ServerSettingsService.layerTest()),
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            workspaceRoot: "/tmp/AgentScience",
+          }),
+        ),
         Layer.provideMerge(NodeServices.layer),
       ),
     );
-    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
+    const engine = await runtime.runPromise(
+      Effect.service(OrchestrationEngineService),
+    );
     const createdAt = now();
 
     await runtime.runPromise(
@@ -966,7 +1050,9 @@ describe("OrchestrationEngine", () => {
       ),
     ).rejects.toThrow("projection failed");
 
-    const readModelAfterFailure = await runtime.runPromise(engine.getReadModel());
+    const readModelAfterFailure = await runtime.runPromise(
+      engine.getReadModel(),
+    );
     const updatedThread = readModelAfterFailure.threads.find(
       (thread) => thread.id === "thread-sync",
     );

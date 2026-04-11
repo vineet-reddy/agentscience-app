@@ -35,7 +35,9 @@ const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
   OrchestrationProjectionPipelineLive.pipe(
     Layer.provideMerge(OrchestrationEventStoreLive),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(
+      ServerSettingsService.layerTest({ workspaceRoot: "/tmp/AgentScience" }),
+    ),
     Layer.provideMerge(SqlitePersistenceMemory),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -155,7 +157,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           text
         FROM projection_thread_messages
       `;
-      assert.deepEqual(messageRows, [{ messageId: "message-1", text: "hello" }]);
+      assert.deepEqual(messageRows, [
+        { messageId: "message-1", text: "hello" },
+      ]);
 
       const stateRows = yield* sql<{
         readonly projector: string;
@@ -167,7 +171,10 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         FROM projection_state
         ORDER BY projector ASC
       `;
-      assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
+      assert.equal(
+        stateRows.length,
+        Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length,
+      );
       for (const row of stateRows) {
         assert.equal(row.lastAppliedSequence, 3);
       }
@@ -175,10 +182,12 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 });
 
-it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("agentscience-base-")))(
-  "OrchestrationProjectionPipeline",
-  (it) => {
-    it.effect("stores message attachment references without mutating payloads", () =>
+it.layer(
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("agentscience-base-")),
+)("OrchestrationProjectionPipeline", (it) => {
+  it.effect(
+    "stores message attachment references without mutating payloads",
+    () =>
       Effect.gen(function* () {
         const projectionPipeline = yield* OrchestrationProjectionPipeline;
         const eventStore = yield* OrchestrationEventStore;
@@ -237,12 +246,15 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("agentscience-base-
           },
         ]);
       }),
-    );
-  },
-);
+  );
+});
 
 it.layer(
-  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("agentscience-projection-attachments-safe-")),
+  Layer.fresh(
+    makeProjectionPipelinePrefixedTestLayer(
+      "agentscience-projection-attachments-safe-",
+    ),
+  ),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("preserves mixed image attachment metadata as-is", () =>
     Effect.gen(function* () {
@@ -451,246 +463,89 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
 
 it.layer(
   Layer.fresh(
-    makeProjectionPipelinePrefixedTestLayer("agentscience-projection-attachments-overwrite-"),
+    makeProjectionPipelinePrefixedTestLayer(
+      "agentscience-projection-attachments-overwrite-",
+    ),
   ),
 )("OrchestrationProjectionPipeline", (it) => {
-  it.effect("overwrites stored attachment references when a message updates attachments", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const now = new Date().toISOString();
-      const later = new Date(Date.now() + 1_000).toISOString();
+  it.effect(
+    "overwrites stored attachment references when a message updates attachments",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = new Date().toISOString();
+        const later = new Date(Date.now() + 1_000).toISOString();
 
-      yield* eventStore.append({
-        type: "project.created",
-        eventId: EventId.makeUnsafe("evt-overwrite-1"),
-        aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-overwrite"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-overwrite-1"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-overwrite-1"),
-        metadata: {},
-        payload: {
-          projectId: ProjectId.makeUnsafe("project-overwrite"),
-          title: "Project Overwrite",
-          folderSlug: "project-overwrite",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-overwrite-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-overwrite"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-overwrite-2"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-overwrite-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-overwrite"),
-          projectId: ProjectId.makeUnsafe("project-overwrite"),
-          folderSlug: "thread-overwrite",
-          title: "Thread Overwrite",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-overwrite-3"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-overwrite"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-overwrite-3"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-overwrite-3"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-overwrite"),
-          messageId: MessageId.makeUnsafe("message-overwrite"),
-          role: "user",
-          text: "first image",
-          attachments: [
-            {
-              type: "image",
-              id: "thread-overwrite-att-1",
-              name: "file.png",
-              mimeType: "image/png",
-              sizeBytes: 5,
-            },
-          ],
-          turnId: null,
-          streaming: false,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-overwrite-4"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-overwrite"),
-        occurredAt: later,
-        commandId: CommandId.makeUnsafe("cmd-overwrite-4"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-overwrite-4"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-overwrite"),
-          messageId: MessageId.makeUnsafe("message-overwrite"),
-          role: "user",
-          text: "",
-          attachments: [
-            {
-              type: "image",
-              id: "thread-overwrite-att-2",
-              name: "file.png",
-              mimeType: "image/png",
-              sizeBytes: 5,
-            },
-          ],
-          turnId: null,
-          streaming: false,
-          createdAt: now,
-          updatedAt: later,
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-
-      const rows = yield* sql<{
-        readonly attachmentsJson: string | null;
-      }>`
-              SELECT attachments_json AS "attachmentsJson"
-              FROM projection_thread_messages
-              WHERE message_id = 'message-overwrite'
-            `;
-      assert.equal(rows.length, 1);
-      assert.deepEqual(JSON.parse(rows[0]?.attachmentsJson ?? "null"), [
-        {
-          type: "image",
-          id: "thread-overwrite-att-2",
-          name: "file.png",
-          mimeType: "image/png",
-          sizeBytes: 5,
-        },
-      ]);
-    }),
-  );
-});
-
-it.layer(
-  Layer.fresh(
-    makeProjectionPipelinePrefixedTestLayer("agentscience-projection-attachments-rollback-"),
-  ),
-)("OrchestrationProjectionPipeline", (it) => {
-  it.effect("does not persist attachment files when projector transaction rolls back", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const path = yield* Path.Path;
-      const sql = yield* SqlClient.SqlClient;
-      const now = new Date().toISOString();
-
-      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
-        eventStore
-          .append(event)
-          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
-
-      yield* appendAndProject({
-        type: "project.created",
-        eventId: EventId.makeUnsafe("evt-rollback-1"),
-        aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-rollback"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-rollback-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-rollback-1"),
-        metadata: {},
-        payload: {
-          projectId: ProjectId.makeUnsafe("project-rollback"),
-          title: "Project Rollback",
-          folderSlug: "project-rollback",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-rollback-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-rollback"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-rollback-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-rollback-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-rollback"),
-          projectId: ProjectId.makeUnsafe("project-rollback"),
-          folderSlug: "thread-rollback",
-          title: "Thread Rollback",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* sql`
-        CREATE TRIGGER fail_thread_messages_projection_state_update
-        BEFORE UPDATE ON projection_state
-        WHEN NEW.projector = 'projection.thread-messages'
-        BEGIN
-          SELECT RAISE(ABORT, 'forced-projection-state-failure');
-        END;
-      `;
-
-      const result = yield* Effect.result(
-        appendAndProject({
-          type: "thread.message-sent",
-          eventId: EventId.makeUnsafe("evt-rollback-3"),
-          aggregateKind: "thread",
-          aggregateId: ThreadId.makeUnsafe("thread-rollback"),
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-overwrite-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-overwrite"),
           occurredAt: now,
-          commandId: CommandId.makeUnsafe("cmd-rollback-3"),
+          commandId: CommandId.makeUnsafe("cmd-overwrite-1"),
           causationEventId: null,
-          correlationId: CorrelationId.makeUnsafe("cmd-rollback-3"),
+          correlationId: CommandId.makeUnsafe("cmd-overwrite-1"),
           metadata: {},
           payload: {
-            threadId: ThreadId.makeUnsafe("thread-rollback"),
-            messageId: MessageId.makeUnsafe("message-rollback"),
+            projectId: ProjectId.makeUnsafe("project-overwrite"),
+            title: "Project Overwrite",
+            folderSlug: "project-overwrite",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-overwrite-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-overwrite"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-overwrite-2"),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe("cmd-overwrite-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-overwrite"),
+            projectId: ProjectId.makeUnsafe("project-overwrite"),
+            folderSlug: "thread-overwrite",
+            title: "Thread Overwrite",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-overwrite-3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-overwrite"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-overwrite-3"),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe("cmd-overwrite-3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-overwrite"),
+            messageId: MessageId.makeUnsafe("message-overwrite"),
             role: "user",
-            text: "Rollback me",
+            text: "first image",
             attachments: [
               {
                 type: "image",
-                id: "thread-rollback-att-1",
-                name: "rollback.png",
+                id: "thread-overwrite-att-1",
+                name: "file.png",
                 mimeType: "image/png",
                 sizeBytes: 5,
               },
@@ -700,246 +555,440 @@ it.layer(
             createdAt: now,
             updatedAt: now,
           },
-        }),
-      );
-      assert.equal(result._tag, "Failure");
+        });
 
-      const rows = yield* sql<{
-        readonly count: number;
-      }>`
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-overwrite-4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-overwrite"),
+          occurredAt: later,
+          commandId: CommandId.makeUnsafe("cmd-overwrite-4"),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe("cmd-overwrite-4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-overwrite"),
+            messageId: MessageId.makeUnsafe("message-overwrite"),
+            role: "user",
+            text: "",
+            attachments: [
+              {
+                type: "image",
+                id: "thread-overwrite-att-2",
+                name: "file.png",
+                mimeType: "image/png",
+                sizeBytes: 5,
+              },
+            ],
+            turnId: null,
+            streaming: false,
+            createdAt: now,
+            updatedAt: later,
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const rows = yield* sql<{
+          readonly attachmentsJson: string | null;
+        }>`
+              SELECT attachments_json AS "attachmentsJson"
+              FROM projection_thread_messages
+              WHERE message_id = 'message-overwrite'
+            `;
+        assert.equal(rows.length, 1);
+        assert.deepEqual(JSON.parse(rows[0]?.attachmentsJson ?? "null"), [
+          {
+            type: "image",
+            id: "thread-overwrite-att-2",
+            name: "file.png",
+            mimeType: "image/png",
+            sizeBytes: 5,
+          },
+        ]);
+      }),
+  );
+});
+
+it.layer(
+  Layer.fresh(
+    makeProjectionPipelinePrefixedTestLayer(
+      "agentscience-projection-attachments-rollback-",
+    ),
+  ),
+)("OrchestrationProjectionPipeline", (it) => {
+  it.effect(
+    "does not persist attachment files when projector transaction rolls back",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const path = yield* Path.Path;
+        const sql = yield* SqlClient.SqlClient;
+        const now = new Date().toISOString();
+
+        const appendAndProject = (
+          event: Parameters<typeof eventStore.append>[0],
+        ) =>
+          eventStore
+            .append(event)
+            .pipe(
+              Effect.flatMap((savedEvent) =>
+                projectionPipeline.projectEvent(savedEvent),
+              ),
+            );
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-rollback-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-rollback"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-rollback-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-rollback-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-rollback"),
+            title: "Project Rollback",
+            folderSlug: "project-rollback",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-rollback-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-rollback"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-rollback-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-rollback-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-rollback"),
+            projectId: ProjectId.makeUnsafe("project-rollback"),
+            folderSlug: "thread-rollback",
+            title: "Thread Rollback",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        yield* sql`
+        CREATE TRIGGER fail_thread_messages_projection_state_update
+        BEFORE UPDATE ON projection_state
+        WHEN NEW.projector = 'projection.thread-messages'
+        BEGIN
+          SELECT RAISE(ABORT, 'forced-projection-state-failure');
+        END;
+      `;
+
+        const result = yield* Effect.result(
+          appendAndProject({
+            type: "thread.message-sent",
+            eventId: EventId.makeUnsafe("evt-rollback-3"),
+            aggregateKind: "thread",
+            aggregateId: ThreadId.makeUnsafe("thread-rollback"),
+            occurredAt: now,
+            commandId: CommandId.makeUnsafe("cmd-rollback-3"),
+            causationEventId: null,
+            correlationId: CorrelationId.makeUnsafe("cmd-rollback-3"),
+            metadata: {},
+            payload: {
+              threadId: ThreadId.makeUnsafe("thread-rollback"),
+              messageId: MessageId.makeUnsafe("message-rollback"),
+              role: "user",
+              text: "Rollback me",
+              attachments: [
+                {
+                  type: "image",
+                  id: "thread-rollback-att-1",
+                  name: "rollback.png",
+                  mimeType: "image/png",
+                  sizeBytes: 5,
+                },
+              ],
+              turnId: null,
+              streaming: false,
+              createdAt: now,
+              updatedAt: now,
+            },
+          }),
+        );
+        assert.equal(result._tag, "Failure");
+
+        const rows = yield* sql<{
+          readonly count: number;
+        }>`
         SELECT COUNT(*) AS "count"
         FROM projection_thread_messages
         WHERE message_id = 'message-rollback'
       `;
-      assert.equal(rows[0]?.count ?? 0, 0);
+        assert.equal(rows[0]?.count ?? 0, 0);
 
-      const { attachmentsDir } = yield* ServerConfig;
-      const attachmentPath = path.join(attachmentsDir, "thread-rollback-att-1.png");
-      assert.isFalse(yield* exists(attachmentPath));
-      yield* sql`DROP TRIGGER IF EXISTS fail_thread_messages_projection_state_update`;
-    }),
+        const { attachmentsDir } = yield* ServerConfig;
+        const attachmentPath = path.join(
+          attachmentsDir,
+          "thread-rollback-att-1.png",
+        );
+        assert.isFalse(yield* exists(attachmentPath));
+        yield* sql`DROP TRIGGER IF EXISTS fail_thread_messages_projection_state_update`;
+      }),
   );
 });
 
 it.layer(
   Layer.fresh(
-    makeProjectionPipelinePrefixedTestLayer("agentscience-projection-attachments-overwrite-"),
+    makeProjectionPipelinePrefixedTestLayer(
+      "agentscience-projection-attachments-overwrite-",
+    ),
   ),
 )("OrchestrationProjectionPipeline", (it) => {
-  it.effect("removes unreferenced attachment files when a thread is reverted", () =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const { attachmentsDir } = yield* ServerConfig;
-      const now = new Date().toISOString();
-      const threadId = ThreadId.makeUnsafe("Thread Revert.Files");
-      const keepAttachmentId = "thread-revert-files-00000000-0000-4000-8000-000000000001";
-      const removeAttachmentId = "thread-revert-files-00000000-0000-4000-8000-000000000002";
-      const otherThreadAttachmentId =
-        "thread-revert-files-extra-00000000-0000-4000-8000-000000000003";
+  it.effect(
+    "removes unreferenced attachment files when a thread is reverted",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const { attachmentsDir } = yield* ServerConfig;
+        const now = new Date().toISOString();
+        const threadId = ThreadId.makeUnsafe("Thread Revert.Files");
+        const keepAttachmentId =
+          "thread-revert-files-00000000-0000-4000-8000-000000000001";
+        const removeAttachmentId =
+          "thread-revert-files-00000000-0000-4000-8000-000000000002";
+        const otherThreadAttachmentId =
+          "thread-revert-files-extra-00000000-0000-4000-8000-000000000003";
 
-      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
-        eventStore
-          .append(event)
-          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+        const appendAndProject = (
+          event: Parameters<typeof eventStore.append>[0],
+        ) =>
+          eventStore
+            .append(event)
+            .pipe(
+              Effect.flatMap((savedEvent) =>
+                projectionPipeline.projectEvent(savedEvent),
+              ),
+            );
 
-      yield* appendAndProject({
-        type: "project.created",
-        eventId: EventId.makeUnsafe("evt-revert-files-1"),
-        aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-revert-files"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-1"),
-        metadata: {},
-        payload: {
-          projectId: ProjectId.makeUnsafe("project-revert-files"),
-          title: "Project Revert Files",
-          folderSlug: "project-revert-files",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-revert-files-2"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-2"),
-        metadata: {},
-        payload: {
-          threadId,
-          projectId: ProjectId.makeUnsafe("project-revert-files"),
-          folderSlug: "thread-revert-files",
-          title: "Thread Revert Files",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-revert-files-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-revert-files"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-revert-files-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-files-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-revert-files"),
+            title: "Project Revert Files",
+            folderSlug: "project-revert-files",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
           },
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        });
 
-      yield* appendAndProject({
-        type: "thread.turn-diff-completed",
-        eventId: EventId.makeUnsafe("evt-revert-files-3"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-3"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-3"),
-        metadata: {},
-        payload: {
-          threadId,
-          turnId: TurnId.makeUnsafe("turn-keep"),
-          checkpointTurnCount: 1,
-          checkpointRef: CheckpointRef.makeUnsafe(
-            "refs/agentscience/checkpoints/thread-revert-files/turn/1",
-          ),
-          status: "ready",
-          files: [],
-          assistantMessageId: MessageId.makeUnsafe("message-keep"),
-          completedAt: now,
-        },
-      });
-
-      yield* appendAndProject({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-revert-files-4"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-4"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-4"),
-        metadata: {},
-        payload: {
-          threadId,
-          messageId: MessageId.makeUnsafe("message-keep"),
-          role: "assistant",
-          text: "Keep",
-          attachments: [
-            {
-              type: "image",
-              id: keepAttachmentId,
-              name: "keep.png",
-              mimeType: "image/png",
-              sizeBytes: 5,
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-revert-files-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-revert-files-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-files-2"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId: ProjectId.makeUnsafe("project-revert-files"),
+            folderSlug: "thread-revert-files",
+            title: "Thread Revert Files",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
             },
-          ],
-          turnId: TurnId.makeUnsafe("turn-keep"),
-          streaming: false,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.turn-diff-completed",
-        eventId: EventId.makeUnsafe("evt-revert-files-5"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-5"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-5"),
-        metadata: {},
-        payload: {
-          threadId,
-          turnId: TurnId.makeUnsafe("turn-remove"),
-          checkpointTurnCount: 2,
-          checkpointRef: CheckpointRef.makeUnsafe(
-            "refs/agentscience/checkpoints/thread-revert-files/turn/2",
-          ),
-          status: "ready",
-          files: [],
-          assistantMessageId: MessageId.makeUnsafe("message-remove"),
-          completedAt: now,
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-revert-files-3"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-revert-files-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-files-3"),
+          metadata: {},
+          payload: {
+            threadId,
+            turnId: TurnId.makeUnsafe("turn-keep"),
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.makeUnsafe(
+              "refs/agentscience/checkpoints/thread-revert-files/turn/1",
+            ),
+            status: "ready",
+            files: [],
+            assistantMessageId: MessageId.makeUnsafe("message-keep"),
+            completedAt: now,
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-revert-files-6"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-6"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-6"),
-        metadata: {},
-        payload: {
-          threadId,
-          messageId: MessageId.makeUnsafe("message-remove"),
-          role: "assistant",
-          text: "Remove",
-          attachments: [
-            {
-              type: "image",
-              id: removeAttachmentId,
-              name: "remove.png",
-              mimeType: "image/png",
-              sizeBytes: 5,
-            },
-          ],
-          turnId: TurnId.makeUnsafe("turn-remove"),
-          streaming: false,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-revert-files-4"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-revert-files-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-files-4"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: MessageId.makeUnsafe("message-keep"),
+            role: "assistant",
+            text: "Keep",
+            attachments: [
+              {
+                type: "image",
+                id: keepAttachmentId,
+                name: "keep.png",
+                mimeType: "image/png",
+                sizeBytes: 5,
+              },
+            ],
+            turnId: TurnId.makeUnsafe("turn-keep"),
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      const keepPath = path.join(attachmentsDir, `${keepAttachmentId}.png`);
-      const removePath = path.join(attachmentsDir, `${removeAttachmentId}.png`);
-      yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
-      yield* fileSystem.writeFileString(keepPath, "keep");
-      yield* fileSystem.writeFileString(removePath, "remove");
-      const otherThreadPath = path.join(attachmentsDir, `${otherThreadAttachmentId}.png`);
-      yield* fileSystem.writeFileString(otherThreadPath, "other");
-      assert.isTrue(yield* exists(keepPath));
-      assert.isTrue(yield* exists(removePath));
-      assert.isTrue(yield* exists(otherThreadPath));
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-revert-files-5"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-revert-files-5"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-files-5"),
+          metadata: {},
+          payload: {
+            threadId,
+            turnId: TurnId.makeUnsafe("turn-remove"),
+            checkpointTurnCount: 2,
+            checkpointRef: CheckpointRef.makeUnsafe(
+              "refs/agentscience/checkpoints/thread-revert-files/turn/2",
+            ),
+            status: "ready",
+            files: [],
+            assistantMessageId: MessageId.makeUnsafe("message-remove"),
+            completedAt: now,
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.reverted",
-        eventId: EventId.makeUnsafe("evt-revert-files-7"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-7"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-7"),
-        metadata: {},
-        payload: {
-          threadId,
-          turnCount: 1,
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-revert-files-6"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-revert-files-6"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-files-6"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: MessageId.makeUnsafe("message-remove"),
+            role: "assistant",
+            text: "Remove",
+            attachments: [
+              {
+                type: "image",
+                id: removeAttachmentId,
+                name: "remove.png",
+                mimeType: "image/png",
+                sizeBytes: 5,
+              },
+            ],
+            turnId: TurnId.makeUnsafe("turn-remove"),
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      assert.isTrue(yield* exists(keepPath));
-      assert.isFalse(yield* exists(removePath));
-      assert.isTrue(yield* exists(otherThreadPath));
-    }),
+        const keepPath = path.join(attachmentsDir, `${keepAttachmentId}.png`);
+        const removePath = path.join(
+          attachmentsDir,
+          `${removeAttachmentId}.png`,
+        );
+        yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
+        yield* fileSystem.writeFileString(keepPath, "keep");
+        yield* fileSystem.writeFileString(removePath, "remove");
+        const otherThreadPath = path.join(
+          attachmentsDir,
+          `${otherThreadAttachmentId}.png`,
+        );
+        yield* fileSystem.writeFileString(otherThreadPath, "other");
+        assert.isTrue(yield* exists(keepPath));
+        assert.isTrue(yield* exists(removePath));
+        assert.isTrue(yield* exists(otherThreadPath));
+
+        yield* appendAndProject({
+          type: "thread.reverted",
+          eventId: EventId.makeUnsafe("evt-revert-files-7"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-revert-files-7"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-files-7"),
+          metadata: {},
+          payload: {
+            threadId,
+            turnCount: 1,
+          },
+        });
+
+        assert.isTrue(yield* exists(keepPath));
+        assert.isFalse(yield* exists(removePath));
+        assert.isTrue(yield* exists(otherThreadPath));
+      }),
   );
 });
 
 it.layer(
   Layer.fresh(
-    makeProjectionPipelinePrefixedTestLayer("agentscience-projection-attachments-revert-"),
+    makeProjectionPipelinePrefixedTestLayer(
+      "agentscience-projection-attachments-revert-",
+    ),
   ),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("removes thread attachment directory when thread is deleted", () =>
@@ -951,14 +1000,21 @@ it.layer(
       const { attachmentsDir } = yield* ServerConfig;
       const now = new Date().toISOString();
       const threadId = ThreadId.makeUnsafe("Thread Delete.Files");
-      const attachmentId = "thread-delete-files-00000000-0000-4000-8000-000000000001";
+      const attachmentId =
+        "thread-delete-files-00000000-0000-4000-8000-000000000001";
       const otherThreadAttachmentId =
         "thread-delete-files-extra-00000000-0000-4000-8000-000000000002";
 
-      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+      const appendAndProject = (
+        event: Parameters<typeof eventStore.append>[0],
+      ) =>
         eventStore
           .append(event)
-          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+          .pipe(
+            Effect.flatMap((savedEvent) =>
+              projectionPipeline.projectEvent(savedEvent),
+            ),
+          );
 
       yield* appendAndProject({
         type: "project.created",
@@ -1039,11 +1095,20 @@ it.layer(
         },
       });
 
-      const threadAttachmentPath = path.join(attachmentsDir, `${attachmentId}.png`);
-      const otherThreadAttachmentPath = path.join(attachmentsDir, `${otherThreadAttachmentId}.png`);
+      const threadAttachmentPath = path.join(
+        attachmentsDir,
+        `${attachmentId}.png`,
+      );
+      const otherThreadAttachmentPath = path.join(
+        attachmentsDir,
+        `${otherThreadAttachmentId}.png`,
+      );
       yield* fileSystem.makeDirectory(attachmentsDir, { recursive: true });
       yield* fileSystem.writeFileString(threadAttachmentPath, "delete");
-      yield* fileSystem.writeFileString(otherThreadAttachmentPath, "other-thread");
+      yield* fileSystem.writeFileString(
+        otherThreadAttachmentPath,
+        "other-thread",
+      );
       assert.isTrue(yield* exists(threadAttachmentPath));
       assert.isTrue(yield* exists(otherThreadAttachmentPath));
 
@@ -1071,7 +1136,9 @@ it.layer(
 
 it.layer(
   Layer.fresh(
-    makeProjectionPipelinePrefixedTestLayer("agentscience-projection-attachments-delete-"),
+    makeProjectionPipelinePrefixedTestLayer(
+      "agentscience-projection-attachments-delete-",
+    ),
   ),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect("ignores unsafe thread ids for attachment cleanup paths", () =>
@@ -1081,11 +1148,18 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const eventStore = yield* OrchestrationEventStore;
       const now = new Date().toISOString();
-      const { attachmentsDir: attachmentsRootDir, stateDir } = yield* ServerConfig;
-      const attachmentsSentinelPath = path.join(attachmentsRootDir, "sentinel.txt");
+      const { attachmentsDir: attachmentsRootDir, stateDir } =
+        yield* ServerConfig;
+      const attachmentsSentinelPath = path.join(
+        attachmentsRootDir,
+        "sentinel.txt",
+      );
       const stateDirSentinelPath = path.join(stateDir, "state-sentinel.txt");
       yield* fileSystem.makeDirectory(attachmentsRootDir, { recursive: true });
-      yield* fileSystem.writeFileString(attachmentsSentinelPath, "keep-attachments-root");
+      yield* fileSystem.writeFileString(
+        attachmentsSentinelPath,
+        "keep-attachments-root",
+      );
       yield* fileSystem.writeFileString(stateDirSentinelPath, "keep-state-dir");
 
       yield* eventStore.append({
@@ -1114,268 +1188,275 @@ it.layer(
 });
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
-  it.effect("resumes from projector last_applied_sequence without replaying older events", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const now = new Date().toISOString();
+  it.effect(
+    "resumes from projector last_applied_sequence without replaying older events",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = new Date().toISOString();
 
-      yield* eventStore.append({
-        type: "project.created",
-        eventId: EventId.makeUnsafe("evt-a1"),
-        aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-a"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-a1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-a1"),
-        metadata: {},
-        payload: {
-          projectId: ProjectId.makeUnsafe("project-a"),
-          title: "Project A",
-          folderSlug: "project-a",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-a2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-a"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-a2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-a2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-a"),
-          projectId: ProjectId.makeUnsafe("project-a"),
-          folderSlug: "thread-a",
-          title: "Thread A",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-a1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-a"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-a1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-a1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-a"),
+            title: "Project A",
+            folderSlug: "project-a",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
           },
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        });
 
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-a3"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-a"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-a3"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-a3"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-a"),
-          messageId: MessageId.makeUnsafe("message-a"),
-          role: "assistant",
-          text: "hello",
-          turnId: null,
-          streaming: false,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-a2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-a"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-a2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-a2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-a"),
+            projectId: ProjectId.makeUnsafe("project-a"),
+            folderSlug: "thread-a",
+            title: "Thread A",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      yield* projectionPipeline.bootstrap;
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-a3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-a"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-a3"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-a3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-a"),
+            messageId: MessageId.makeUnsafe("message-a"),
+            role: "assistant",
+            text: "hello",
+            turnId: null,
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-a4"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-a"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-a4"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-a4"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-a"),
-          messageId: MessageId.makeUnsafe("message-a"),
-          role: "assistant",
-          text: " world",
-          turnId: null,
-          streaming: true,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        yield* projectionPipeline.bootstrap;
 
-      yield* projectionPipeline.bootstrap;
-      yield* projectionPipeline.bootstrap;
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-a4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-a"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-a4"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-a4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-a"),
+            messageId: MessageId.makeUnsafe("message-a"),
+            role: "assistant",
+            text: " world",
+            turnId: null,
+            streaming: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      const messageRows = yield* sql<{ readonly text: string }>`
+        yield* projectionPipeline.bootstrap;
+        yield* projectionPipeline.bootstrap;
+
+        const messageRows = yield* sql<{ readonly text: string }>`
         SELECT text FROM projection_thread_messages WHERE message_id = 'message-a'
       `;
-      assert.deepEqual(messageRows, [{ text: "hello world" }]);
+        assert.deepEqual(messageRows, [{ text: "hello world" }]);
 
-      const stateRows = yield* sql<{
-        readonly projector: string;
-        readonly lastAppliedSequence: number;
-      }>`
+        const stateRows = yield* sql<{
+          readonly projector: string;
+          readonly lastAppliedSequence: number;
+        }>`
         SELECT
           projector,
           last_applied_sequence AS "lastAppliedSequence"
         FROM projection_state
       `;
-      const maxSequenceRows = yield* sql<{ readonly maxSequence: number }>`
+        const maxSequenceRows = yield* sql<{ readonly maxSequence: number }>`
         SELECT MAX(sequence) AS "maxSequence" FROM orchestration_events
       `;
-      const maxSequence = maxSequenceRows[0]?.maxSequence ?? 0;
-      for (const row of stateRows) {
-        assert.equal(row.lastAppliedSequence, maxSequence);
-      }
-    }),
+        const maxSequence = maxSequenceRows[0]?.maxSequence ?? 0;
+        for (const row of stateRows) {
+          assert.equal(row.lastAppliedSequence, maxSequence);
+        }
+      }),
   );
 
-  it.effect("keeps accumulated assistant text when completion payload text is empty", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const now = new Date().toISOString();
+  it.effect(
+    "keeps accumulated assistant text when completion payload text is empty",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const now = new Date().toISOString();
 
-      yield* eventStore.append({
-        type: "project.created",
-        eventId: EventId.makeUnsafe("evt-empty-1"),
-        aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-empty"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-empty-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-empty-1"),
-        metadata: {},
-        payload: {
-          projectId: ProjectId.makeUnsafe("project-empty"),
-          title: "Project Empty",
-          folderSlug: "project-empty",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
-
-      yield* eventStore.append({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-empty-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-empty"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-empty-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-empty-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-empty"),
-          projectId: ProjectId.makeUnsafe("project-empty"),
-          folderSlug: "thread-empty",
-          title: "Thread Empty",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-empty-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-empty"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-empty-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-empty-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-empty"),
+            title: "Project Empty",
+            folderSlug: "project-empty",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
           },
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        });
 
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-empty-3"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-empty"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-empty-3"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-empty-3"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-empty"),
-          messageId: MessageId.makeUnsafe("assistant-empty"),
-          role: "assistant",
-          text: "Hello",
-          turnId: null,
-          streaming: true,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-empty-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-empty"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-empty-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-empty-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-empty"),
+            projectId: ProjectId.makeUnsafe("project-empty"),
+            folderSlug: "thread-empty",
+            title: "Thread Empty",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-empty-4"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-empty"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-empty-4"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-empty-4"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-empty"),
-          messageId: MessageId.makeUnsafe("assistant-empty"),
-          role: "assistant",
-          text: " world",
-          turnId: null,
-          streaming: true,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-empty-3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-empty"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-empty-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-empty-3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-empty"),
+            messageId: MessageId.makeUnsafe("assistant-empty"),
+            role: "assistant",
+            text: "Hello",
+            turnId: null,
+            streaming: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      yield* eventStore.append({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-empty-5"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-empty"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-empty-5"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-empty-5"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-empty"),
-          messageId: MessageId.makeUnsafe("assistant-empty"),
-          role: "assistant",
-          text: "",
-          turnId: null,
-          streaming: false,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-empty-4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-empty"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-empty-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-empty-4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-empty"),
+            messageId: MessageId.makeUnsafe("assistant-empty"),
+            role: "assistant",
+            text: " world",
+            turnId: null,
+            streaming: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      yield* projectionPipeline.bootstrap;
+        yield* eventStore.append({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-empty-5"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-empty"),
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe("cmd-empty-5"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-empty-5"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-empty"),
+            messageId: MessageId.makeUnsafe("assistant-empty"),
+            role: "assistant",
+            text: "",
+            turnId: null,
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
-      const messageRows = yield* sql<{ readonly text: string; readonly isStreaming: unknown }>`
+        yield* projectionPipeline.bootstrap;
+
+        const messageRows = yield* sql<{
+          readonly text: string;
+          readonly isStreaming: unknown;
+        }>`
         SELECT
           text,
           is_streaming AS "isStreaming"
         FROM projection_thread_messages
         WHERE message_id = 'assistant-empty'
       `;
-      assert.equal(messageRows.length, 1);
-      assert.equal(messageRows[0]?.text, "Hello world");
-      assert.isFalse(Boolean(messageRows[0]?.isStreaming));
-    }),
+        assert.equal(messageRows.length, 1);
+        assert.equal(messageRows[0]?.text, "Hello world");
+        assert.isFalse(Boolean(messageRows[0]?.isStreaming));
+      }),
   );
 
   it.effect(
@@ -1385,10 +1466,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         const projectionPipeline = yield* OrchestrationProjectionPipeline;
         const eventStore = yield* OrchestrationEventStore;
         const sql = yield* SqlClient.SqlClient;
-        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        const appendAndProject = (
+          event: Parameters<typeof eventStore.append>[0],
+        ) =>
           eventStore
             .append(event)
-            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+            .pipe(
+              Effect.flatMap((savedEvent) =>
+                projectionPipeline.projectEvent(savedEvent),
+              ),
+            );
 
         yield* appendAndProject({
           type: "project.created",
@@ -1521,205 +1608,221 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requested_at ASC
       `;
         assert.deepEqual(turnRows, [
-          { turnId: "turn-completed", checkpointTurnCount: 1, status: "completed" },
-          { turnId: "turn-interrupted", checkpointTurnCount: null, status: "interrupted" },
+          {
+            turnId: "turn-completed",
+            checkpointTurnCount: 1,
+            status: "completed",
+          },
+          {
+            turnId: "turn-interrupted",
+            checkpointTurnCount: null,
+            status: "interrupted",
+          },
         ]);
       }),
   );
 
-  it.effect("does not fallback-retain messages whose turnId is removed by revert", () =>
-    Effect.gen(function* () {
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const eventStore = yield* OrchestrationEventStore;
-      const sql = yield* SqlClient.SqlClient;
-      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
-        eventStore
-          .append(event)
-          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+  it.effect(
+    "does not fallback-retain messages whose turnId is removed by revert",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (
+          event: Parameters<typeof eventStore.append>[0],
+        ) =>
+          eventStore
+            .append(event)
+            .pipe(
+              Effect.flatMap((savedEvent) =>
+                projectionPipeline.projectEvent(savedEvent),
+              ),
+            );
 
-      yield* appendAndProject({
-        type: "project.created",
-        eventId: EventId.makeUnsafe("evt-revert-1"),
-        aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-revert"),
-        occurredAt: "2026-02-26T12:00:00.000Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-1"),
-        metadata: {},
-        payload: {
-          projectId: ProjectId.makeUnsafe("project-revert"),
-          title: "Project Revert",
-          folderSlug: "project-revert",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: "2026-02-26T12:00:00.000Z",
-          updatedAt: "2026-02-26T12:00:00.000Z",
-        },
-      });
-
-      yield* appendAndProject({
-        type: "thread.created",
-        eventId: EventId.makeUnsafe("evt-revert-2"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-revert"),
-        occurredAt: "2026-02-26T12:00:01.000Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-2"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-revert"),
-          projectId: ProjectId.makeUnsafe("project-revert"),
-          folderSlug: "thread-revert",
-          title: "Thread Revert",
-          modelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-revert-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-revert"),
+          occurredAt: "2026-02-26T12:00:00.000Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-revert"),
+            title: "Project Revert",
+            folderSlug: "project-revert",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-02-26T12:00:00.000Z",
+            updatedAt: "2026-02-26T12:00:00.000Z",
           },
-          runtimeMode: "full-access",
-          branch: null,
-          worktreePath: null,
-          createdAt: "2026-02-26T12:00:01.000Z",
-          updatedAt: "2026-02-26T12:00:01.000Z",
-        },
-      });
+        });
 
-      yield* appendAndProject({
-        type: "thread.turn-diff-completed",
-        eventId: EventId.makeUnsafe("evt-revert-3"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-revert"),
-        occurredAt: "2026-02-26T12:00:02.000Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-3"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-3"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-revert"),
-          turnId: TurnId.makeUnsafe("turn-1"),
-          checkpointTurnCount: 1,
-          checkpointRef: CheckpointRef.makeUnsafe(
-            "refs/agentscience/checkpoints/thread-revert/turn/1",
-          ),
-          status: "ready",
-          files: [],
-          assistantMessageId: MessageId.makeUnsafe("assistant-keep"),
-          completedAt: "2026-02-26T12:00:02.000Z",
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-revert-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-revert"),
+          occurredAt: "2026-02-26T12:00:01.000Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-revert"),
+            projectId: ProjectId.makeUnsafe("project-revert"),
+            folderSlug: "thread-revert",
+            title: "Thread Revert",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-02-26T12:00:01.000Z",
+            updatedAt: "2026-02-26T12:00:01.000Z",
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-revert-4"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-revert"),
-        occurredAt: "2026-02-26T12:00:02.100Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-4"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-4"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-revert"),
-          messageId: MessageId.makeUnsafe("assistant-keep"),
-          role: "assistant",
-          text: "kept",
-          turnId: TurnId.makeUnsafe("turn-1"),
-          streaming: false,
-          createdAt: "2026-02-26T12:00:02.100Z",
-          updatedAt: "2026-02-26T12:00:02.100Z",
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-revert-3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-revert"),
+          occurredAt: "2026-02-26T12:00:02.000Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-revert"),
+            turnId: TurnId.makeUnsafe("turn-1"),
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.makeUnsafe(
+              "refs/agentscience/checkpoints/thread-revert/turn/1",
+            ),
+            status: "ready",
+            files: [],
+            assistantMessageId: MessageId.makeUnsafe("assistant-keep"),
+            completedAt: "2026-02-26T12:00:02.000Z",
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.turn-diff-completed",
-        eventId: EventId.makeUnsafe("evt-revert-5"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-revert"),
-        occurredAt: "2026-02-26T12:00:03.000Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-5"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-5"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-revert"),
-          turnId: TurnId.makeUnsafe("turn-2"),
-          checkpointTurnCount: 2,
-          checkpointRef: CheckpointRef.makeUnsafe(
-            "refs/agentscience/checkpoints/thread-revert/turn/2",
-          ),
-          status: "ready",
-          files: [],
-          assistantMessageId: MessageId.makeUnsafe("assistant-remove"),
-          completedAt: "2026-02-26T12:00:03.000Z",
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-revert-4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-revert"),
+          occurredAt: "2026-02-26T12:00:02.100Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-revert"),
+            messageId: MessageId.makeUnsafe("assistant-keep"),
+            role: "assistant",
+            text: "kept",
+            turnId: TurnId.makeUnsafe("turn-1"),
+            streaming: false,
+            createdAt: "2026-02-26T12:00:02.100Z",
+            updatedAt: "2026-02-26T12:00:02.100Z",
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-revert-6"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-revert"),
-        occurredAt: "2026-02-26T12:00:03.050Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-6"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-6"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-revert"),
-          messageId: MessageId.makeUnsafe("user-remove"),
-          role: "user",
-          text: "removed",
-          turnId: TurnId.makeUnsafe("turn-2"),
-          streaming: false,
-          createdAt: "2026-02-26T12:00:03.050Z",
-          updatedAt: "2026-02-26T12:00:03.050Z",
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-revert-5"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-revert"),
+          occurredAt: "2026-02-26T12:00:03.000Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-5"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-5"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-revert"),
+            turnId: TurnId.makeUnsafe("turn-2"),
+            checkpointTurnCount: 2,
+            checkpointRef: CheckpointRef.makeUnsafe(
+              "refs/agentscience/checkpoints/thread-revert/turn/2",
+            ),
+            status: "ready",
+            files: [],
+            assistantMessageId: MessageId.makeUnsafe("assistant-remove"),
+            completedAt: "2026-02-26T12:00:03.000Z",
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.message-sent",
-        eventId: EventId.makeUnsafe("evt-revert-7"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-revert"),
-        occurredAt: "2026-02-26T12:00:03.100Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-7"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-7"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-revert"),
-          messageId: MessageId.makeUnsafe("assistant-remove"),
-          role: "assistant",
-          text: "removed",
-          turnId: TurnId.makeUnsafe("turn-2"),
-          streaming: false,
-          createdAt: "2026-02-26T12:00:03.100Z",
-          updatedAt: "2026-02-26T12:00:03.100Z",
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-revert-6"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-revert"),
+          occurredAt: "2026-02-26T12:00:03.050Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-6"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-6"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-revert"),
+            messageId: MessageId.makeUnsafe("user-remove"),
+            role: "user",
+            text: "removed",
+            turnId: TurnId.makeUnsafe("turn-2"),
+            streaming: false,
+            createdAt: "2026-02-26T12:00:03.050Z",
+            updatedAt: "2026-02-26T12:00:03.050Z",
+          },
+        });
 
-      yield* appendAndProject({
-        type: "thread.reverted",
-        eventId: EventId.makeUnsafe("evt-revert-8"),
-        aggregateKind: "thread",
-        aggregateId: ThreadId.makeUnsafe("thread-revert"),
-        occurredAt: "2026-02-26T12:00:04.000Z",
-        commandId: CommandId.makeUnsafe("cmd-revert-8"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-8"),
-        metadata: {},
-        payload: {
-          threadId: ThreadId.makeUnsafe("thread-revert"),
-          turnCount: 1,
-        },
-      });
+        yield* appendAndProject({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-revert-7"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-revert"),
+          occurredAt: "2026-02-26T12:00:03.100Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-7"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-7"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-revert"),
+            messageId: MessageId.makeUnsafe("assistant-remove"),
+            role: "assistant",
+            text: "removed",
+            turnId: TurnId.makeUnsafe("turn-2"),
+            streaming: false,
+            createdAt: "2026-02-26T12:00:03.100Z",
+            updatedAt: "2026-02-26T12:00:03.100Z",
+          },
+        });
 
-      const messageRows = yield* sql<{
-        readonly messageId: string;
-        readonly turnId: string | null;
-        readonly role: string;
-      }>`
+        yield* appendAndProject({
+          type: "thread.reverted",
+          eventId: EventId.makeUnsafe("evt-revert-8"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-revert"),
+          occurredAt: "2026-02-26T12:00:04.000Z",
+          commandId: CommandId.makeUnsafe("cmd-revert-8"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-revert-8"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-revert"),
+            turnCount: 1,
+          },
+        });
+
+        const messageRows = yield* sql<{
+          readonly messageId: string;
+          readonly turnId: string | null;
+          readonly role: string;
+        }>`
         SELECT
           message_id AS "messageId",
           turn_id AS "turnId",
@@ -1728,114 +1831,126 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         WHERE thread_id = 'thread-revert'
         ORDER BY created_at ASC, message_id ASC
       `;
-      assert.deepEqual(messageRows, [
-        {
-          messageId: "assistant-keep",
-          turnId: "turn-1",
-          role: "assistant",
-        },
-      ]);
-    }),
+        assert.deepEqual(messageRows, [
+          {
+            messageId: "assistant-keep",
+            turnId: "turn-1",
+            role: "assistant",
+          },
+        ]);
+      }),
   );
 });
 
-it.effect("restores pending turn-start metadata across projection pipeline restart", () =>
-  Effect.gen(function* () {
-    const { dbPath } = yield* ServerConfig;
-    const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-    const firstProjectionLayer = OrchestrationProjectionPipelineLive.pipe(
-      Layer.provideMerge(OrchestrationEventStoreLive),
-      Layer.provideMerge(persistenceLayer),
-    );
-    const secondProjectionLayer = OrchestrationProjectionPipelineLive.pipe(
-      Layer.provideMerge(OrchestrationEventStoreLive),
-      Layer.provideMerge(persistenceLayer),
-    );
+it.effect(
+  "restores pending turn-start metadata across projection pipeline restart",
+  () =>
+    Effect.gen(function* () {
+      const { dbPath } = yield* ServerConfig;
+      const persistenceLayer = makeSqlitePersistenceLive(dbPath);
+      const firstProjectionLayer = OrchestrationProjectionPipelineLive.pipe(
+        Layer.provideMerge(OrchestrationEventStoreLive),
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            workspaceRoot: "/tmp/AgentScience",
+          }),
+        ),
+        Layer.provideMerge(persistenceLayer),
+      );
+      const secondProjectionLayer = OrchestrationProjectionPipelineLive.pipe(
+        Layer.provideMerge(OrchestrationEventStoreLive),
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            workspaceRoot: "/tmp/AgentScience",
+          }),
+        ),
+        Layer.provideMerge(persistenceLayer),
+      );
 
-    const threadId = ThreadId.makeUnsafe("thread-restart");
-    const turnId = TurnId.makeUnsafe("turn-restart");
-    const messageId = MessageId.makeUnsafe("message-restart");
-    const sourcePlanThreadId = ThreadId.makeUnsafe("thread-plan-source");
-    const sourcePlanId = "plan-source";
-    const turnStartedAt = "2026-02-26T14:00:00.000Z";
-    const sessionSetAt = "2026-02-26T14:00:05.000Z";
+      const threadId = ThreadId.makeUnsafe("thread-restart");
+      const turnId = TurnId.makeUnsafe("turn-restart");
+      const messageId = MessageId.makeUnsafe("message-restart");
+      const sourcePlanThreadId = ThreadId.makeUnsafe("thread-plan-source");
+      const sourcePlanId = "plan-source";
+      const turnStartedAt = "2026-02-26T14:00:00.000Z";
+      const sessionSetAt = "2026-02-26T14:00:05.000Z";
 
-    yield* Effect.gen(function* () {
-      const eventStore = yield* OrchestrationEventStore;
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      yield* Effect.gen(function* () {
+        const eventStore = yield* OrchestrationEventStore;
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
 
-      yield* eventStore.append({
-        type: "thread.turn-start-requested",
-        eventId: EventId.makeUnsafe("evt-restart-1"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: turnStartedAt,
-        commandId: CommandId.makeUnsafe("cmd-restart-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-restart-1"),
-        metadata: {},
-        payload: {
-          threadId,
-          messageId,
-          sourceProposedPlan: {
-            threadId: sourcePlanThreadId,
-            planId: sourcePlanId,
-          },
-          runtimeMode: "approval-required",
-          createdAt: turnStartedAt,
-        },
-      });
-
-      yield* projectionPipeline.bootstrap;
-    }).pipe(Effect.provide(firstProjectionLayer));
-
-    const turnRows = yield* Effect.gen(function* () {
-      const eventStore = yield* OrchestrationEventStore;
-      const projectionPipeline = yield* OrchestrationProjectionPipeline;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* eventStore.append({
-        type: "thread.session-set",
-        eventId: EventId.makeUnsafe("evt-restart-2"),
-        aggregateKind: "thread",
-        aggregateId: threadId,
-        occurredAt: sessionSetAt,
-        commandId: CommandId.makeUnsafe("cmd-restart-2"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-restart-2"),
-        metadata: {},
-        payload: {
-          threadId,
-          session: {
+        yield* eventStore.append({
+          type: "thread.turn-start-requested",
+          eventId: EventId.makeUnsafe("evt-restart-1"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: turnStartedAt,
+          commandId: CommandId.makeUnsafe("cmd-restart-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-restart-1"),
+          metadata: {},
+          payload: {
             threadId,
-            status: "running",
-            providerName: "codex",
+            messageId,
+            sourceProposedPlan: {
+              threadId: sourcePlanThreadId,
+              planId: sourcePlanId,
+            },
             runtimeMode: "approval-required",
-            activeTurnId: turnId,
-            lastError: null,
-            updatedAt: sessionSetAt,
+            createdAt: turnStartedAt,
           },
-        },
-      });
+        });
 
-      yield* projectionPipeline.bootstrap;
+        yield* projectionPipeline.bootstrap;
+      }).pipe(Effect.provide(firstProjectionLayer));
 
-      const pendingRows = yield* sql<{ readonly threadId: string }>`
+      const turnRows = yield* Effect.gen(function* () {
+        const eventStore = yield* OrchestrationEventStore;
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.makeUnsafe("evt-restart-2"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: sessionSetAt,
+          commandId: CommandId.makeUnsafe("cmd-restart-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-restart-2"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "running",
+              providerName: "codex",
+              runtimeMode: "approval-required",
+              activeTurnId: turnId,
+              lastError: null,
+              updatedAt: sessionSetAt,
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const pendingRows = yield* sql<{ readonly threadId: string }>`
         SELECT thread_id AS "threadId"
         FROM projection_turns
         WHERE thread_id = ${threadId}
           AND turn_id IS NULL
           AND state = 'pending'
       `;
-      assert.deepEqual(pendingRows, []);
+        assert.deepEqual(pendingRows, []);
 
-      return yield* sql<{
-        readonly turnId: string;
-        readonly userMessageId: string | null;
-        readonly sourceProposedPlanThreadId: string | null;
-        readonly sourceProposedPlanId: string | null;
-        readonly startedAt: string;
-      }>`
+        return yield* sql<{
+          readonly turnId: string;
+          readonly userMessageId: string | null;
+          readonly sourceProposedPlanThreadId: string | null;
+          readonly sourceProposedPlanId: string | null;
+          readonly startedAt: string;
+        }>`
         SELECT
           turn_id AS "turnId",
           pending_message_id AS "userMessageId",
@@ -1845,27 +1960,27 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
         FROM projection_turns
         WHERE turn_id = ${turnId}
       `;
-    }).pipe(Effect.provide(secondProjectionLayer));
+      }).pipe(Effect.provide(secondProjectionLayer));
 
-    assert.deepEqual(turnRows, [
-      {
-        turnId: "turn-restart",
-        userMessageId: "message-restart",
-        sourceProposedPlanThreadId: "thread-plan-source",
-        sourceProposedPlanId: "plan-source",
-        startedAt: turnStartedAt,
-      },
-    ]);
-  }).pipe(
-    Effect.provide(
-      Layer.provideMerge(
-        ServerConfig.layerTest(process.cwd(), {
-          prefix: "agentscience-projection-pipeline-restart-",
-        }),
-        NodeServices.layer,
+      assert.deepEqual(turnRows, [
+        {
+          turnId: "turn-restart",
+          userMessageId: "message-restart",
+          sourceProposedPlanThreadId: "thread-plan-source",
+          sourceProposedPlanId: "plan-source",
+          startedAt: turnStartedAt,
+        },
+      ]);
+    }).pipe(
+      Effect.provide(
+        Layer.provideMerge(
+          ServerConfig.layerTest(process.cwd(), {
+            prefix: "agentscience-projection-pipeline-restart-",
+          }),
+          NodeServices.layer,
+        ),
       ),
     ),
-  ),
 );
 
 const engineLayer = it.layer(
@@ -1880,7 +1995,9 @@ const engineLayer = it.layer(
         prefix: "agentscience-projection-pipeline-engine-dispatch-",
       }),
     ),
-    Layer.provideMerge(ServerSettingsService.layerTest()),
+    Layer.provideMerge(
+      ServerSettingsService.layerTest({ workspaceRoot: "/tmp/AgentScience" }),
+    ),
     Layer.provideMerge(NodeServices.layer),
   ),
 );
@@ -1905,16 +2022,23 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         createdAt,
       });
 
-      const projectRows = yield* sql<{ readonly title: string; readonly scriptsJson: string }>`
+      const projectRows = yield* sql<{
+        readonly title: string;
+        readonly scriptsJson: string;
+      }>`
         SELECT
           title,
           scripts_json AS "scriptsJson"
         FROM projection_projects
         WHERE project_id = 'project-live'
       `;
-      assert.deepEqual(projectRows, [{ title: "Live Project", scriptsJson: "[]" }]);
+      assert.deepEqual(projectRows, [
+        { title: "Live Project", scriptsJson: "[]" },
+      ]);
 
-      const projectorRows = yield* sql<{ readonly lastAppliedSequence: number }>`
+      const projectorRows = yield* sql<{
+        readonly lastAppliedSequence: number;
+      }>`
         SELECT
           last_applied_sequence AS "lastAppliedSequence"
         FROM projection_state
@@ -1925,7 +2049,9 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           MAX(sequence) AS "maxSequence"
         FROM orchestration_events
       `;
-      assert.deepEqual(projectorRows, [{ lastAppliedSequence: eventRows[0]?.maxSequence ?? 0 }]);
+      assert.deepEqual(projectorRows, [
+        { lastAppliedSequence: eventRows[0]?.maxSequence ?? 0 },
+      ]);
     }),
   );
 

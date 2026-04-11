@@ -6,6 +6,7 @@ import {
   WorkspaceLayoutError,
   type WorkspaceLayoutShape,
 } from "../Services/WorkspaceLayout.ts";
+import { WorkspacePaths } from "../Services/WorkspacePaths.ts";
 
 function expandHomePath(input: string, path: Path.Path): string {
   if (input === "~") {
@@ -20,34 +21,137 @@ function expandHomePath(input: string, path: Path.Path): string {
 export const makeWorkspaceLayout = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const workspacePaths = yield* WorkspacePaths;
+
+  const ensureDirectory = Effect.fn("WorkspaceLayout.ensureDirectory")(
+    function* (
+      workspaceRoot: string,
+      directoryPath: string,
+      operation: WorkspaceLayoutError["operation"],
+    ) {
+      yield* fileSystem.makeDirectory(directoryPath, { recursive: true }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceLayoutError({
+              workspaceRoot,
+              operation,
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+    },
+  );
 
   const ensureRoot: WorkspaceLayoutShape["ensureRoot"] = Effect.fn(
     "WorkspaceLayout.ensureRoot",
   )(function* (workspaceRoot) {
-    const normalizedWorkspaceRoot = path.resolve(expandHomePath(workspaceRoot.trim(), path));
+    const normalizedWorkspaceRoot = path.resolve(
+      expandHomePath(workspaceRoot.trim(), path),
+    );
 
     for (const directoryPath of [
       normalizedWorkspaceRoot,
       path.join(normalizedWorkspaceRoot, "Papers"),
       path.join(normalizedWorkspaceRoot, "Projects"),
     ]) {
-      yield* fileSystem.makeDirectory(directoryPath, { recursive: true }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new WorkspaceLayoutError({
-              workspaceRoot,
-              operation: "workspaceLayout.ensureRoot",
-              detail: cause.message,
-              cause,
-            }),
-        ),
+      yield* ensureDirectory(
+        workspaceRoot,
+        directoryPath,
+        "workspaceLayout.ensureRoot",
       );
     }
   });
 
+  const createProjectFolder: WorkspaceLayoutShape["createProjectFolder"] =
+    Effect.fn("WorkspaceLayout.createProjectFolder")(function* (input) {
+      const normalizedWorkspaceRoot = path.resolve(
+        expandHomePath(input.workspaceRoot.trim(), path),
+      );
+      const projectPath = workspacePaths.resolveProjectPath({
+        workspaceRoot: normalizedWorkspaceRoot,
+        folderSlug: input.folderSlug,
+      });
+
+      yield* ensureDirectory(
+        input.workspaceRoot,
+        path.join(projectPath, "papers"),
+        "workspaceLayout.createProjectFolder",
+      );
+    });
+
+  const createPaperFolder: WorkspaceLayoutShape["createPaperFolder"] =
+    Effect.fn("WorkspaceLayout.createPaperFolder")(function* (input) {
+      const normalizedWorkspaceRoot = path.resolve(
+        expandHomePath(input.workspaceRoot.trim(), path),
+      );
+      const paperPath = workspacePaths.resolvePaperPath({
+        workspaceRoot: normalizedWorkspaceRoot,
+        projectFolderSlug: input.projectFolderSlug,
+        folderSlug: input.folderSlug,
+      });
+
+      yield* ensureDirectory(
+        input.workspaceRoot,
+        paperPath,
+        "workspaceLayout.createPaperFolder",
+      );
+    });
+
+  const movePaperFolder: WorkspaceLayoutShape["movePaperFolder"] = Effect.fn(
+    "WorkspaceLayout.movePaperFolder",
+  )(function* (input) {
+    const normalizedWorkspaceRoot = path.resolve(
+      expandHomePath(input.workspaceRoot.trim(), path),
+    );
+    const nextPaperParentPath =
+      input.toProjectFolderSlug === null
+        ? path.join(normalizedWorkspaceRoot, "Papers")
+        : path.join(
+            workspacePaths.resolveProjectPath({
+              workspaceRoot: normalizedWorkspaceRoot,
+              folderSlug: input.toProjectFolderSlug,
+            }),
+            "papers",
+          );
+    const fromPath = workspacePaths.resolvePaperPath({
+      workspaceRoot: normalizedWorkspaceRoot,
+      projectFolderSlug: input.fromProjectFolderSlug,
+      folderSlug: input.folderSlug,
+    });
+    const toPath = workspacePaths.resolvePaperPath({
+      workspaceRoot: normalizedWorkspaceRoot,
+      projectFolderSlug: input.toProjectFolderSlug,
+      folderSlug: input.folderSlug,
+    });
+
+    yield* ensureDirectory(
+      input.workspaceRoot,
+      nextPaperParentPath,
+      "workspaceLayout.movePaperFolder.ensureDestination",
+    );
+    yield* fileSystem.rename(fromPath, toPath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new WorkspaceLayoutError({
+            workspaceRoot: input.workspaceRoot,
+            operation: "workspaceLayout.movePaperFolder",
+            detail: cause.message,
+            cause,
+          }),
+      ),
+    );
+  });
+
   return {
     ensureRoot,
+    createProjectFolder,
+    createPaperFolder,
+    movePaperFolder,
   } satisfies WorkspaceLayoutShape;
 });
 
-export const WorkspaceLayoutLive = Layer.effect(WorkspaceLayout, makeWorkspaceLayout);
+export const WorkspaceLayoutLive = Layer.effect(
+  WorkspaceLayout,
+  makeWorkspaceLayout,
+);

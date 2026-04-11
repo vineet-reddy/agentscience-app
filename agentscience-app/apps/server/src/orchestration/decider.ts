@@ -21,7 +21,10 @@ import {
 } from "./commandInvariants.ts";
 
 const nowIso = () => new Date().toISOString();
-const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
+const defaultMetadata: Omit<
+  OrchestrationEvent,
+  "sequence" | "type" | "payload"
+> = {
   eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
   aggregateKind: "thread",
   aggregateId: "" as OrchestrationEvent["aggregateId"],
@@ -52,14 +55,17 @@ function withEventBase(
   };
 }
 
-export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
+export const decideOrchestrationCommand = Effect.fn(
+  "decideOrchestrationCommand",
+)(function* ({
   command,
   readModel,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
-  Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
+  | Omit<OrchestrationEvent, "sequence">
+  | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
   OrchestrationCommandInvariantError
 > {
   switch (command.type) {
@@ -121,7 +127,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
-          ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.scripts !== undefined
+            ? { scripts: command.scripts }
+            : {}),
           updatedAt: occurredAt,
         },
       };
@@ -195,19 +203,36 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.project.set": {
-      yield* requireThread({
+    case "thread.project.set":
+    case "paper.move": {
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      if (command.projectId !== null) {
+      const targetProjectId =
+        command.type === "paper.move"
+          ? command.targetProjectId
+          : command.projectId;
+      if (targetProjectId === thread.projectId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' is already assigned to the requested project.`,
+        });
+      }
+      if (targetProjectId !== null) {
         yield* requireActiveProject({
           readModel,
           command,
-          projectId: command.projectId,
+          projectId: targetProjectId,
         });
       }
+      yield* requireThreadFolderSlugAbsent({
+        readModel,
+        command,
+        projectId: targetProjectId,
+        folderSlug: thread.folderSlug,
+      });
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -216,10 +241,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "thread.project-set",
+        type: "paper.moved",
         payload: {
           threadId: command.threadId,
-          projectId: command.projectId,
+          fromProjectId: thread.projectId,
+          toProjectId: targetProjectId,
           updatedAt: occurredAt,
         },
       };
@@ -314,7 +340,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { modelSelection: command.modelSelection }
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
-          ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.worktreePath !== undefined
+            ? { worktreePath: command.worktreePath }
+            : {}),
           updatedAt: occurredAt,
         },
       };
@@ -382,7 +410,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         : null;
       const sourcePlan =
         sourceProposedPlan && sourceThread
-          ? sourceThread.proposedPlans.find((entry) => entry.id === sourceProposedPlan.planId)
+          ? sourceThread.proposedPlans.find(
+              (entry) => entry.id === sourceProposedPlan.planId,
+            )
           : null;
       if (sourceProposedPlan && !sourcePlan) {
         return yield* new OrchestrationCommandInvariantError({
@@ -431,7 +461,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
-          ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
+          ...(command.titleSeed !== undefined
+            ? { titleSeed: command.titleSeed }
+            : {}),
           runtimeMode: targetThread.runtimeMode,
           interactionMode: targetThread.interactionMode,
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
@@ -713,7 +745,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         typeof command.activity.payload === "object" &&
         command.activity.payload !== null &&
         "requestId" in command.activity.payload &&
-        typeof (command.activity.payload as { requestId?: unknown }).requestId === "string"
+        typeof (command.activity.payload as { requestId?: unknown })
+          .requestId === "string"
           ? ((command.activity.payload as { requestId: string })
               .requestId as OrchestrationEvent["metadata"]["requestId"])
           : undefined;

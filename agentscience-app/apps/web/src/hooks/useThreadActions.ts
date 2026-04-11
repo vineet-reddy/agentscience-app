@@ -11,33 +11,48 @@ import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
-import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
+import {
+  formatWorktreePathForDisplay,
+  getOrphanedWorktreePathForThread,
+} from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";
 import { useSettings } from "./useSettings";
 
 export function useThreadActions() {
   const appSettings = useSettings();
-  const clearComposerDraftForThread = useComposerDraftStore((store) => store.clearDraftThread);
+  const clearComposerDraftForThread = useComposerDraftStore(
+    (store) => store.clearDraftThread,
+  );
   const clearProjectDraftThreadById = useComposerDraftStore(
     (store) => store.clearProjectDraftThreadById,
   );
-  const clearTerminalState = useTerminalStateStore((state) => state.clearTerminalState);
+  const clearTerminalState = useTerminalStateStore(
+    (state) => state.clearTerminalState,
+  );
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+    select: (params) =>
+      params.threadId ? ThreadId.makeUnsafe(params.threadId) : null,
   });
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
   const queryClient = useQueryClient();
-  const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
+  const removeWorktreeMutation = useMutation(
+    gitRemoveWorktreeMutationOptions({ queryClient }),
+  );
 
   const archiveThread = useCallback(
     async (threadId: ThreadId) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
+      const thread = useStore
+        .getState()
+        .threads.find((entry) => entry.id === threadId);
       if (!thread) return;
-      if (thread.session?.status === "running" && thread.session.activeTurnId != null) {
+      if (
+        thread.session?.status === "running" &&
+        thread.session.activeTurnId != null
+      ) {
         throw new Error("Cannot archive a running thread.");
       }
 
@@ -64,15 +79,21 @@ export function useThreadActions() {
     });
   }, []);
 
-  const moveThreadToProject = useCallback(
+  const movePaper = useCallback(
     async (threadId: ThreadId, projectId: ProjectId | null) => {
       const api = readNativeApi();
       if (!api) return;
+      const thread = useStore
+        .getState()
+        .threads.find((entry) => entry.id === threadId);
+      if (!thread || thread.projectId === projectId) {
+        return;
+      }
       await api.orchestration.dispatchCommand({
-        type: "thread.project.set",
+        type: "paper.move",
         commandId: newCommandId(),
         threadId,
-        projectId,
+        targetProjectId: projectId,
       });
       const draftStore = useComposerDraftStore.getState();
       draftStore.setDraftThreadContext(threadId, { projectId });
@@ -81,24 +102,36 @@ export function useThreadActions() {
   );
 
   const deleteThread = useCallback(
-    async (threadId: ThreadId, opts: { deletedThreadIds?: ReadonlySet<ThreadId> } = {}) => {
+    async (
+      threadId: ThreadId,
+      opts: { deletedThreadIds?: ReadonlySet<ThreadId> } = {},
+    ) => {
       const api = readNativeApi();
       if (!api) return;
       const { projects, threads } = useStore.getState();
       const thread = threads.find((entry) => entry.id === threadId);
       if (!thread) return;
-      const threadProject = projects.find((project) => project.id === thread.projectId);
+      const threadProject = projects.find(
+        (project) => project.id === thread.projectId,
+      );
       const deletedIds = opts.deletedThreadIds;
       const survivingThreads =
         deletedIds && deletedIds.size > 0
-          ? threads.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
+          ? threads.filter(
+              (entry) => entry.id === threadId || !deletedIds.has(entry.id),
+            )
           : threads;
-      const orphanedWorktreePath = getOrphanedWorktreePathForThread(survivingThreads, threadId);
+      const orphanedWorktreePath = getOrphanedWorktreePathForThread(
+        survivingThreads,
+        threadId,
+      );
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;
-      const projectWorkspacePath = thread.resolvedWorkspacePath ?? threadProject?.cwd ?? null;
-      const canDeleteWorktree = orphanedWorktreePath !== null && projectWorkspacePath !== null;
+      const projectWorkspacePath =
+        thread.resolvedWorkspacePath ?? threadProject?.cwd ?? null;
+      const canDeleteWorktree =
+        orphanedWorktreePath !== null && projectWorkspacePath !== null;
       const shouldDeleteWorktree =
         canDeleteWorktree &&
         (await api.dialogs.confirm(
@@ -156,7 +189,11 @@ export function useThreadActions() {
         }
       }
 
-      if (!shouldDeleteWorktree || !orphanedWorktreePath || !projectWorkspacePath) {
+      if (
+        !shouldDeleteWorktree ||
+        !orphanedWorktreePath ||
+        !projectWorkspacePath
+      ) {
         return;
       }
 
@@ -167,13 +204,19 @@ export function useThreadActions() {
           force: true,
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
-        console.error("Failed to remove orphaned worktree after thread deletion", {
-          threadId,
-          projectCwd: projectWorkspacePath,
-          worktreePath: orphanedWorktreePath,
-          error,
-        });
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unknown error removing worktree.";
+        console.error(
+          "Failed to remove orphaned worktree after thread deletion",
+          {
+            threadId,
+            projectCwd: projectWorkspacePath,
+            worktreePath: orphanedWorktreePath,
+            error,
+          },
+        );
         toastManager.add({
           type: "error",
           title: "Paper deleted, but worktree removal failed",
@@ -196,7 +239,9 @@ export function useThreadActions() {
     async (threadId: ThreadId) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
+      const thread = useStore
+        .getState()
+        .threads.find((entry) => entry.id === threadId);
       if (!thread) return;
 
       if (appSettings.confirmThreadDelete) {
@@ -219,7 +264,7 @@ export function useThreadActions() {
   return {
     archiveThread,
     unarchiveThread,
-    moveThreadToProject,
+    movePaper,
     deleteThread,
     confirmAndDeleteThread,
   };
