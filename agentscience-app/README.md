@@ -38,6 +38,4 @@ codex login
 
 This project is still in active development. Expect rough edges.
 
-If you want to contribute, read [CONTRIBUTING.md](./CONTRIBUTING.md) first.
-
 Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).
