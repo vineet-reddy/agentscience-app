@@ -1044,12 +1044,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingProjectMetadata = Option.isSome(
             existingProjectMetadataRow,
           )
-            ? JSON.parse(existingProjectMetadataRow.value.valueJson)
+            ? (JSON.parse(existingProjectMetadataRow.value.valueJson) as {
+                readonly defaultModelSelection: unknown;
+                readonly scripts: ReadonlyArray<unknown>;
+                readonly deletedAt: string | null;
+              })
             : null;
-          if (
-            existingResearchProject !== null &&
-            existingProjectMetadata !== null
-          ) {
+          if (existingResearchProject !== null) {
             yield* upsertResearchProject({
               projectId: event.payload.projectId,
               folderSlug: existingResearchProject.folderSlug,
@@ -1057,16 +1058,30 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               createdAt: existingResearchProject.createdAt,
               updatedAt: event.payload.updatedAt,
             });
+          }
+          if (
+            existingResearchProject !== null ||
+            Option.isSome(existingRow) ||
+            existingProjectMetadata !== null
+          ) {
+            const fallbackDefaultModelSelection =
+              event.payload.defaultModelSelection ??
+              existingProjectMetadata?.defaultModelSelection ??
+              (Option.isSome(existingRow)
+                ? existingRow.value.defaultModelSelection
+                : null);
+            const fallbackScripts =
+              event.payload.scripts ??
+              existingProjectMetadata?.scripts ??
+              (Option.isSome(existingRow) ? existingRow.value.scripts : []);
+            const fallbackDeletedAt =
+              existingProjectMetadata?.deletedAt ??
+              (Option.isSome(existingRow) ? existingRow.value.deletedAt : null);
             yield* upsertProjectMetadata({
               projectId: event.payload.projectId,
-              defaultModelSelection:
-                event.payload.defaultModelSelection ??
-                existingProjectMetadata.defaultModelSelection,
-              scripts: (event.payload.scripts ??
-                existingProjectMetadata.scripts) as ReadonlyArray<unknown>,
-              deletedAt: (existingProjectMetadata.deletedAt ?? null) as
-                | string
-                | null,
+              defaultModelSelection: fallbackDefaultModelSelection,
+              scripts: fallbackScripts,
+              deletedAt: fallbackDeletedAt,
               updatedAt: event.payload.updatedAt,
             });
           }

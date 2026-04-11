@@ -2056,7 +2056,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 
-  it.effect("projects persist updated scripts from project.meta.update", () =>
+  it.effect("projects persist title updates even when project metadata is missing", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;
       const sql = yield* SqlClient.SqlClient;
@@ -2075,10 +2075,16 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         createdAt,
       });
 
+      yield* sql`
+        DELETE FROM device_state
+        WHERE key = 'local.project.project-scripts'
+      `;
+
       yield* engine.dispatch({
         type: "project.meta.update",
         commandId: CommandId.makeUnsafe("cmd-scripts-project-update"),
         projectId: ProjectId.makeUnsafe("project-scripts"),
+        title: "Renamed Project",
         scripts: [
           {
             id: "script-1",
@@ -2095,22 +2101,34 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       });
 
       const projectRows = yield* sql<{
+        readonly title: string;
         readonly scriptsJson: string;
         readonly defaultModelSelection: string;
       }>`
         SELECT
+          title,
           scripts_json AS "scriptsJson",
           default_model_selection_json AS "defaultModelSelection"
         FROM projection_projects
         WHERE project_id = 'project-scripts'
       `;
+      const researchProjectRows = yield* sql<{
+        readonly title: string;
+      }>`
+        SELECT
+          title
+        FROM research_projects
+        WHERE project_id = 'project-scripts'
+      `;
       assert.deepEqual(projectRows, [
         {
+          title: "Renamed Project",
           scriptsJson:
             '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build","runOnWorktreeCreate":false}]',
           defaultModelSelection: '{"provider":"codex","model":"gpt-5"}',
         },
       ]);
+      assert.deepEqual(researchProjectRows, [{ title: "Renamed Project" }]);
     }),
   );
 
