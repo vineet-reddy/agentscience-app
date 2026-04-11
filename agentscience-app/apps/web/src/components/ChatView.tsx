@@ -91,15 +91,16 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
-  BotIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CircleAlertIcon,
+  HandIcon,
+  ListIcon,
   ListTodoIcon,
-  LockIcon,
-  LockOpenIcon,
+  PenLineIcon,
   XIcon,
+  ZapIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
@@ -4275,13 +4276,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               onClick={toggleInteractionMode}
                               title={
                                 interactionMode === "plan"
-                                  ? "Plan mode — click to return to normal build mode"
-                                  : "Default mode — click to enter plan mode"
+                                  ? "Outline — the agent discusses the approach without making changes. Click to switch to Draft."
+                                  : "Draft — the agent writes and makes changes directly. Click to switch to Outline."
                               }
                             >
-                              <BotIcon />
+                              {interactionMode === "plan" ? <ListIcon /> : <PenLineIcon />}
                               <span className="sr-only sm:not-sr-only">
-                                {interactionMode === "plan" ? "Plan" : "Build"}
+                                {interactionMode === "plan" ? "Outline" : "Draft"}
                               </span>
                             </Button>
 
@@ -4304,13 +4305,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               }
                               title={
                                 runtimeMode === "full-access"
-                                  ? "Full access — click to require approvals"
-                                  : "Approval required — click for full access"
+                                  ? "Auto — the agent runs actions on its own. Click to have it ask first."
+                                  : "Ask first — the agent checks with you before each action. Click to let it run on its own."
                               }
                             >
-                              {runtimeMode === "full-access" ? <LockOpenIcon /> : <LockIcon />}
+                              {runtimeMode === "full-access" ? <ZapIcon /> : <HandIcon />}
                               <span className="sr-only sm:not-sr-only">
-                                {runtimeMode === "full-access" ? "Full access" : "Supervised"}
+                                {runtimeMode === "full-access" ? "Auto" : "Ask first"}
                               </span>
                             </Button>
 

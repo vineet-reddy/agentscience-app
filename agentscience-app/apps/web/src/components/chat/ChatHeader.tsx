@@ -102,30 +102,29 @@ export const ChatHeader = memo(function ChatHeader({
           />
         )}
         {/* {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />} */}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className="shrink-0"
-                pressed={terminalOpen}
-                onPressedChange={onToggleTerminal}
-                aria-label="Toggle terminal drawer"
-                variant="outline"
-                size="xs"
-                disabled={!terminalAvailable}
-              >
-                <TerminalSquareIcon className="size-3" />
-              </Toggle>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {!terminalAvailable
-              ? "Terminal is unavailable until this thread has an active project."
-              : terminalToggleShortcutLabel
+        {terminalAvailable && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  className="shrink-0"
+                  pressed={terminalOpen}
+                  onPressedChange={onToggleTerminal}
+                  aria-label="Toggle terminal drawer"
+                  variant="outline"
+                  size="xs"
+                >
+                  <TerminalSquareIcon className="size-3" />
+                </Toggle>
+              }
+            />
+            <TooltipPopup side="bottom">
+              {terminalToggleShortcutLabel
                 ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
                 : "Toggle terminal drawer"}
-          </TooltipPopup>
-        </Tooltip>
+            </TooltipPopup>
+          </Tooltip>
+        )}
         {/* <Tooltip>
           <TooltipTrigger
             render={
