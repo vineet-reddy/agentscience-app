@@ -658,7 +658,7 @@ describe("MessagesTimeline virtualization harness", () => {
     const props = createBaseTimelineProps({
       messages: [...beforeMessages, targetMessage, ...afterMessages],
       turnDiffSummaryByAssistantMessageId: createChangedFilesSummary(targetMessage.id, [
-        { path: ".plans/effect-atom.md", additions: 89, deletions: 0 },
+        { path: "effect-atom.md", additions: 89, deletions: 0 },
         {
           path: "apps/server/src/checkpointing/Layers/CheckpointDiffQuery.ts",
           additions: 4,
@@ -834,7 +834,7 @@ describe("MessagesTimeline virtualization harness", () => {
     const initialProps = createBaseTimelineProps({
       messages: [...beforeMessages, targetMessage, ...afterMessages],
       turnDiffSummaryByAssistantMessageId: createChangedFilesSummary(targetMessage.id, [
-        { path: ".plans/effect-atom.md", additions: 89, deletions: 0 },
+        { path: "effect-atom.md", additions: 89, deletions: 0 },
         {
           path: "apps/server/src/checkpointing/Layers/CheckpointDiffQuery.ts",
           additions: 4,
