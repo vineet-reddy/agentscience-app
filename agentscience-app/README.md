@@ -1,44 +1,43 @@
-# Agentscience
+# AgentScience
 
-Agentscience App is a minimal web GUI for coding scientific agents built around Codex.
+AgentScience is a desktop app and web UI for running research work with coding agents.
 
-## Pre-requisites
+## Start here
 
-- bun for package management
-- pkgx is helpful
+If you are onboarding, read these first:
 
-## Installation
+- [Architecture](./docs/architecture.md)
+- [Design language](./docs/design.md)
+- [Observability](./docs/observability.md)
+- [Release](./docs/release.md)
 
-> [!WARNING] We're in development
-> Run at your own peril for now. You've been warned.
->
-> Oh, also this currently supports Codex.
-> Install and authenticate Codex before use:
->
-> - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
+## Development
 
-## Tasks
+Main dev entry points:
 
-### run-desktop
-
-Runs the desktop app
-
-<!-- Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/agentscience/releases), or from your favorite package registry: -->
+```sh
+bun run dev
+```
 
 ```sh
 bun run dev:desktop
 ```
 
-## Some notes
+## Requirements
 
-We are very very early in this project. Expect bugs.
+- Bun
+- Codex CLI installed and authenticated
 
-We are not accepting contributions yet.
+For example:
 
-Observability guide: [docs/observability.md](./docs/observability.md)
+```sh
+codex login
+```
 
-## If you REALLY want to contribute still.... read this first
+## Notes
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
+This project is still in active development. Expect rough edges.
+
+If you want to contribute, read [CONTRIBUTING.md](./CONTRIBUTING.md) first.
 
 Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).

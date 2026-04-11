@@ -1,519 +1,161 @@
 # Observability
 
-Agent Science has one server-side observability model:
+This is the short version.
 
-- pretty logs go to stdout for humans
+AgentScience keeps observability simple:
+
+- logs go to stdout
 - completed spans go to a local NDJSON trace file
-- traces and metrics can also be exported over OTLP to a real backend like Grafana LGTM
+- traces and metrics can also be exported over OTLP if you want Grafana or another backend
 
-The local trace file is the persisted source of truth. There is no separate persisted server log file anymore.
+The local trace file is the main persisted artifact.
 
-## Where To Find Things
+## The model
+
+Think about observability in three buckets.
 
 ### Logs
 
-Logs are human-facing only:
+Human-facing only.
 
 - destination: stdout
-- format: `Logger.consolePretty()`
 - persistence: none
-
-If you want a log message to show up in the trace file, emit it inside an active span with `Effect.log...`. `Logger.tracerLogger` will attach it as a span event.
 
 ### Traces
 
-Completed spans are written as NDJSON records to `serverTracePath` (by default, `~/.agentscience/userdata/logs/server.trace.ndjson`).
+This is the important persisted record.
 
-Important fields in each record:
+- destination: local NDJSON file
+- default file: `server.trace.ndjson`
+- also exportable over OTLP
 
-- `name`: span name
-- `traceId`, `spanId`, `parentSpanId`: correlation
-- `durationMs`: elapsed time
-- `attributes`: structured context
-- `events`: embedded logs and custom events
-- `exit`: `Success`, `Failure`, or `Interrupted`
-
-The schema lives in `apps/server/src/observability/TraceRecord.ts`.
+Each line is one completed span with timing, attributes, events, and exit status.
 
 ### Metrics
 
-Metrics are not written to a local file.
+Metrics are in-process by default.
 
-- local persistence: none
-- remote export: OTLP only, when configured
-- current definitions: `apps/server/src/observability/Metrics.ts`
+- local file: none
+- remote export: OTLP only
 
-If OTLP is not configured, metrics still exist in-process, but you will not have a local artifact to inspect.
+So if you want historical metrics, you need a real backend.
 
-### Related Artifacts
+## Where to look in code
 
-Provider event NDJSON files still exist for provider runtime streams. Those are separate from the main server trace file.
+- wiring: [Observability.ts](/Users/vineetreddy/Documents/GitHub/agentscience-app/agentscience-app/apps/server/src/observability/Layers/Observability.ts)
+- metrics: [Metrics.ts](/Users/vineetreddy/Documents/GitHub/agentscience-app/agentscience-app/apps/server/src/observability/Metrics.ts)
+- RPC metrics: [RpcInstrumentation.ts](/Users/vineetreddy/Documents/GitHub/agentscience-app/agentscience-app/apps/server/src/observability/RpcInstrumentation.ts)
+- trace record schema: [TraceRecord.ts](/Users/vineetreddy/Documents/GitHub/agentscience-app/agentscience-app/apps/server/src/observability/TraceRecord.ts)
 
-## Run The Server In Instrumented Mode
+## Most common workflow
 
-There are two useful modes:
+Start local first.
 
-- local-only: stdout + local `server.trace.ndjson`
-- full local observability: stdout + local trace file + OTLP export to Grafana/Tempo/Prometheus
+Run the app, then inspect the local trace file.
 
-The local trace file is always on. OTLP export is opt-in.
-
-### Option 1: Local Traces Only
-
-You do not need any extra env vars. Just run the app normally and inspect `server.trace.ndjson`.
-
-Examples:
-
-```bash
-npx agentscience-server
-```
-
-```bash
-bun dev
-```
-
-```bash
-bun dev:desktop
-```
-
-### Option 2: Run With A Local LGTM Stack
-
-#### 1. Start Grafana LGTM
-
-```bash
-docker run --name lgtm \
-  -p 3000:3000 \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  --rm -ti \
-  grafana/otel-lgtm
-```
-
-Then open `http://localhost:3000`.
-
-Default Grafana login:
-
-- username: `admin`
-- password: `admin`
-
-#### 2. Export OTLP env vars
-
-```bash
-export AGENTSCIENCE_OTLP_TRACES_URL=http://localhost:4318/v1/traces
-export AGENTSCIENCE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics
-export AGENTSCIENCE_OTLP_SERVICE_NAME=agentscience-local
-```
-
-Optional:
-
-```bash
-export AGENTSCIENCE_TRACE_MIN_LEVEL=Info
-export AGENTSCIENCE_TRACE_TIMING_ENABLED=true
-```
-
-#### 3. Launch the app from that same shell
-
-CLI:
-
-```bash
-npx agentscience-server
-```
-
-Monorepo web/server dev:
-
-```bash
-bun dev
-```
-
-Monorepo desktop dev:
-
-```bash
-bun dev:desktop
-```
-
-Packaged desktop app:
-
-Launch the actual app executable from the same shell so the desktop app and embedded backend inherit `AGENTSCIENCE_OTLP_*`.
-
-macOS app bundle example:
-
-```bash
-AGENTSCIENCE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
-AGENTSCIENCE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
-AGENTSCIENCE_OTLP_SERVICE_NAME=agentscience-desktop \
-"/Applications/Agent Science.app/Contents/MacOS/Agent Science"
-```
-
-Direct binary example:
-
-```bash
-AGENTSCIENCE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
-AGENTSCIENCE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
-AGENTSCIENCE_OTLP_SERVICE_NAME=agentscience-desktop \
-./path/to/your/desktop-app-binary
-```
-
-Do not rely on launching from Finder, Spotlight, the dock, or the Start menu after setting shell env vars. Those launches usually will not pick them up.
-
-#### 4. Fully restart after changing env
-
-The backend reads observability config at process start. If you change OTLP env vars, stop the app completely and start it again.
-
-## How To Use Traces And Metrics To Debug The Server
-
-### Start With The Local Trace File
-
-The trace file is the fastest way to inspect raw span data.
-
-Tail it:
+Useful commands:
 
 ```bash
 tail -f "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
 ```
 
-In monorepo dev, use:
+In monorepo dev:
 
 ```bash
 tail -f ./dev/logs/server.trace.ndjson
 ```
 
-Show failed spans:
+Show failures:
 
 ```bash
-jq -c 'select(.exit._tag != "Success") | {
-  name,
-  durationMs,
-  exit,
-  attributes
-}' "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
+jq -c 'select(.exit._tag != "Success") | { name, durationMs, exit, attributes }' \
+  "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
 ```
 
 Show slow spans:
 
 ```bash
-jq -c 'select(.durationMs > 1000) | {
-  name,
-  durationMs,
-  traceId,
-  spanId
-}' "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
+jq -c 'select(.durationMs > 1000) | { name, durationMs, traceId, spanId }' \
+  "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
 ```
 
-Inspect embedded log events:
+## OTLP mode
 
-```bash
-jq -c 'select(any(.events[]?; .attributes["effect.logLevel"] != null)) | {
-  name,
-  durationMs,
-  events: [
-    .events[]
-    | select(.attributes["effect.logLevel"] != null)
-    | {
-        message: .name,
-        level: .attributes["effect.logLevel"]
-      }
-  ]
-}' "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
-```
+If you want Grafana, Tempo, Prometheus, or an OTLP-compatible backend, set the OTLP env vars and restart the app.
 
-Follow one trace:
+Important env vars:
 
-```bash
-jq -r 'select(.traceId == "TRACE_ID_HERE") | [
-  .name,
-  .spanId,
-  (.parentSpanId // "-"),
-  .durationMs
-] | @tsv' "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
-```
+- `AGENTSCIENCE_OTLP_TRACES_URL`
+- `AGENTSCIENCE_OTLP_METRICS_URL`
+- `AGENTSCIENCE_OTLP_SERVICE_NAME`
 
-Filter orchestration commands:
+Local trace settings:
 
-```bash
-jq -c 'select(.attributes["orchestration.command_type"] != null) | {
-  name,
-  durationMs,
-  commandType: .attributes["orchestration.command_type"],
-  aggregateKind: .attributes["orchestration.aggregate_kind"]
-}' "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
-```
+- `AGENTSCIENCE_TRACE_FILE`
+- `AGENTSCIENCE_TRACE_MAX_BYTES`
+- `AGENTSCIENCE_TRACE_MAX_FILES`
+- `AGENTSCIENCE_TRACE_BATCH_WINDOW_MS`
+- `AGENTSCIENCE_TRACE_MIN_LEVEL`
+- `AGENTSCIENCE_TRACE_TIMING_ENABLED`
 
-Filter git activity:
+These are read at process start, so restart after changing them.
 
-```bash
-jq -c 'select(.attributes["git.operation"] != null) | {
-  name,
-  durationMs,
-  operation: .attributes["git.operation"],
-  cwd: .attributes["git.cwd"],
-  hookEvents: [
-    .events[]
-    | select(.name == "git.hook.started" or .name == "git.hook.finished")
-  ]
-}' "$AGENTSCIENCE_HOME/userdata/logs/server.trace.ndjson"
-```
+## What is instrumented today
 
-### Use Tempo When You Need A Real Trace Viewer
+The main boundaries worth knowing:
 
-Tempo is better than raw NDJSON when you want to:
+- websocket RPC requests
+- orchestration command processing
+- orchestration command ack timing
+- provider sessions and turns
+- git commands
+- terminal lifecycle
+- sqlite queries
 
-- search across many traces
-- inspect parent/child relationships visually
-- compare many slow traces
-- drill into one failing request without hand-joining by `traceId`
+Why this matters:
 
-Recommended flow in Grafana:
+If the app feels slow, these boundaries are usually enough to tell whether the slowdown is in RPC, orchestration, provider work, git, terminal work, or the database.
 
-1. Open `Explore`.
-2. Pick the `Tempo` data source.
-3. Set the time range to something recent like `Last 15 minutes`.
-4. Start broad. Do not begin with a very narrow query.
-5. Look for spans from your configured service name, then narrow by span name or attributes.
+## One metric that matters a lot
 
-Good first searches:
+`t3_orchestration_command_ack_duration`
 
-- service name such as `agentscience-local`, `agentscience-dev`, or `agentscience-desktop`
-- span names like `sql.execute`, `git.runCommand`, `provider.sendTurn`
-- orchestration spans with attributes like `orchestration.command_type`
+This measures how long it takes from command dispatch entering the orchestration engine to the first committed domain event being published by the server.
 
-Once you know traces are arriving, narrower TraceQL queries like `name = "sql.execute"` become useful.
+What it does tell you:
 
-### Use Metrics To See Systemic Problems
+- whether the backend is slow to accept and commit a command
 
-Traces are best for one request. Metrics are best for trends.
+What it does not tell you:
 
-Good metric families to watch:
-
-- `t3_rpc_request_duration`
-- `t3_orchestration_command_duration`
-- `t3_orchestration_command_ack_duration`
-- `t3_provider_turn_duration`
-- `t3_git_command_duration`
-- `t3_db_query_duration`
-
-Counters tell you volume and failure rate:
-
-- `t3_rpc_requests_total`
-- `t3_orchestration_commands_total`
-- `t3_provider_turns_total`
-- `t3_git_commands_total`
-- `t3_db_queries_total`
-
-Use metrics when the question is:
-
-- "is this always slow?"
-- "did this get worse after a change?"
-- "which command type is failing most often?"
-
-Use traces when the question is:
-
-- "what happened in this specific request?"
-- "which child span caused this one slow interaction?"
-- "what logs were emitted inside the failing flow?"
-
-### What The New Ack Metric Means
-
-`t3_orchestration_command_ack_duration` measures:
-
-- start: command dispatch enters the orchestration engine
-- end: the first committed domain event for that command is published by the server
-
-That is a server-side acknowledgment metric. It does not measure:
-
-- websocket transit to the browser
-- client receipt
+- websocket transport time
+- browser receipt time
 - React render time
 
-If you need those later, add client-side instrumentation or a dedicated server fanout metric.
+That distinction matters when somebody says "rename felt slow" or "move felt slow". This metric answers the backend part of that question only.
 
-## Common Workflows
+## How to add instrumentation
 
-### "Why did this request fail?"
-
-1. Start with the local NDJSON file.
-2. Find spans where `exit._tag != "Success"`.
-3. Group by `traceId`.
-4. Inspect sibling spans and span events.
-5. If needed, move to Tempo for the full trace tree.
-
-### "Why is the UI feeling slow?"
-
-1. Search for slow top-level spans in the trace file or Tempo.
-2. Check child spans for sqlite, git, provider, or terminal work.
-3. Look at the matching duration metrics to see whether the slowness is systemic.
-
-### "Did this command take too long to acknowledge?"
-
-1. Check `t3_orchestration_command_ack_duration` by `commandType`.
-2. If it is high, inspect the corresponding orchestration trace.
-3. Look at child spans for projection, sqlite, provider, or git work.
-
-### "Are git hooks causing latency?"
-
-1. Filter `git.operation` spans.
-2. Inspect `git.hook.started` and `git.hook.finished` events.
-3. Compare hook timing to the enclosing git span duration.
-
-### "Why do I have spans locally but nothing in Grafana?"
-
-Usually one of these is true:
-
-- `AGENTSCIENCE_OTLP_TRACES_URL` was not set
-- the app was launched from a different environment than the one where you exported the vars
-- the app was not fully restarted after changing env
-- Grafana is looking at the wrong time range or service name
-
-If the local NDJSON file is updating, local tracing is working. The problem is almost always OTLP export configuration or process startup.
-
-## How To Think About Adding Tracing To Future Code
-
-### Prefer Boundaries Over Tiny Helpers
+Keep it boring and useful.
 
 Good span boundaries:
 
 - RPC methods
 - orchestration command handling
-- provider adapter calls
+- provider calls
 - external process calls
 - persistence writes
-- queue handoffs
 
-Avoid tracing every tiny helper. Most helpers should inherit the active span rather than create a new one.
+Usually you want boundaries around meaningful steps, not tiny helpers.
 
-### Reuse `Effect.fn(...)` Where It Already Exists
+Detailed values go on spans, for example IDs and paths.
 
-The codebase already uses `Effect.fn("name")` heavily. That should usually be your first tracing boundary.
+Stable labels go on metrics, for example command type, provider kind, operation kind, outcome.
 
-For ad hoc work:
+## Practical advice
 
-```ts
-import { Effect } from "effect";
+If you are debugging one bad request, use traces.
 
-const runThing = Effect.gen(function* () {
-  yield* Effect.annotateCurrentSpan({
-    "thing.id": "abc123",
-    "thing.kind": "example",
-  });
+If you are asking whether something is broadly slow or broadly failing, use metrics.
 
-  yield* Effect.logInfo("starting thing");
-  return yield* doWork();
-}).pipe(Effect.withSpan("thing.run"));
-```
-
-### Put High-Cardinality Detail On Spans
-
-Use span annotations for IDs, paths, and other detailed context:
-
-```ts
-yield *
-  Effect.annotateCurrentSpan({
-    "provider.thread_id": input.threadId,
-    "provider.request_id": input.requestId,
-    "git.cwd": input.cwd,
-  });
-```
-
-### Keep Metric Labels Low Cardinality
-
-Good metric labels:
-
-- operation kind
-- method name
-- provider kind
-- aggregate kind
-- outcome
-
-Bad metric labels:
-
-- raw thread IDs
-- command IDs
-- file paths
-- cwd
-- full prompts
-- full model strings when a normalized family label would do
-
-Detailed context belongs on spans, not metrics.
-
-### Use Logs As Span Events
-
-Logs inside a span become part of the trace story:
-
-```ts
-yield * Effect.logInfo("starting provider turn");
-yield * Effect.logDebug("waiting for approval response");
-```
-
-Those messages show up as span events because `Logger.tracerLogger` is installed.
-
-### Use The Pipeable Metrics API
-
-`withMetrics(...)` is the default way to attach a counter and timer to an effect:
-
-```ts
-import { someCounter, someDuration, withMetrics } from "../observability/Metrics.ts";
-
-const program = doWork().pipe(
-  withMetrics({
-    counter: someCounter,
-    timer: someDuration,
-    attributes: {
-      operation: "work",
-    },
-  }),
-);
-```
-
-## Detailed API Reference
-
-### Runtime Wiring
-
-The server observability layer is assembled in `apps/server/src/observability/Layers/Observability.ts`.
-
-It provides:
-
-- pretty stdout logger
-- `Logger.tracerLogger`
-- local NDJSON tracer
-- optional OTLP trace exporter
-- optional OTLP metrics exporter
-- Effect trace-level and timing refs
-
-### Env Vars
-
-Local trace file:
-
-- `AGENTSCIENCE_TRACE_FILE`: override trace file path
-- `AGENTSCIENCE_TRACE_MAX_BYTES`: per-file rotation size, default `10485760`
-- `AGENTSCIENCE_TRACE_MAX_FILES`: rotated file count, default `10`
-- `AGENTSCIENCE_TRACE_BATCH_WINDOW_MS`: flush window, default `200`
-- `AGENTSCIENCE_TRACE_MIN_LEVEL`: minimum trace level, default `Info`
-- `AGENTSCIENCE_TRACE_TIMING_ENABLED`: enable timing metadata, default `true`
-
-OTLP export:
-
-- `AGENTSCIENCE_OTLP_TRACES_URL`: OTLP trace endpoint
-- `AGENTSCIENCE_OTLP_METRICS_URL`: OTLP metric endpoint
-- `AGENTSCIENCE_OTLP_EXPORT_INTERVAL_MS`: export interval, default `10000`
-- `AGENTSCIENCE_OTLP_SERVICE_NAME`: service name, default `agentscience-server`
-
-If the OTLP URLs are unset, local tracing still works and metrics stay in-process only.
-
-### What Is Instrumented Today
-
-Current high-value span and metric boundaries include:
-
-- Effect RPC websocket request spans from `effect/rpc`
-- RPC request metrics in `apps/server/src/observability/RpcInstrumentation.ts`
-- startup phases
-- orchestration command processing
-- orchestration command acknowledgment latency
-- provider session and turn operations
-- git command execution and git hook events
-- terminal session lifecycle
-- sqlite query execution
-
-### Current Constraints
-
-- logs outside spans are not persisted
-- metrics are not snapshotted locally
-- the old `serverLogPath` still exists in config for compatibility, but the trace file is the persisted artifact that matters
+If you are adding new instrumentation, start with a trace span first. Add a metric only if you know what recurring question that metric is supposed to answer.

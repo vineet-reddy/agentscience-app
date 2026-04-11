@@ -1,79 +1,62 @@
-# Release Checklist
+# Release
 
-This document covers how to run desktop releases from one tag, first without signing, then with signing.
+This is the short version of how releases work.
 
-## What the workflow does
+If you are changing release infrastructure, read the workflow too:
 
-- Trigger: push tag matching `v*.*.*`.
-- Runs quality gates first: lint, typecheck, test.
-- Builds four artifacts in parallel:
-  - macOS `arm64` DMG
-  - macOS `x64` DMG
-  - Linux `x64` AppImage
-  - Windows `x64` NSIS installer
-- Publishes one GitHub Release with all produced files.
-  - Versions with a suffix after `X.Y.Z` (for example `1.2.3-alpha.1`) are published as GitHub prereleases.
-  - Only plain `X.Y.Z` releases are marked as the repository's latest release.
-- Includes Electron auto-update metadata (for example `latest*.yml` and `*.blockmap`) in release assets.
-- Publishes the CLI package (`apps/server`, npm package `agentscience-server`) with OIDC trusted publishing.
-- Signing is optional and auto-detected per platform from secrets.
+- [release.yml](/Users/vineetreddy/Documents/GitHub/agentscience-app/.github/workflows/release.yml)
 
-## Desktop auto-update notes
+## What a release does
 
-- Runtime updater: `electron-updater` in `apps/desktop/src/main.ts`.
-- Update UX:
-  - Background checks run on startup delay + interval.
-  - No automatic download or install.
-  - The desktop UI shows a rocket update button when an update is available; click once to download, click again after download to restart/install.
-- Provider: GitHub Releases (`provider: github`) configured at build time.
-- Repository slug source:
-  - `AGENTSCIENCE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`), if set.
-  - otherwise `GITHUB_REPOSITORY` from GitHub Actions.
-- Temporary private-repo auth workaround:
-  - set `AGENTSCIENCE_DESKTOP_UPDATE_GITHUB_TOKEN` (or `GH_TOKEN`) in the desktop app runtime environment.
-  - the app forwards it as an `Authorization: Bearer <token>` request header for updater HTTP calls.
-- Required release assets for updater:
-  - platform installers (`.exe`, `.dmg`, `.AppImage`, plus macOS `.zip` for Squirrel.Mac update payloads)
-  - `latest*.yml` metadata
-  - `*.blockmap` files (used for differential downloads)
-- macOS metadata note:
-  - `electron-updater` reads `latest-mac.yml` for both Intel and Apple Silicon.
-  - The workflow merges the per-arch mac manifests into one `latest-mac.yml` before publishing the GitHub Release.
+Pushing a tag like `v1.2.3` triggers the release workflow.
 
-## 0) npm OIDC trusted publishing setup (CLI)
+That workflow:
 
-The workflow publishes the CLI with `bun publish` from `apps/server` after bumping
-the package version to the release tag version.
+- runs quality gates first
+- builds desktop artifacts for macOS, Linux, and Windows
+- publishes a GitHub Release
+- publishes the CLI package from `apps/server`
 
-Checklist:
+Versions with a suffix like `v1.2.3-alpha.1` become prereleases.
 
-1. Confirm npm org/user owns package `agentscience-server` (or rename package first if needed).
-2. In npm package settings, configure Trusted Publisher:
-   - Provider: GitHub Actions
-   - Repository: this repo
-   - Workflow file: `.github/workflows/release.yml`
-   - Environment (if used): match your npm trusted publishing config
-3. Ensure npm account and org policies allow trusted publishing for the package.
-4. Create release tag `vX.Y.Z` and push; workflow will:
-   - set `apps/server/package.json` version to `X.Y.Z`
-   - build web + server
-   - run `bun publish --access public`
+## The normal release flow
 
-## 1) Dry-run release without signing
+1. Make sure CI is green on the branch you want to release.
+2. Create a tag:
 
-Use this first to validate the release pipeline.
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
 
-1. Confirm no signing secrets are required for this test.
-2. Create a test tag:
-   - `git tag v0.0.0-test.1`
-   - `git push origin v0.0.0-test.1`
-3. Wait for `.github/workflows/release.yml` to finish.
-4. Verify the GitHub Release contains all platform artifacts.
-5. Download each artifact and sanity-check installation on each OS.
+3. Wait for the workflow to finish.
+4. Verify the GitHub Release assets.
+5. Smoke test the downloaded builds.
 
-## 2) Apple signing + notarization setup (macOS)
+That is the main path. Most people do not need more than that.
 
-Required secrets used by the workflow:
+## Dry run
+
+If you want to test the release pipeline without cutting a real release, use a prerelease tag.
+
+For example:
+
+```bash
+git tag v0.0.0-test.1
+git push origin v0.0.0-test.1
+```
+
+Then inspect the release artifacts and install them on the target platforms.
+
+## Signing
+
+Signing is optional and controlled by secrets.
+
+### macOS
+
+If Apple signing and notarization secrets are present, the workflow signs and notarizes macOS builds.
+
+Important secrets:
 
 - `CSC_LINK`
 - `CSC_KEY_PASSWORD`
@@ -81,29 +64,11 @@ Required secrets used by the workflow:
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER`
 
-Checklist:
+### Windows
 
-1. Apple Developer account access:
-   - Team has rights to create Developer ID certificates.
-2. Create `Developer ID Application` certificate.
-3. Export certificate + private key as `.p12` from Keychain.
-4. Base64-encode the `.p12` and store as `CSC_LINK`.
-5. Store the `.p12` export password as `CSC_KEY_PASSWORD`.
-6. In App Store Connect, create an API key (Team key).
-7. Add API key values:
-   - `APPLE_API_KEY`: contents of the downloaded `.p8`
-   - `APPLE_API_KEY_ID`: Key ID
-   - `APPLE_API_ISSUER`: Issuer ID
-8. Re-run a tag release and confirm macOS artifacts are signed/notarized.
+If Azure Trusted Signing secrets are present, the workflow signs the Windows installer.
 
-Notes:
-
-- `APPLE_API_KEY` is stored as raw key text in secrets.
-- The workflow writes it to a temporary `AuthKey_<id>.p8` file at runtime.
-
-## 3) Azure Trusted Signing setup (Windows)
-
-Required secrets used by the workflow:
+Important secrets:
 
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
@@ -113,38 +78,41 @@ Required secrets used by the workflow:
 - `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`
 - `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`
 
-Checklist:
+If those secrets are missing, the release can still run unsigned.
 
-1. Create Azure Trusted Signing account and certificate profile.
-2. Record ATS values:
-   - Endpoint
-   - Account name
-   - Certificate profile name
-   - Publisher name
-3. Create/choose an Entra app registration (service principal).
-4. Grant service principal permissions required by Trusted Signing.
-5. Create a client secret for the service principal.
-6. Add Azure secrets listed above in GitHub Actions secrets.
-7. Re-run a tag release and confirm Windows installer is signed.
+## CLI publishing
 
-## 4) Ongoing release checklist
+The CLI package is `agentscience-server` from `apps/server`.
 
-1. Ensure `main` is green in CI.
-2. Bump app version as needed.
-3. Create release tag: `vX.Y.Z`.
-4. Push tag.
-5. Verify workflow steps:
-   - preflight passes
-   - all matrix builds pass
-   - release job uploads expected files
-6. Smoke test downloaded artifacts.
+Publishing uses npm trusted publishing through GitHub Actions.
 
-## 5) Troubleshooting
+Before relying on that path, confirm npm trusted publishing is configured for:
 
-- macOS build unsigned when expected signed:
-  - Check all Apple secrets are populated and non-empty.
-- Windows build unsigned when expected signed:
-  - Check all Azure ATS and auth secrets are populated and non-empty.
-- Build fails with signing error:
-  - Retry with secrets removed to confirm unsigned path still works.
-  - Re-check certificate/profile names and tenant/client credentials.
+- this repo
+- `.github/workflows/release.yml`
+- the `agentscience-server` package
+
+## Desktop auto-update
+
+Desktop updates come from GitHub Releases.
+
+Important points:
+
+- the app checks for updates in the background
+- it does not auto-install immediately
+- release assets must include the updater metadata files
+
+If you are debugging update behavior, check the desktop main process and the release assets on GitHub first.
+
+## If a release goes wrong
+
+Start with the workflow logs.
+
+Common buckets:
+
+- quality gate failure
+- signing secrets missing or wrong
+- publish permissions wrong
+- missing release assets
+
+If signing is failing and you need to isolate the problem, first confirm the unsigned path still works.
