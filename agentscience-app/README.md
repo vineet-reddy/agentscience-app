@@ -10,6 +10,7 @@ If you are onboarding, read these first:
 - [Design language](./docs/design.md)
 - [Observability](./docs/observability.md)
 - [Release](./docs/release.md)
+- [Distribution](./docs/distribution.md)
 
 ## Development
 
