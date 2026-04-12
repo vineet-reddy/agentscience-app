@@ -38,7 +38,7 @@
         "agentscience-server": "./dist/bin.mjs",
       },
       "dependencies": {
-        "@agentscience/personality": "^1.0.1",
+        "@agentscience/personality": "^1.0.2",
         "@effect/platform-bun": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/sql-sqlite-bun": "catalog:",
@@ -183,7 +183,7 @@
 
     "@agentscience/desktop": ["@agentscience/desktop@workspace:apps/desktop"],
 
-    "@agentscience/personality": ["@agentscience/personality@1.0.1", "", {}, "sha512-DZTJWZf9FI06805KtrGh4W9UEXuDRVd1bNP4fgcI7XxkABcoCYCg/5GRmemgkpuxGizqhtIBeYqcKq7RekwXkA=="],
+    "@agentscience/personality": ["@agentscience/personality@1.0.2", "", {}, "sha512-YoXZFXEY5Bd2+4k/5jyexaYC5aJHzl73h9GkRujbuF9z3jty+utGvxJIDUjD6FNTPiPifNnklsIXbCftkJP+sQ=="],
 
     "@agentscience/scripts": ["@agentscience/scripts@workspace:scripts"],
 
