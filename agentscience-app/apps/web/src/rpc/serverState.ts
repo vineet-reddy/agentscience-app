@@ -32,6 +32,7 @@ const selectAvailableEditors = (config: ServerConfig | null): ReadonlyArray<Edit
 const selectObservability = (config: ServerConfig | null) => config?.observability ?? null;
 const selectProviders = (config: ServerConfig | null) =>
   config?.providers ?? EMPTY_SERVER_PROVIDERS;
+const selectRuntime = (config: ServerConfig | null) => config?.runtime ?? null;
 const selectSettings = (config: ServerConfig | null): ServerSettings =>
   config?.settings ?? DEFAULT_SERVER_SETTINGS;
 
@@ -209,6 +210,10 @@ export function useServerAvailableEditors(): ReadonlyArray<EditorId> {
 
 export function useServerObservability(): ServerConfig["observability"] | null {
   return useAtomValue(serverConfigAtom, selectObservability);
+}
+
+export function useServerRuntime(): ServerConfig["runtime"] | null {
+  return useAtomValue(serverConfigAtom, selectRuntime);
 }
 
 export function useServerWelcomeSubscription(

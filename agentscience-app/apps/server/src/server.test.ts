@@ -18,6 +18,7 @@ import {
   WsRpcGroup,
   EditorId,
 } from "@agentscience/contracts";
+import { PERSONALITY_CONTENT_HASH, PERSONALITY_VERSION } from "@agentscience/personality";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
 import {
@@ -1050,6 +1051,11 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             "http://localhost:4318/v1/metrics",
           );
           assert.equal(first.config.observability.otlpMetricsEnabled, true);
+          assert.equal(first.config.runtime.personality.version, PERSONALITY_VERSION);
+          assert.equal(
+            first.config.runtime.personality.contentHash,
+            PERSONALITY_CONTENT_HASH,
+          );
           assert.deepEqual(first.config.settings, DEFAULT_SERVER_SETTINGS);
         }
         assert.deepEqual(second, {

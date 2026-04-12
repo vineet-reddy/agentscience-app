@@ -62,11 +62,23 @@ export const ServerObservability = Schema.Struct({
 });
 export type ServerObservability = typeof ServerObservability.Type;
 
+export const ServerRuntimePersonality = Schema.Struct({
+  version: TrimmedNonEmptyString,
+  contentHash: TrimmedNonEmptyString,
+});
+export type ServerRuntimePersonality = typeof ServerRuntimePersonality.Type;
+
+export const ServerRuntime = Schema.Struct({
+  personality: ServerRuntimePersonality,
+});
+export type ServerRuntime = typeof ServerRuntime.Type;
+
 export const ServerConfig = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   providers: ServerProviders,
   availableEditors: Schema.Array(EditorId),
   observability: ServerObservability,
+  runtime: ServerRuntime,
   settings: ServerSettings,
 });
 export type ServerConfig = typeof ServerConfig.Type;

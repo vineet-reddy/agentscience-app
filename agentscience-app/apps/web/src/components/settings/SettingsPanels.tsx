@@ -85,6 +85,7 @@ import {
   useServerAvailableEditors,
   useServerObservability,
   useServerProviders,
+  useServerRuntime,
 } from "../../rpc/serverState";
 
 const THEME_OPTIONS = [
@@ -205,6 +206,11 @@ function getProviderSummary(provider: ServerProvider | undefined) {
 function getProviderVersionLabel(version: string | null | undefined) {
   if (!version) return null;
   return version.startsWith("v") ? version : `v${version}`;
+}
+
+function getShortContentHash(hash: string | null | undefined) {
+  if (!hash) return null;
+  return hash.slice(0, 12);
 }
 
 function useRelativeTimeTick(intervalMs = 1_000) {
@@ -364,6 +370,23 @@ function AboutVersionTitle() {
       <code className="text-[11px] font-medium text-muted-foreground">
         {APP_VERSION}
       </code>
+    </span>
+  );
+}
+
+function AboutPersonalityTitle({
+  versionLabel,
+}: {
+  versionLabel: string | null;
+}) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>Shared personality</span>
+      {versionLabel ? (
+        <code className="text-[11px] font-medium text-muted-foreground">
+          {versionLabel}
+        </code>
+      ) : null}
     </span>
   );
 }
@@ -634,6 +657,7 @@ export function GeneralSettingsPanel() {
   const availableEditors = useServerAvailableEditors();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
+  const serverRuntime = useServerRuntime();
   const canChangeWorkspaceRoot = isElectron;
 
   const handleChangeWorkspaceRoot = useCallback(async () => {
@@ -914,6 +938,12 @@ export function GeneralSettingsPanel() {
           serverProviders[0]!.checkedAt,
         )
       : null;
+  const runtimePersonality = serverRuntime?.personality ?? null;
+  const runtimePersonalityVersionLabel = runtimePersonality
+    ? getProviderVersionLabel(runtimePersonality.version)
+    : null;
+  const runtimePersonalityHash = runtimePersonality?.contentHash ?? null;
+  const runtimePersonalityHashShort = getShortContentHash(runtimePersonalityHash);
   return (
     <SettingsPageContainer>
       <SettingsSection title="General">
@@ -1361,6 +1391,24 @@ export function GeneralSettingsPanel() {
                         ? ` - ${providerCard.summary.detail}`
                         : null}
                     </p>
+                    {providerCard.provider === "codex" &&
+                    runtimePersonalityVersionLabel ? (
+                      <div className="pt-1 text-[11px] text-muted-foreground">
+                        <span>AgentScience personality</span>{" "}
+                        <code className="font-medium text-foreground/85">
+                          {runtimePersonalityVersionLabel}
+                        </code>
+                        {runtimePersonalityHashShort ? (
+                          <>
+                            {" "}
+                            <span aria-hidden="true">·</span>{" "}
+                            <code className="font-medium text-foreground/75">
+                              {runtimePersonalityHashShort}
+                            </code>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
                     <Button
@@ -1675,6 +1723,30 @@ export function GeneralSettingsPanel() {
             >
               {isOpeningLogsDirectory ? "Opening..." : "Open logs folder"}
             </Button>
+          }
+        />
+        <SettingsRow
+          title={
+            <AboutPersonalityTitle
+              versionLabel={runtimePersonalityVersionLabel}
+            />
+          }
+          description="Published AgentScience instructions injected into Codex app-server turns."
+          status={
+            runtimePersonalityHash ? (
+              <>
+                <span className="block break-all font-mono text-[11px] text-foreground">
+                  {runtimePersonalityHash}
+                </span>
+                <span className="mt-1 block text-[11px] text-muted-foreground">
+                  Loaded from @agentscience/personality.
+                </span>
+              </>
+            ) : (
+              <span className="block text-[11px] text-muted-foreground">
+                Resolving shared personality metadata...
+              </span>
+            )
           }
         />
       </SettingsSection>

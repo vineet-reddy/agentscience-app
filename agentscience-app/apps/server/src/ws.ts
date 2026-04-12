@@ -19,6 +19,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
 } from "@agentscience/contracts";
+import { PERSONALITY_CONTENT_HASH, PERSONALITY_VERSION } from "@agentscience/personality";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -339,6 +340,12 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           otlpTracesEnabled: config.otlpTracesUrl !== undefined,
           ...(config.otlpMetricsUrl !== undefined ? { otlpMetricsUrl: config.otlpMetricsUrl } : {}),
           otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
+        },
+        runtime: {
+          personality: {
+            version: PERSONALITY_VERSION,
+            contentHash: PERSONALITY_CONTENT_HASH,
+          },
         },
         settings,
       };

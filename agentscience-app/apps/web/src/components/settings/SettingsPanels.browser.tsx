@@ -17,6 +17,11 @@ import {
 } from "../../rpc/serverState";
 import { GeneralSettingsPanel } from "./SettingsPanels";
 
+const FIXTURE_RUNTIME_PERSONALITY = {
+  version: "1.0.2",
+  contentHash: "4161bece40c054b067d73da067a2eb1f7ed42648e9e4d019096bd8ae749911a3",
+} as const;
+
 function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
@@ -28,6 +33,9 @@ function createBaseServerConfig(): ServerConfig {
       otlpTracesUrl: "http://localhost:4318/v1/traces",
       otlpTracesEnabled: true,
       otlpMetricsEnabled: false,
+    },
+    runtime: {
+      personality: FIXTURE_RUNTIME_PERSONALITY,
     },
     settings: DEFAULT_SERVER_SETTINGS,
   };
@@ -59,6 +67,10 @@ describe("GeneralSettingsPanel observability", () => {
     await expect.element(page.getByText("About")).toBeInTheDocument();
     await expect.element(page.getByText("Diagnostics")).toBeInTheDocument();
     await expect
+      .element(page.getByText("Shared personality"))
+      .toBeInTheDocument();
+    await expect.element(page.getByText(`v${FIXTURE_RUNTIME_PERSONALITY.version}`)).toBeInTheDocument();
+    await expect
       .element(page.getByText("Open logs folder"))
       .toBeInTheDocument();
     await expect
@@ -70,6 +82,14 @@ describe("GeneralSettingsPanel observability", () => {
       .element(
         page.getByText(
           "Local trace file. OTLP exporting traces to http://localhost:4318/v1/traces.",
+        ),
+      )
+      .toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(
+          FIXTURE_RUNTIME_PERSONALITY.contentHash,
+          { exact: true },
         ),
       )
       .toBeInTheDocument();

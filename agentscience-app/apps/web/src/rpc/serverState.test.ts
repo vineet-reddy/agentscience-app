@@ -35,6 +35,10 @@ function createDeferredPromise<T>() {
 
 const lifecycleListeners = new Set<(event: ServerLifecycleStreamEvent) => void>();
 const configListeners = new Set<(event: ServerConfigStreamEvent) => void>();
+const FIXTURE_RUNTIME_PERSONALITY = {
+  version: "1.0.2",
+  contentHash: "4161bece40c054b067d73da067a2eb1f7ed42648e9e4d019096bd8ae749911a3",
+} as const;
 
 const defaultProviders: ReadonlyArray<ServerProvider> = [
   {
@@ -58,6 +62,9 @@ const baseServerConfig: ServerConfig = {
     localTracingEnabled: true,
     otlpTracesEnabled: false,
     otlpMetricsEnabled: false,
+  },
+  runtime: {
+    personality: FIXTURE_RUNTIME_PERSONALITY,
   },
   settings: DEFAULT_SERVER_SETTINGS,
 };
