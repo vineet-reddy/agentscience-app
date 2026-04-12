@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    working-directory: agentscience-app
+
 jobs:
   preflight:
     name: Preflight
@@ -57,12 +61,12 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
+          bun-version-file: agentscience-app/package.json
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version-file: package.json
+          node-version-file: agentscience-app/package.json
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -114,12 +118,12 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
+          bun-version-file: agentscience-app/package.json
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version-file: package.json
+          node-version-file: agentscience-app/package.json
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -247,7 +251,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}-${{ matrix.arch }}
-          path: release-publish/*
+          path: agentscience-app/release-publish/*
           if-no-files-found: error
 
   release:
@@ -263,14 +267,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version-file: package.json
+          node-version-file: agentscience-app/package.json
 
       - name: Download all desktop artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           merge-multiple: true
-          path: release-assets
+          path: agentscience-app/release-assets
 
       - name: Merge macOS updater manifests
         run: |
@@ -289,12 +293,12 @@ jobs:
           prerelease: ${{ needs.preflight.outputs.is_prerelease }}
           make_latest: ${{ needs.preflight.outputs.make_latest }}
           files: |
-            release-assets/*.dmg
-            release-assets/*.zip
-            release-assets/*.AppImage
-            release-assets/*.exe
-            release-assets/*.blockmap
-            release-assets/latest*.yml
+            agentscience-app/release-assets/*.dmg
+            agentscience-app/release-assets/*.zip
+            agentscience-app/release-assets/*.AppImage
+            agentscience-app/release-assets/*.exe
+            agentscience-app/release-assets/*.blockmap
+            agentscience-app/release-assets/latest*.yml
           fail_on_unmatched_files: true
 
   finalize:
@@ -349,13 +353,13 @@ jobs:
         if: steps.release_app_config.outputs.enabled == 'true'
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
+          bun-version-file: agentscience-app/package.json
 
       - name: Setup Node
         if: steps.release_app_config.outputs.enabled == 'true'
         uses: actions/setup-node@v6
         with:
-          node-version-file: package.json
+          node-version-file: agentscience-app/package.json
 
       - id: update_versions
         name: Update version strings
