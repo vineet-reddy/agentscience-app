@@ -7,16 +7,16 @@
       "outputs": ["dist-electron/**"],
     },
     "dev": {
-      "dependsOn": ["agentscience-server#build"],
+      "dependsOn": ["@agentscience/server#build"],
       "persistent": true,
     },
     "start": {
-      "dependsOn": ["build", "@agentscience/web#build", "agentscience-server#build"],
+      "dependsOn": ["build", "@agentscience/web#build", "@agentscience/server#build"],
       "cache": false,
       "persistent": true,
     },
     "smoke-test": {
-      "dependsOn": ["build", "@agentscience/web#build", "agentscience-server#build"],
+      "dependsOn": ["build", "@agentscience/web#build", "@agentscience/server#build"],
       "cache": false,
       "outputs": [],
     },

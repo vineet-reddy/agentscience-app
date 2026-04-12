@@ -4,7 +4,7 @@ This doc is for engineers cutting desktop releases, or touching the release pipe
 
 - [release.yml](../../.github/workflows/release.yml)
 
-The big picture: one git tag drives one release. Pushing a tag like `v1.2.3` kicks off a GitHub Actions workflow that runs quality gates, builds desktop installers for macOS, Linux, and Windows in parallel, publishes one GitHub Release with all the files, and publishes the CLI package to npm. Signing is optional and auto-detected per platform from secrets, so the unsigned path always works even if signing is broken.
+The big picture: one git tag drives one release. Pushing a tag like `v1.2.3` kicks off a GitHub Actions workflow that runs quality gates, builds desktop installers for macOS, Linux, and Windows in parallel, and publishes one GitHub Release with all the files. Signing is optional and auto-detected per platform from secrets, so the unsigned path always works even if signing is broken.
 
 Versions with a suffix after the numeric part (for example `1.2.3-alpha.1`) are published as GitHub prereleases and do not become the "latest" release. Only plain `X.Y.Z` tags are marked latest.
 
@@ -21,9 +21,9 @@ When a tag matching `v*.*.*` is pushed, the workflow:
 - signs macOS builds if Apple secrets are present, otherwise ships unsigned
 - signs the Windows installer via Azure Trusted Signing if Azure secrets are present, otherwise ships unsigned
 - publishes one GitHub Release with all the installers plus electron-updater metadata files (`latest*.yml`, `*.blockmap`, mac `.zip` payloads)
-- publishes the CLI package `agentscience-server` from `apps/server` using npm OIDC trusted publishing, after bumping the package version to match the tag
+- aligns internal workspace package versions to the release tag before committing the release bump back to `main`
 
-All four desktop builds run in parallel in a matrix job. The CLI publish and the GitHub Release happen in a final job after the matrix completes.
+All four desktop builds run in parallel in a matrix job. The GitHub Release happens in a final job after the matrix completes.
 
 ## The normal release flow
 
@@ -113,17 +113,20 @@ Do not skip signing by force. Instead:
 3. Check that every required secret is present and non-empty. Empty secrets are the single most common failure.
 4. Double-check cert profile names, tenant and client ids, and that the Apple team rights and cert are still valid.
 
-## CLI publishing
+## Internal Server Runtime
 
-The CLI package is `agentscience-server`, published from `apps/server` using `bun publish --access public`. The workflow bumps `apps/server/package.json` to the tag version before publishing, so you do not hand-edit versions.
+`apps/server` is an internal backend package. It ships inside the desktop app and
+is versioned with the app release, but it is not published as a standalone npm
+package.
 
-Publishing uses npm OIDC trusted publishing via GitHub Actions, which means there is no long-lived npm token to rotate. If trusted publishing breaks, check these things in order:
+That means the release pipeline only needs to:
 
-1. The npm org or user still owns the package `agentscience-server`. If the name was taken, renaming the package in npm is the fix.
-2. The npm package has a Trusted Publisher configured with the provider set to GitHub Actions, repository pointing at this repo, and the workflow file set to `.github/workflows/release.yml`.
-3. The npm account and org policies allow trusted publishing for this package.
+1. build the desktop artifacts
+2. publish the GitHub Release
+3. commit any internal version alignment back to `main`
 
-If all of that is right and it still fails, the workflow logs will usually say so explicitly (the npm error for a missing trusted publisher config is pretty readable).
+If you are debugging the backend locally, run it from the monorepo with the repo
+scripts instead of trying to install it from npm.
 
 ## Desktop auto-update
 
@@ -161,7 +164,7 @@ Start with the workflow logs. The failure almost always falls in one of four buc
 
 - quality gate failure: lint, typecheck, or tests fail in preflight. Fix and re-push the tag.
 - signing secrets missing or wrong: the build succeeds on the unsigned path but signing fails, or secrets are empty and you expected signed output. Verify secrets are present and non-empty, check cert and profile names.
-- npm publish permissions wrong: usually the npm trusted publisher config is missing or points at the wrong workflow file.
+- internal release automation drift: usually the workflow, package-version alignment, or lockfile refresh step no longer matches the repo layout.
 - missing release assets: a matrix job silently dropped an artifact, or updater metadata files did not get uploaded. Re-run the matrix job if it was flaky, investigate the upload step if it was a real bug.
 
-If you need to re-cut the same version, delete the tag and the GitHub Release (and the GitHub npm publish if it happened), then push the tag again. Do not publish `vX.Y.Z.1` or similar ad hoc variants to "get around" a broken run.
+If you need to re-cut the same version, delete the tag and the GitHub Release, then push the tag again. Do not publish `vX.Y.Z.1` or similar ad hoc variants to "get around" a broken run.

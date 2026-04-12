@@ -25,10 +25,10 @@ const MODE_ARGS = {
     "--ui=tui",
     "--filter=@agentscience/contracts",
     "--filter=@agentscience/web",
-    "--filter=agentscience-server",
+    "--filter=@agentscience/server",
     "--parallel",
   ],
-  "dev:server": ["run", "dev", "--filter=agentscience-server"],
+  "dev:server": ["run", "dev", "--filter=@agentscience/server"],
   "dev:web": ["run", "dev", "--filter=@agentscience/web"],
   "dev:desktop": [
     "run",

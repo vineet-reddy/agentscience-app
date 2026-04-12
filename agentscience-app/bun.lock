@@ -32,7 +32,7 @@
       },
     },
     "apps/server": {
-      "name": "agentscience-server",
+      "name": "@agentscience/server",
       "version": "0.0.16",
       "bin": {
         "agentscience-server": "./dist/bin.mjs",
@@ -186,6 +186,8 @@
     "@agentscience/personality": ["@agentscience/personality@1.0.3", "", {}, "sha512-qAaXksKBavhgmow+9Oy1F93EF0k7mG3wB4+kaVC0stb09ErzldlRwYJ3nljyWUqTgnGqd8zGRoe72+SIr2KzFg=="],
 
     "@agentscience/scripts": ["@agentscience/scripts@workspace:scripts"],
+
+    "@agentscience/server": ["@agentscience/server@workspace:apps/server"],
 
     "@agentscience/shared": ["@agentscience/shared@workspace:packages/shared"],
 
@@ -714,8 +716,6 @@
     "@xterm/xterm": ["@xterm/xterm@6.0.0", "", {}, "sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg=="],
 
     "acorn": ["acorn@8.16.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw=="],
-
-    "agentscience-server": ["agentscience-server@workspace:apps/server"],
 
     "ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 

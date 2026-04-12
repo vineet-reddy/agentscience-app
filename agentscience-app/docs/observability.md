@@ -45,7 +45,7 @@ Logs emitted inside an active span (for ex. `Effect.logInfo("starting turn")`) s
 This is the default. You do not need any env vars. Run the server or the desktop app the normal way and `server.trace.ndjson` starts filling up:
 
 ```bash
-npx agentscience-server
+bun dev:server
 ```
 
 ```bash
