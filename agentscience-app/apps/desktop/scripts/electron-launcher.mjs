@@ -19,7 +19,8 @@ import { fileURLToPath } from "node:url";
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "AgentScience (Dev)" : "AgentScience";
 const APP_BUNDLE_ID = "com.agentscience.app";
-const LAUNCHER_VERSION = 1;
+const LAUNCHER_VERSION = 2;
+const MAC_APP_ICON_FILE = "app-icon.icns";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const desktopDir = resolve(__dirname, "..");
@@ -48,10 +49,10 @@ function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   setPlistString(infoPlistPath, "CFBundleDisplayName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleIdentifier", APP_BUNDLE_ID);
-  setPlistString(infoPlistPath, "CFBundleIconFile", "icon.icns");
+  setPlistString(infoPlistPath, "CFBundleIconFile", MAC_APP_ICON_FILE);
 
   const resourcesDir = join(appBundlePath, "Contents", "Resources");
-  copyFileSync(iconPath, join(resourcesDir, "icon.icns"));
+  copyFileSync(iconPath, join(resourcesDir, MAC_APP_ICON_FILE));
   copyFileSync(iconPath, join(resourcesDir, "electron.icns"));
 }
 
@@ -102,7 +103,7 @@ function buildMacLauncher(electronBinaryPath) {
   const runtimeDir = join(desktopDir, ".electron-runtime");
   const targetAppBundlePath = join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
   const targetBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", "Electron");
-  const iconPath = join(desktopDir, "resources", "icon.icns");
+  const iconPath = join(desktopDir, "resources", MAC_APP_ICON_FILE);
   const metadataPath = join(runtimeDir, "metadata.json");
 
   mkdirSync(runtimeDir, { recursive: true });

@@ -86,6 +86,7 @@ const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
+const MAC_APP_ICON_BASENAME = "app-icon";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
@@ -706,6 +707,10 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
   return resolveResourcePath(`icon.${ext}`);
 }
 
+function resolveMacIconPath(ext: "icns" | "png"): string | null {
+  return resolveResourcePath(`${MAC_APP_ICON_BASENAME}.${ext}`) ?? resolveIconPath(ext);
+}
+
 /**
  * Resolve the Electron userData directory path.
  *
@@ -754,7 +759,7 @@ function configureAppIdentity(): void {
   }
 
   if (process.platform === "darwin" && app.dock) {
-    const iconPath = resolveIconPath("png");
+    const iconPath = resolveMacIconPath("png");
     if (iconPath) {
       app.dock.setIcon(iconPath);
     }
