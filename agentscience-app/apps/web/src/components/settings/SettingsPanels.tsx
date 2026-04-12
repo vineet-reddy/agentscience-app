@@ -159,7 +159,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
       headline: "Disabled",
       detail:
         provider.message ??
-        "This provider is installed but disabled for new sessions in Agent Science.",
+        "This provider is installed but disabled for new sessions in AgentScience.",
     };
   }
   if (!provider.installed) {
@@ -673,7 +673,7 @@ export function GeneralSettingsPanel() {
 
     const confirmed = await api.dialogs.confirm(
       [
-        "Move the Agent Science workspace?",
+        "Move the AgentScience workspace?",
         "",
         `From: ${settings.workspaceRoot}`,
         `To: ${nextWorkspaceRoot}`,
@@ -697,7 +697,7 @@ export function GeneralSettingsPanel() {
       toastManager.add({
         type: "success",
         title: "Workspace moved",
-        description: `Agent Science is now using ${nextWorkspaceRoot}.`,
+        description: `AgentScience is now using ${nextWorkspaceRoot}.`,
       });
     } catch (error) {
       toastManager.add({
@@ -949,7 +949,7 @@ export function GeneralSettingsPanel() {
       <SettingsSection title="General">
         <SettingsRow
           title="Theme"
-          description="Choose how Agent Science looks across the app."
+          description="Choose how AgentScience looks across the app."
           resetAction={
             theme !== "system" ? (
               <SettingResetButton
@@ -997,7 +997,7 @@ export function GeneralSettingsPanel() {
 
         <SettingsRow
           title="Workspace location"
-          description="Agent Science stores standalone papers in `Papers/` and projects in `Projects/` under this root."
+          description="AgentScience stores standalone papers in `Papers/` and projects in `Projects/` under this root."
           status={
             <span className="block break-all font-mono text-[11px] text-foreground">
               {settings.workspaceRoot}

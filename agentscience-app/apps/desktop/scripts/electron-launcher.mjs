@@ -1,4 +1,4 @@
-// This file mostly exists because we want dev mode to say "Agent Science (Dev)" instead of "electron"
+// This file mostly exists because we want dev mode to say "AgentScience (Dev)" instead of "electron"
 
 import { spawnSync } from "node:child_process";
 import {
@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "Agent Science (Dev)" : "Agent Science (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "AgentScience (Dev)" : "AgentScience";
 const APP_BUNDLE_ID = "com.agentscience.app";
 const LAUNCHER_VERSION = 1;
 

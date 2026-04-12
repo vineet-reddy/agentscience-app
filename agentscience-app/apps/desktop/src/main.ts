@@ -65,14 +65,16 @@ const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "agentscience";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "Agent Science (Dev)" : "Agent Science (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "AgentScience (Dev)" : "AgentScience";
 const APP_USER_MODEL_ID = "com.agentscience.app";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment
   ? "agentscience-dev.desktop"
   : "agentscience.desktop";
 const LINUX_WM_CLASS = isDevelopment ? "agentscience-dev" : "agentscience";
 const USER_DATA_DIR_NAME = isDevelopment ? "agentscience-dev" : "agentscience";
-const LEGACY_USER_DATA_DIR_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
+const LEGACY_USER_DATA_DIR_NAMES = isDevelopment
+  ? ["AgentScience (Dev)", "Agent Science (Dev)", "T3 Code (Dev)"]
+  : ["AgentScience", "Agent Science (Alpha)", "T3 Code (Alpha)"];
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -486,7 +488,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("Agent Science failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox("AgentScience failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
   stopBackend();
   restoreStdIoCapture?.();
@@ -591,7 +593,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "You're up to date!",
-      message: `Agent Science ${updateState.currentVersion} is currently the newest version available.`,
+      message: `AgentScience ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
   } else if (updateState.status === "error") {
@@ -709,7 +711,7 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
  *
  * Electron derives the default userData path from `productName` in
  * package.json, which currently produces directories with spaces and
- * parentheses (e.g. `~/.config/Agent Science (Alpha)` on Linux). This is
+ * parentheses (e.g. `~/.config/AgentScience` on Linux). This is
  * unfriendly for shell usage and violates Linux naming conventions.
  *
  * We override it to a clean lowercase name (`agentscience`). If the legacy
@@ -724,9 +726,11 @@ function resolveUserDataPath(): string {
         ? Path.join(OS.homedir(), "Library", "Application Support")
         : process.env.XDG_CONFIG_HOME || Path.join(OS.homedir(), ".config");
 
-  const legacyPath = Path.join(appDataBase, LEGACY_USER_DATA_DIR_NAME);
-  if (FS.existsSync(legacyPath)) {
-    return legacyPath;
+  for (const legacyDirName of LEGACY_USER_DATA_DIR_NAMES) {
+    const legacyPath = Path.join(appDataBase, legacyDirName);
+    if (FS.existsSync(legacyPath)) {
+      return legacyPath;
+    }
   }
 
   return Path.join(appDataBase, USER_DATA_DIR_NAME);

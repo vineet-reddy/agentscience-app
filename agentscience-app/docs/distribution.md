@@ -42,7 +42,7 @@ The release pipeline builds:
 
 It publishes a GitHub Release that includes:
 
-- versioned artifacts like `Agent-Science-0.0.18-arm64.dmg`
+- versioned artifacts like `Agent-Science-0.0.19-arm64.dmg`
 - stable public alias assets like `Agent-Science-mac-arm64.dmg`
 - updater metadata files like `latest-mac.yml`
 
@@ -52,7 +52,7 @@ Those stable alias assets are the important part for the website download button
 
 As of April 12, 2026, the first public release flow is live at:
 
-- `v0.0.18`
+- `v0.0.19`
 
 That release already includes the stable public download assets:
 

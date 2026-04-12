@@ -19,6 +19,9 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
+const PACKAGED_PINNED_DEPENDENCIES = {
+  "@effect/platform-node-shared": "4.0.0-beta.43",
+} as const;
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("..", import.meta.url))),
@@ -440,6 +443,13 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
+function addPackagedDependencyPins(dependencies: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...dependencies,
+    ...PACKAGED_PINNED_DEPENDENCIES,
+  };
+}
+
 function resolveGitHubPublishConfig():
   | {
       readonly provider: "github";
@@ -661,21 +671,21 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     buildVersion: appVersion,
     agentscienceCommitHash: commitHash,
     private: true,
-    description: "Agent Science desktop build",
-    author: "Agent Science",
+    description: "AgentScience desktop build",
+    author: "AgentScience",
     main: "apps/desktop/dist-electron/main.js",
     build: yield* createBuildConfig(
       options.platform,
       options.target,
-      desktopPackageJson.productName ?? "Agent Science",
+      desktopPackageJson.productName ?? "AgentScience",
       options.signed,
       options.mockUpdates,
       options.mockUpdateServerPort,
     ),
-    dependencies: {
+    dependencies: addPackagedDependencyPins({
       ...resolvedServerDependencies,
       ...resolvedDesktopRuntimeDependencies,
-    },
+    }),
     devDependencies: {
       electron: electronVersion,
     },
@@ -822,7 +832,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Build a desktop artifact for Agent Science."),
+  Command.withDescription("Build a desktop artifact for AgentScience."),
   Command.withHandler((input) => Effect.flatMap(resolveBuildOptions(input), buildDesktopArtifact)),
 );
 

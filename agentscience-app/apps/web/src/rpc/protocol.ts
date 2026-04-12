@@ -47,7 +47,7 @@ export function createWsRpcProtocolLayer(url?: string) {
         "error",
         () => {
           clearAllTrackedRpcRequests();
-          recordWsConnectionErrored("Unable to connect to the T3 server WebSocket.");
+          recordWsConnectionErrored("Unable to connect to the AgentScience server WebSocket.");
         },
         { once: true },
       );

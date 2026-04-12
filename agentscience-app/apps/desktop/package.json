@@ -1,6 +1,6 @@
 {
   "name": "@agentscience/desktop",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
@@ -26,5 +26,5 @@
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
-  "productName": "Agent Science (Alpha)"
+  "productName": "AgentScience"
 }

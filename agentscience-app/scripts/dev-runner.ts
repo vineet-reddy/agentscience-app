@@ -510,7 +510,7 @@ const devRunnerCli = Command.make("dev-runner", {
   ),
   agentScienceHome: Flag.string("home-dir").pipe(
     Flag.withDescription(
-      "Base directory for all Agent Science data (equivalent to AGENTSCIENCE_HOME).",
+      "Base directory for all AgentScience data (equivalent to AGENTSCIENCE_HOME).",
     ),
     Flag.withFallbackConfig(optionalStringConfig("AGENTSCIENCE_HOME")),
   ),
