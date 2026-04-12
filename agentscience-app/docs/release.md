@@ -21,6 +21,11 @@ When a tag matching `v*.*.*` is pushed, the workflow:
 - signs macOS builds if Apple secrets are present, otherwise ships unsigned
 - signs the Windows installer via Azure Trusted Signing if Azure secrets are present, otherwise ships unsigned
 - publishes one GitHub Release with all the installers plus electron-updater metadata files (`latest*.yml`, `*.blockmap`, mac `.zip` payloads)
+- publishes stable alias assets for the public website download buttons:
+  - `Agent-Science-mac-arm64.dmg`
+  - `Agent-Science-mac-intel.dmg`
+  - `Agent-Science-linux-x64.AppImage`
+  - `Agent-Science-windows-x64.exe`
 - aligns internal workspace package versions to the release tag before committing the release bump back to `main`
 
 All four desktop builds run in parallel in a matrix job. The GitHub Release happens in a final job after the matrix completes.
@@ -42,6 +47,12 @@ git push origin vX.Y.Z
 5. Download at least one build per platform and smoke test it.
 
 That is it. If you find yourself doing anything else, read the sections below.
+
+Public website download links should point at the stable alias asset paths under the latest GitHub release, not at a specific versioned file. Example:
+
+```text
+https://github.com/<owner>/<repo>/releases/latest/download/Agent-Science-mac-arm64.dmg
+```
 
 ## Doing a dry run without cutting a real release
 
@@ -124,6 +135,8 @@ That means the release pipeline only needs to:
 1. build the desktop artifacts
 2. publish the GitHub Release
 3. commit any internal version alignment back to `main`
+
+If the `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` secrets are not configured, the workflow still builds and publishes the GitHub Release, but it skips the final version-bump commit.
 
 If you are debugging the backend locally, run it from the monorepo with the repo
 scripts instead of trying to install it from npm.

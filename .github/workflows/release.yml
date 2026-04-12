@@ -215,6 +215,34 @@ jobs:
             fi
           fi
 
+          if [[ "${{ matrix.platform }}" == "mac" ]]; then
+            shopt -s nullglob
+            dmg_files=(release-publish/Agent-Science-*-${{ matrix.arch }}.dmg)
+            if (( ${#dmg_files[@]} > 0 )); then
+              if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+                cp "${dmg_files[0]}" release-publish/Agent-Science-mac-arm64.dmg
+              else
+                cp "${dmg_files[0]}" release-publish/Agent-Science-mac-intel.dmg
+              fi
+            fi
+          fi
+
+          if [[ "${{ matrix.platform }}" == "linux" ]]; then
+            shopt -s nullglob
+            appimage_files=(release-publish/Agent-Science-*-${{ matrix.arch }}.AppImage)
+            if (( ${#appimage_files[@]} > 0 )); then
+              cp "${appimage_files[0]}" release-publish/Agent-Science-linux-x64.AppImage
+            fi
+          fi
+
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            shopt -s nullglob
+            exe_files=(release-publish/Agent-Science-*-${{ matrix.arch }}.exe)
+            if (( ${#exe_files[@]} > 0 )); then
+              cp "${exe_files[0]}" release-publish/Agent-Science-windows-x64.exe
+            fi
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -274,8 +302,23 @@ jobs:
     needs: [preflight, release]
     runs-on: ubuntu-24.04
     steps:
+      - id: release_app_config
+        name: Check finalize automation secrets
+        shell: bash
+        env:
+          RELEASE_APP_ID: ${{ secrets.RELEASE_APP_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$RELEASE_APP_ID" && -n "$RELEASE_APP_PRIVATE_KEY" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Release app credentials are not configured; skipping version-bump finalization."
+          fi
+
       - id: app_token
         name: Mint release app token
+        if: steps.release_app_config.outputs.enabled == 'true'
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
@@ -283,6 +326,7 @@ jobs:
           owner: ${{ github.repository_owner }}
 
       - name: Checkout
+        if: steps.release_app_config.outputs.enabled == 'true'
         uses: actions/checkout@v6
         with:
           ref: main
@@ -292,6 +336,7 @@ jobs:
 
       - id: app_bot
         name: Resolve GitHub App bot identity
+        if: steps.release_app_config.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
@@ -301,31 +346,34 @@ jobs:
           echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
+        if: steps.release_app_config.outputs.enabled == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
 
       - name: Setup Node
+        if: steps.release_app_config.outputs.enabled == 'true'
         uses: actions/setup-node@v6
         with:
           node-version-file: package.json
 
       - id: update_versions
         name: Update version strings
+        if: steps.release_app_config.outputs.enabled == 'true'
         env:
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
         run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION" --github-output
 
       - name: Format package.json files
-        if: steps.update_versions.outputs.changed == 'true'
+        if: steps.release_app_config.outputs.enabled == 'true' && steps.update_versions.outputs.changed == 'true'
         run: bunx oxfmt apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json
 
       - name: Refresh lockfile
-        if: steps.update_versions.outputs.changed == 'true'
+        if: steps.release_app_config.outputs.enabled == 'true' && steps.update_versions.outputs.changed == 'true'
         run: bun install --lockfile-only --ignore-scripts
 
       - name: Commit and push version bump
-        if: steps.update_versions.outputs.changed == 'true'
+        if: steps.release_app_config.outputs.enabled == 'true' && steps.update_versions.outputs.changed == 'true'
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
