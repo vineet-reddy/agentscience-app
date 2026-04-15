@@ -623,6 +623,25 @@ describe("sendTurn", () => {
     );
   });
 
+  it("injects worktree-local python environment guidance into collaboration instructions", async () => {
+    const { manager, sendRequest } = createSendTurnHarness();
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Install dependencies",
+      interactionMode: "default",
+    });
+
+    const requestParams = sendRequest.mock.calls[0]?.[2] as {
+      collaborationMode?: { settings?: { developer_instructions?: string } };
+    };
+
+    expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain("./.venv");
+    expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain(
+      "Never run `pip install`",
+    );
+  });
+
   it("keeps the session model when interaction mode is set without an explicit model", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
     context.session.model = "gpt-5.2-codex";

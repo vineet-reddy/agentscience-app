@@ -293,6 +293,14 @@ The \`request_user_input\` tool is unavailable in Default mode. If you call it w
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
 </collaboration_mode>`;
 
+export const CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS = `<python_environment>
+If you need Python dependencies, create or reuse a worktree-local virtual environment at \`./.venv\` under the current cwd before installing anything.
+
+Run Python and pip through that environment, for example \`./.venv/bin/python -m pip install ...\` (or the Windows equivalent).
+
+Never run \`pip install\`, \`python -m pip install\`, or \`pip install --user\` against the host interpreter, and never install Python packages globally.
+</python_environment>`;
+
 const AGENTSCIENCE_PERSONALITY = loadPersonality();
 
 export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version;
@@ -304,7 +312,7 @@ export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): s
       ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
       : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
 
-  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${collaborationModeInstructions}`;
+  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${collaborationModeInstructions}`;
 }
 
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
