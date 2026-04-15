@@ -54,7 +54,7 @@ const makeBinaryPathSetting = (fallback: string) =>
 
 export const CodexSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  binaryPath: makeBinaryPathSetting("codex"),
+  binaryPath: makeBinaryPathSetting(""),
   homePath: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
 });

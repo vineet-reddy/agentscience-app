@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline from "node:readline";
 import { readCodexAccountSnapshot, type CodexAccountSnapshot } from "./codexAccount";
+import { buildCodexSpawnEnv } from "./codexCli";
 
 interface JsonRpcProbeResponse {
   readonly id?: unknown;
@@ -62,7 +63,7 @@ export async function probeCodexAccount(input: {
 }): Promise<CodexAccountSnapshot> {
   return await new Promise((resolve, reject) => {
     const child = spawn(input.binaryPath, ["app-server"], {
-      env: buildCodexAppServerEnv(input.homePath),
+      env: buildCodexSpawnEnv(input),
       stdio: ["pipe", "pipe", "pipe"],
       shell: process.platform === "win32",
     });

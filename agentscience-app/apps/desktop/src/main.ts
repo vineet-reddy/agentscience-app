@@ -30,6 +30,7 @@ import { NetService } from "@agentscience/shared/Net";
 import { RotatingFileSink } from "@agentscience/shared/logging";
 import { parsePersistedServerObservabilitySettings } from "@agentscience/shared/serverSettings";
 import { showDesktopConfirmDialog } from "./confirmDialog";
+import { resolveManagedCodexRuntime } from "./codexManagedRuntime";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
@@ -82,6 +83,7 @@ const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const SERVER_SETTINGS_PATH = Path.join(STATE_DIR, "settings.json");
+const DEFAULT_STANDALONE_CODEX_HOME_PATH = Path.join(STATE_DIR, "codex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
@@ -142,6 +144,33 @@ function readPersistedBackendObservabilitySettings(): {
   } catch (error) {
     console.warn("[desktop] failed to read persisted backend observability settings", error);
     return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
+  }
+}
+
+function ensureDefaultDesktopServerSettings(): void {
+  try {
+    if (FS.existsSync(SERVER_SETTINGS_PATH)) {
+      return;
+    }
+
+    FS.mkdirSync(Path.dirname(SERVER_SETTINGS_PATH), { recursive: true });
+    FS.writeFileSync(
+      SERVER_SETTINGS_PATH,
+      `${JSON.stringify(
+        {
+          providers: {
+            codex: {
+              homePath: DEFAULT_STANDALONE_CODEX_HOME_PATH,
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  } catch (error) {
+    console.warn("[desktop] failed to seed default server settings", error);
   }
 }
 
@@ -1020,6 +1049,7 @@ function scheduleBackendRestart(reason: string): void {
 function startBackend(): void {
   if (isQuitting || backendProcess) return;
 
+  ensureDefaultDesktopServerSettings();
   backendObservabilitySettings = readPersistedBackendObservabilitySettings();
   const backendEntry = resolveBackendEntry();
   if (!FS.existsSync(backendEntry)) {
@@ -1028,6 +1058,11 @@ function startBackend(): void {
   }
 
   const captureBackendLogs = app.isPackaged && backendLogSink !== null;
+  const managedCodexRuntime = resolveManagedCodexRuntime({
+    resourcesPath: process.resourcesPath,
+    platform: process.platform,
+    arch: process.arch,
+  });
   const child = ChildProcess.spawn(process.execPath, [backendEntry, "--bootstrap-fd", "3"], {
     cwd: resolveBackendCwd(),
     // In Electron main, process.execPath points to the Electron binary.
@@ -1035,6 +1070,12 @@ function startBackend(): void {
     env: {
       ...backendChildEnv(),
       ELECTRON_RUN_AS_NODE: "1",
+      ...(managedCodexRuntime
+        ? {
+            AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH: managedCodexRuntime.binaryPath,
+            AGENTSCIENCE_MANAGED_CODEX_PATH_DIR: managedCodexRuntime.pathDir,
+          }
+        : {}),
     },
     stdio: captureBackendLogs
       ? ["ignore", "pipe", "pipe", "pipe"]

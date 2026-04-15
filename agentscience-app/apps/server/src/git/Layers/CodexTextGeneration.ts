@@ -28,6 +28,7 @@ import {
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
+import { buildCodexSpawnEnv, resolveCodexBinaryPath } from "../../provider/codexCli.ts";
 import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { normalizeCodexModelOptionsWithCapabilities } from "@agentscience/shared/model";
@@ -161,8 +162,11 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       );
       const reasoningEffort =
         modelSelection.options?.reasoningEffort ?? CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT;
+      const binaryPath = codexSettings
+        ? resolveCodexBinaryPath(codexSettings)
+        : resolveCodexBinaryPath({ binaryPath: "" });
       const command = ChildProcess.make(
-        codexSettings?.binaryPath || "codex",
+        binaryPath,
         [
           "exec",
           "--ephemeral",
@@ -181,10 +185,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           "-",
         ],
         {
-          env: {
-            ...process.env,
-            ...(codexSettings?.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
-          },
+          env: buildCodexSpawnEnv({
+            binaryPath,
+            ...(codexSettings?.homePath ? { homePath: codexSettings.homePath } : {}),
+          }),
           cwd,
           shell: process.platform === "win32",
           stdin: {

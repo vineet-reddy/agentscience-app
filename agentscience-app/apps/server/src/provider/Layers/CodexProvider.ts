@@ -45,6 +45,7 @@ import {
   type CodexAccountSnapshot,
 } from "../codexAccount";
 import { probeCodexAccount } from "../codexAppServer";
+import { buildCodexSpawnEnv, resolveCodexBinaryPath } from "../codexCli";
 import { CodexProvider } from "../Services/CodexProvider";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@agentscience/contracts";
@@ -198,7 +199,8 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       auth: { status: "unauthenticated" },
-      message: "Codex CLI is not authenticated. Run `codex login` and try again.",
+      message:
+        "Codex is not authenticated. Connect it in AgentScience settings or run `codex login`.",
     };
   }
 
@@ -224,7 +226,8 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       auth: { status: "unauthenticated" },
-      message: "Codex CLI is not authenticated. Run `codex login` and try again.",
+      message:
+        "Codex is not authenticated. Connect it in AgentScience settings or run `codex login`.",
     };
   }
   if (parsedAuth.attemptedJsonParse) {
@@ -293,6 +296,13 @@ export const hasCustomModelProvider = readCodexConfigModelProvider().pipe(
 
 const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
 
+function resolveEffectiveCodexSettings(codexSettings: CodexSettings): CodexSettings {
+  return {
+    ...codexSettings,
+    binaryPath: resolveCodexBinaryPath(codexSettings),
+  };
+}
+
 const probeCodexCapabilities = (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
@@ -309,14 +319,11 @@ const probeCodexCapabilities = (input: {
 const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyArray<string>) {
   const settingsService = yield* ServerSettingsService;
   const codexSettings = yield* settingsService.getSettings.pipe(
-    Effect.map((settings) => settings.providers.codex),
+    Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex)),
   );
   const command = ChildProcess.make(codexSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
-    env: {
-      ...process.env,
-      ...(codexSettings.homePath ? { CODEX_HOME: codexSettings.homePath } : {}),
-    },
+    env: buildCodexSpawnEnv(codexSettings),
   });
   return yield* spawnAndCollect(codexSettings.binaryPath, command);
 });
@@ -336,7 +343,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
 > {
   const codexSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => settings.providers.codex),
+    Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex)),
   );
   const checkedAt = new Date().toISOString();
   const models = providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, codexSettings.customModels);

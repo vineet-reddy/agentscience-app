@@ -18,10 +18,7 @@ import {
   RuntimeMode,
   ProviderInteractionMode,
 } from "@agentscience/contracts";
-import {
-  compileCodexDeveloperInstructions,
-  loadPersonality,
-} from "@agentscience/personality";
+import { compileCodexDeveloperInstructions, loadPersonality } from "@agentscience/personality";
 import { normalizeModelSlug } from "@agentscience/shared/model";
 import { Effect, ServiceMap } from "effect";
 
@@ -35,11 +32,8 @@ import {
   resolveCodexModelForAccount,
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
-import {
-  buildCodexAppServerEnv,
-  buildCodexInitializeParams,
-  killCodexChildProcess,
-} from "./provider/codexAppServer";
+import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
+import { buildCodexSpawnEnv } from "./provider/codexCli";
 
 export { buildCodexAppServerEnv, buildCodexInitializeParams } from "./provider/codexAppServer";
 export { readCodexAccountSnapshot, resolveCodexModelForAccount } from "./provider/codexAccount";
@@ -487,7 +481,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
-        env: buildCodexAppServerEnv(codexHomePath),
+        env: buildCodexSpawnEnv({
+          binaryPath: codexBinaryPath,
+          ...(codexHomePath ? { homePath: codexHomePath } : {}),
+        }),
         stdio: ["pipe", "pipe", "pipe"],
         shell: process.platform === "win32",
       });
@@ -1547,7 +1544,7 @@ function assertSupportedCodexCliVersion(input: {
 }): void {
   const result = spawnSync(input.binaryPath, ["--version"], {
     cwd: input.cwd,
-    env: buildCodexAppServerEnv(input.homePath),
+    env: buildCodexSpawnEnv(input),
     encoding: "utf8",
     shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "pipe"],

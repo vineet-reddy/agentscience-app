@@ -22,6 +22,7 @@ const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 const PACKAGED_PINNED_DEPENDENCIES = {
   "@effect/platform-node-shared": "4.0.0-beta.43",
 } as const;
+const MANAGED_CODEX_RESOURCE_DIR = "codex-runtime";
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("..", import.meta.url))),
@@ -47,6 +48,12 @@ interface PlatformConfig {
   readonly cliFlag: "--mac" | "--linux" | "--win";
   readonly defaultTarget: string;
   readonly archChoices: ReadonlyArray<typeof BuildArch.Type>;
+}
+
+interface ManagedCodexTarget {
+  readonly packageName: string;
+  readonly packageVersionSuffix: string;
+  readonly targetTriple: string;
 }
 
 const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
@@ -456,6 +463,103 @@ function addPackagedDependencyPins(dependencies: Record<string, unknown>): Recor
   };
 }
 
+function resolveManagedCodexVersion(): string {
+  const configuredVersion = desktopPackageJson.dependencies["@openai/codex"];
+  if (typeof configuredVersion !== "string" || configuredVersion.trim().length === 0) {
+    throw new Error("apps/desktop/package.json is missing the @openai/codex dependency.");
+  }
+
+  return configuredVersion.trim().replace(/^[~^]/, "");
+}
+
+function resolveManagedCodexTargets(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): ReadonlyArray<ManagedCodexTarget> {
+  if (platform === "mac") {
+    if (arch === "arm64") {
+      return [
+        {
+          packageName: "@openai/codex-darwin-arm64",
+          packageVersionSuffix: "darwin-arm64",
+          targetTriple: "aarch64-apple-darwin",
+        },
+      ];
+    }
+
+    if (arch === "x64") {
+      return [
+        {
+          packageName: "@openai/codex-darwin-x64",
+          packageVersionSuffix: "darwin-x64",
+          targetTriple: "x86_64-apple-darwin",
+        },
+      ];
+    }
+
+    return [
+      {
+        packageName: "@openai/codex-darwin-arm64",
+        packageVersionSuffix: "darwin-arm64",
+        targetTriple: "aarch64-apple-darwin",
+      },
+      {
+        packageName: "@openai/codex-darwin-x64",
+        packageVersionSuffix: "darwin-x64",
+        targetTriple: "x86_64-apple-darwin",
+      },
+    ];
+  }
+
+  if (platform === "linux") {
+    return arch === "arm64"
+      ? [
+          {
+            packageName: "@openai/codex-linux-arm64",
+            packageVersionSuffix: "linux-arm64",
+            targetTriple: "aarch64-unknown-linux-musl",
+          },
+        ]
+      : [
+          {
+            packageName: "@openai/codex-linux-x64",
+            packageVersionSuffix: "linux-x64",
+            targetTriple: "x86_64-unknown-linux-musl",
+          },
+        ];
+  }
+
+  return arch === "arm64"
+    ? [
+        {
+          packageName: "@openai/codex-win32-arm64",
+          packageVersionSuffix: "win32-arm64",
+          targetTriple: "aarch64-pc-windows-msvc",
+        },
+      ]
+    : [
+        {
+          packageName: "@openai/codex-win32-x64",
+          packageVersionSuffix: "win32-x64",
+          targetTriple: "x86_64-pc-windows-msvc",
+        },
+      ];
+}
+
+function resolveManagedCodexDependencies(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): Record<string, string> {
+  const version = resolveManagedCodexVersion();
+
+  return Object.fromEntries(
+    resolveManagedCodexTargets(platform, arch).map((target) => [
+      target.packageName,
+      `npm:@openai/codex@${version}-${target.packageVersionSuffix}`,
+    ]),
+  );
+}
+
 function resolveGitHubPublishConfig():
   | {
       readonly provider: "github";
@@ -496,6 +600,12 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     directories: {
       buildResources: "apps/desktop/resources",
     },
+    extraResources: [
+      {
+        from: "apps/desktop/managed-resources",
+        to: "managed-resources",
+      },
+    ],
   };
   const publishConfig = resolveGitHubPublishConfig();
   if (publishConfig) {
@@ -624,6 +734,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stageAppDir = path.join(stageRoot, "app");
   const stageResourcesDir = path.join(stageAppDir, "apps/desktop/resources");
+  const stageManagedResourcesDir = path.join(stageAppDir, "apps/desktop/managed-resources");
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
@@ -661,6 +772,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), { recursive: true });
+  yield* fs.makeDirectory(stageManagedResourcesDir, { recursive: true });
 
   yield* Effect.log("[desktop-artifact] Staging release app...");
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
@@ -692,6 +804,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     dependencies: addPackagedDependencyPins({
       ...resolvedServerDependencies,
       ...resolvedDesktopRuntimeDependencies,
+      ...resolveManagedCodexDependencies(options.platform, options.arch),
     }),
     devDependencies: {
       electron: electronVersion,
@@ -700,7 +813,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stagePackageJsonString = yield* encodeJsonString(stagePackageJson);
   yield* fs.writeFileString(path.join(stageAppDir, "package.json"), `${stagePackageJsonString}\n`);
-  yield* fs.copyFile(path.join(repoRoot, "scripts", AFTER_PACK_HOOK_FILE), path.join(stageAppDir, AFTER_PACK_HOOK_FILE));
+  yield* fs.copyFile(
+    path.join(repoRoot, "scripts", AFTER_PACK_HOOK_FILE),
+    path.join(stageAppDir, AFTER_PACK_HOOK_FILE),
+  );
 
   yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
   yield* runCommand(
@@ -710,6 +826,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
       shell: process.platform === "win32",
     })`bun install --production`,
+  );
+
+  yield* bundleManagedCodexRuntime(
+    stageAppDir,
+    stageManagedResourcesDir,
+    options.platform,
+    options.arch,
   );
 
   const buildEnv: NodeJS.ProcessEnv = {
@@ -782,6 +905,44 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* Effect.log("[desktop-artifact] Done. Artifacts:").pipe(
     Effect.annotateLogs({ artifacts: copiedArtifacts }),
   );
+});
+
+const bundleManagedCodexRuntime = Effect.fn("bundleManagedCodexRuntime")(function* (
+  stageAppDir: string,
+  stageManagedResourcesDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const runtimeRoot = path.join(stageManagedResourcesDir, MANAGED_CODEX_RESOURCE_DIR);
+
+  yield* fs.makeDirectory(runtimeRoot, { recursive: true });
+
+  for (const target of resolveManagedCodexTargets(platform, arch)) {
+    const sourceDir = path.join(
+      stageAppDir,
+      "node_modules",
+      ...target.packageName.split("/"),
+      "vendor",
+      target.targetTriple,
+    );
+    const codexBinaryDir = path.join(sourceDir, "codex");
+    const rgDir = path.join(sourceDir, "path");
+
+    if (!(yield* fs.exists(codexBinaryDir))) {
+      return yield* new BuildScriptError({
+        message: `Missing Codex runtime payload for ${target.packageName} at ${codexBinaryDir}.`,
+      });
+    }
+    if (!(yield* fs.exists(rgDir))) {
+      return yield* new BuildScriptError({
+        message: `Missing Codex runtime PATH payload for ${target.packageName} at ${rgDir}.`,
+      });
+    }
+
+    yield* fs.copy(sourceDir, path.join(runtimeRoot, target.targetTriple));
+  }
 });
 
 const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {

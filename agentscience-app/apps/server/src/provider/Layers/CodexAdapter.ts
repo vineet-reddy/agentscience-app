@@ -39,6 +39,7 @@ import {
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { resolveCodexBinaryPath } from "../codexCli.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
@@ -1401,7 +1402,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             }),
         ),
       );
-      const binaryPath = codexSettings.binaryPath;
+      const binaryPath = resolveCodexBinaryPath(codexSettings);
       const homePath = codexSettings.homePath;
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
