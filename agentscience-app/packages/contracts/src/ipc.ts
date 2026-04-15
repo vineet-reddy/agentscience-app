@@ -25,6 +25,9 @@ import type {
   ProjectWriteFileResult,
 } from "./project";
 import type {
+  CodexAuthApiKeyLoginInput,
+  CodexAuthCancelLoginInput,
+  CodexAuthState,
   ServerConfig,
   ServerProviderUpdatedPayload,
 } from "./server";
@@ -177,6 +180,13 @@ export interface NativeApi {
     refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+    getCodexAuthState: () => Promise<CodexAuthState>;
+    startCodexChatgptLogin: () => Promise<CodexAuthState>;
+    loginCodexWithApiKey: (input: CodexAuthApiKeyLoginInput) => Promise<CodexAuthState>;
+    cancelCodexChatgptLogin: (
+      input?: CodexAuthCancelLoginInput,
+    ) => Promise<CodexAuthState>;
+    logoutCodex: () => Promise<CodexAuthState>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

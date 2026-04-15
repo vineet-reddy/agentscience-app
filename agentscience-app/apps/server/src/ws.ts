@@ -38,6 +38,7 @@ import {
   observeRpcStream,
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation";
+import { CodexAuth } from "./provider/Services/CodexAuth";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -59,6 +60,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const gitStatusBroadcaster = yield* GitStatusBroadcaster;
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
+    const codexAuth = yield* CodexAuth;
     const config = yield* ServerConfig;
     const lifecycleEvents = yield* ServerLifecycleEvents;
     const serverSettings = yield* ServerSettingsService;
@@ -522,6 +524,38 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         }),
       [WS_METHODS.serverUpdateSettings]: ({ patch }) =>
         observeRpcEffect(WS_METHODS.serverUpdateSettings, serverSettings.updateSettings(patch), {
+          "rpc.aggregate": "server",
+        }),
+      [WS_METHODS.serverGetCodexAuthState]: (_input) =>
+        observeRpcEffect(WS_METHODS.serverGetCodexAuthState, codexAuth.getState, {
+          "rpc.aggregate": "server",
+        }),
+      [WS_METHODS.serverStartCodexChatgptLogin]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverStartCodexChatgptLogin,
+          codexAuth.startChatgptLogin,
+          {
+            "rpc.aggregate": "server",
+          },
+        ),
+      [WS_METHODS.serverLoginCodexWithApiKey]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.serverLoginCodexWithApiKey,
+          codexAuth.loginWithApiKey(input),
+          {
+            "rpc.aggregate": "server",
+          },
+        ),
+      [WS_METHODS.serverCancelCodexChatgptLogin]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.serverCancelCodexChatgptLogin,
+          codexAuth.cancelChatgptLogin(input),
+          {
+            "rpc.aggregate": "server",
+          },
+        ),
+      [WS_METHODS.serverLogoutCodex]: (_input) =>
+        observeRpcEffect(WS_METHODS.serverLogoutCodex, codexAuth.logout, {
           "rpc.aggregate": "server",
         }),
       [WS_METHODS.projectsSearchEntries]: (input) =>

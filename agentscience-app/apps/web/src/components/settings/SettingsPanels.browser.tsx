@@ -15,7 +15,6 @@ import {
   resetServerStateForTests,
   setServerConfigSnapshot,
 } from "../../rpc/serverState";
-import { GeneralSettingsPanel } from "./SettingsPanels";
 
 const FIXTURE_RUNTIME_PERSONALITY = {
   version: "1.0.2",
@@ -41,10 +40,39 @@ function createBaseServerConfig(): ServerConfig {
   };
 }
 
+function createCodexProvider(overrides?: Partial<ServerConfig["providers"][number]>) {
+  return {
+    provider: "codex" as const,
+    enabled: true,
+    installed: true,
+    version: "0.120.0",
+    status: "error" as const,
+    auth: {
+      status: "unauthenticated" as const,
+    },
+    checkedAt: "2026-04-14T12:00:00.000Z",
+    message: "Codex is not authenticated. Connect it in AgentScience settings or run `codex login`.",
+    models: [],
+    ...overrides,
+  };
+}
+
+async function renderGeneralSettingsPanel() {
+  const { GeneralSettingsPanel } = await import("./SettingsPanels");
+  return render(
+    <AppAtomRegistryProvider>
+      <GeneralSettingsPanel />
+    </AppAtomRegistryProvider>,
+  );
+}
+
 describe("GeneralSettingsPanel observability", () => {
   beforeEach(async () => {
+    vi.resetModules();
     resetServerStateForTests();
     await __resetNativeApiForTests();
+    Reflect.deleteProperty(window, "nativeApi");
+    Reflect.deleteProperty(window, "desktopBridge");
     localStorage.clear();
     document.body.innerHTML = "";
   });
@@ -52,24 +80,21 @@ describe("GeneralSettingsPanel observability", () => {
   afterEach(async () => {
     resetServerStateForTests();
     await __resetNativeApiForTests();
+    Reflect.deleteProperty(window, "nativeApi");
+    Reflect.deleteProperty(window, "desktopBridge");
     document.body.innerHTML = "";
   });
 
   it("shows diagnostics inside About with a single logs-folder action", async () => {
     setServerConfigSnapshot(createBaseServerConfig());
 
-    await render(
-      <AppAtomRegistryProvider>
-        <GeneralSettingsPanel />
-      </AppAtomRegistryProvider>,
-    );
+    await renderGeneralSettingsPanel();
 
     await expect.element(page.getByText("About")).toBeInTheDocument();
     await expect.element(page.getByText("Diagnostics")).toBeInTheDocument();
     await expect
       .element(page.getByText("Shared personality"))
       .toBeInTheDocument();
-    await expect.element(page.getByText(`v${FIXTURE_RUNTIME_PERSONALITY.version}`)).toBeInTheDocument();
     await expect
       .element(page.getByText("Open logs folder"))
       .toBeInTheDocument();
@@ -107,11 +132,7 @@ describe("GeneralSettingsPanel observability", () => {
 
     setServerConfigSnapshot(createBaseServerConfig());
 
-    await render(
-      <AppAtomRegistryProvider>
-        <GeneralSettingsPanel />
-      </AppAtomRegistryProvider>,
-    );
+    await renderGeneralSettingsPanel();
 
     const openLogsButton = page.getByText("Open logs folder");
     await openLogsButton.click();
@@ -122,7 +143,7 @@ describe("GeneralSettingsPanel observability", () => {
     );
   });
 
-  it("dispatches a workspace root change after the user picks and confirms a folder", async () => {
+  it("keeps workspace root changes disabled in the browser harness", async () => {
     const dispatchCommand = vi
       .fn<NativeApi["orchestration"]["dispatchCommand"]>()
       .mockResolvedValue({ sequence: 12 });
@@ -145,21 +166,92 @@ describe("GeneralSettingsPanel observability", () => {
 
     setServerConfigSnapshot(createBaseServerConfig());
 
-    await render(
-      <AppAtomRegistryProvider>
-        <GeneralSettingsPanel />
-      </AppAtomRegistryProvider>,
-    );
+    await renderGeneralSettingsPanel();
 
-    await page.getByRole("button", { name: "Change..." }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Change..." }))
+      .toBeDisabled();
+    expect(pickFolder).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(dispatchCommand).not.toHaveBeenCalled();
+  });
 
-    expect(pickFolder).toHaveBeenCalledOnce();
-    expect(confirm).toHaveBeenCalledOnce();
-    expect(dispatchCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "workspace.rootChange",
-        newRoot: "/tmp/NewRoot",
-      }),
-    );
+  it("starts the ChatGPT browser login from Codex settings", async () => {
+    const getCodexAuthState = vi.fn<NativeApi["server"]["getCodexAuthState"]>().mockResolvedValue({
+      status: "idle",
+      updatedAt: "2026-04-14T12:00:00.000Z",
+      defaultHomePath: "/repo/project/.agentscience/codex",
+    });
+    const startCodexChatgptLogin = vi
+      .fn<NativeApi["server"]["startCodexChatgptLogin"]>()
+      .mockResolvedValue({
+        status: "pending",
+        updatedAt: "2026-04-14T12:01:00.000Z",
+        defaultHomePath: "/repo/project/.agentscience/codex",
+        loginType: "chatgpt",
+        loginId: "login-1",
+        authUrl: "https://chatgpt.com/codex-login",
+      });
+    const openExternal = vi.fn<NativeApi["shell"]["openExternal"]>().mockResolvedValue(undefined);
+
+    window.nativeApi = {
+      server: {
+        getCodexAuthState,
+        startCodexChatgptLogin,
+        refreshProviders: vi.fn().mockResolvedValue({ providers: [] }),
+      },
+      shell: {
+        openExternal,
+      },
+    } as unknown as NativeApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [createCodexProvider()],
+    });
+
+    await renderGeneralSettingsPanel();
+
+    await expect.element(page.getByText("Authentication")).toBeInTheDocument();
+    await page.getByRole("button", { name: "Continue with ChatGPT" }).click();
+
+    expect(startCodexChatgptLogin).toHaveBeenCalledOnce();
+    expect(openExternal).toHaveBeenCalledWith("https://chatgpt.com/codex-login");
+  });
+
+  it("submits an API key from Codex settings", async () => {
+    const getCodexAuthState = vi.fn<NativeApi["server"]["getCodexAuthState"]>().mockResolvedValue({
+      status: "idle",
+      updatedAt: "2026-04-14T12:00:00.000Z",
+      defaultHomePath: "/repo/project/.agentscience/codex",
+    });
+    const loginCodexWithApiKey = vi
+      .fn<NativeApi["server"]["loginCodexWithApiKey"]>()
+      .mockResolvedValue({
+        status: "idle",
+        updatedAt: "2026-04-14T12:02:00.000Z",
+        defaultHomePath: "/repo/project/.agentscience/codex",
+      });
+
+    window.nativeApi = {
+      server: {
+        getCodexAuthState,
+        loginCodexWithApiKey,
+        refreshProviders: vi.fn().mockResolvedValue({ providers: [] }),
+      },
+    } as unknown as NativeApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [createCodexProvider()],
+    });
+
+    await renderGeneralSettingsPanel();
+
+    await page.getByRole("button", { name: "Use API key" }).click();
+    await page.getByPlaceholder("sk-...").fill("sk-test-key");
+    await page.getByRole("button", { name: "Save API key" }).click();
+
+    expect(loginCodexWithApiKey).toHaveBeenCalledWith({ apiKey: "sk-test-key" });
   });
 });

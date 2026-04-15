@@ -52,6 +52,38 @@ export type ServerProvider = typeof ServerProvider.Type;
 export const ServerProviders = Schema.Array(ServerProvider);
 export type ServerProviders = typeof ServerProviders.Type;
 
+export const CodexAuthLoginType = Schema.Literals(["apiKey", "chatgpt"]);
+export type CodexAuthLoginType = typeof CodexAuthLoginType.Type;
+
+export const CodexAuthStateStatus = Schema.Literals(["idle", "pending", "failed"]);
+export type CodexAuthStateStatus = typeof CodexAuthStateStatus.Type;
+
+export const CodexAuthState = Schema.Struct({
+  status: CodexAuthStateStatus,
+  updatedAt: IsoDateTime,
+  defaultHomePath: TrimmedNonEmptyString,
+  loginType: Schema.optional(CodexAuthLoginType),
+  loginId: Schema.optional(TrimmedNonEmptyString),
+  authUrl: Schema.optional(TrimmedNonEmptyString),
+  message: Schema.optional(TrimmedNonEmptyString),
+});
+export type CodexAuthState = typeof CodexAuthState.Type;
+
+export const CodexAuthApiKeyLoginInput = Schema.Struct({
+  apiKey: TrimmedNonEmptyString,
+});
+export type CodexAuthApiKeyLoginInput = typeof CodexAuthApiKeyLoginInput.Type;
+
+export const CodexAuthCancelLoginInput = Schema.Struct({
+  loginId: Schema.optional(TrimmedNonEmptyString),
+});
+export type CodexAuthCancelLoginInput = typeof CodexAuthCancelLoginInput.Type;
+
+export class CodexAuthError extends Schema.TaggedErrorClass<CodexAuthError>()("CodexAuthError", {
+  message: TrimmedNonEmptyString,
+  cause: Schema.optional(Schema.Defect),
+}) {}
+
 export const ServerObservability = Schema.Struct({
   logsDirectoryPath: TrimmedNonEmptyString,
   localTracingEnabled: Schema.Boolean,

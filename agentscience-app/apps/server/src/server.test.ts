@@ -65,6 +65,10 @@ import {
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
 import {
+  CodexAuth,
+  type CodexAuthShape,
+} from "./provider/Services/CodexAuth.ts";
+import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
@@ -288,6 +292,7 @@ const buildAppUnderTest = (options?: {
   config?: Partial<ServerConfigShape>;
   layers?: {
     providerRegistry?: Partial<ProviderRegistryShape>;
+    codexAuth?: Partial<CodexAuthShape>;
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
@@ -353,6 +358,38 @@ const buildAppUnderTest = (options?: {
           refresh: () => Effect.succeed([]),
           streamChanges: Stream.empty,
           ...options?.layers?.providerRegistry,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(CodexAuth)({
+          getState: Effect.succeed({
+            status: "idle" as const,
+            updatedAt: new Date().toISOString(),
+            defaultHomePath: "/tmp/agentscience/codex",
+          }),
+          startChatgptLogin: Effect.succeed({
+            status: "idle" as const,
+            updatedAt: new Date().toISOString(),
+            defaultHomePath: "/tmp/agentscience/codex",
+          }),
+          loginWithApiKey: () =>
+            Effect.succeed({
+              status: "idle" as const,
+              updatedAt: new Date().toISOString(),
+              defaultHomePath: "/tmp/agentscience/codex",
+            }),
+          cancelChatgptLogin: () =>
+            Effect.succeed({
+              status: "idle" as const,
+              updatedAt: new Date().toISOString(),
+              defaultHomePath: "/tmp/agentscience/codex",
+            }),
+          logout: Effect.succeed({
+            status: "idle" as const,
+            updatedAt: new Date().toISOString(),
+            defaultHomePath: "/tmp/agentscience/codex",
+          }),
+          ...options?.layers?.codexAuth,
         }),
       ),
       Layer.provide(

@@ -96,6 +96,11 @@ export function createWsNativeApi(): NativeApi {
       refreshProviders: rpcClient.server.refreshProviders,
       getSettings: rpcClient.server.getSettings,
       updateSettings: rpcClient.server.updateSettings,
+      getCodexAuthState: rpcClient.server.getCodexAuthState,
+      startCodexChatgptLogin: rpcClient.server.startCodexChatgptLogin,
+      loginCodexWithApiKey: rpcClient.server.loginCodexWithApiKey,
+      cancelCodexChatgptLogin: (input) => rpcClient.server.cancelCodexChatgptLogin(input),
+      logoutCodex: rpcClient.server.logoutCodex,
     },
     orchestration: {
       getSnapshot: rpcClient.orchestration.getSnapshot,

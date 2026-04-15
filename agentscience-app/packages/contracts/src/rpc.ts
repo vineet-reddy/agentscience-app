@@ -63,6 +63,10 @@ import {
   TerminalWriteInput,
 } from "./terminal";
 import {
+  CodexAuthApiKeyLoginInput,
+  CodexAuthCancelLoginInput,
+  CodexAuthError,
+  CodexAuthState,
   ServerConfigStreamEvent,
   ServerConfig,
   ServerLifecycleStreamEvent,
@@ -107,6 +111,11 @@ export const WS_METHODS = {
   serverRefreshProviders: "server.refreshProviders",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverGetCodexAuthState: "server.getCodexAuthState",
+  serverStartCodexChatgptLogin: "server.startCodexChatgptLogin",
+  serverLoginCodexWithApiKey: "server.loginCodexWithApiKey",
+  serverCancelCodexChatgptLogin: "server.cancelCodexChatgptLogin",
+  serverLogoutCodex: "server.logoutCodex",
 
   // Streaming subscriptions
   subscribeGitStatus: "subscribeGitStatus",
@@ -137,6 +146,45 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   payload: Schema.Struct({ patch: ServerSettingsPatch }),
   success: ServerSettings,
   error: ServerSettingsError,
+});
+
+export const WsServerGetCodexAuthStateRpc = Rpc.make(WS_METHODS.serverGetCodexAuthState, {
+  payload: Schema.Struct({}),
+  success: CodexAuthState,
+  error: CodexAuthError,
+});
+
+export const WsServerStartCodexChatgptLoginRpc = Rpc.make(
+  WS_METHODS.serverStartCodexChatgptLogin,
+  {
+    payload: Schema.Struct({}),
+    success: CodexAuthState,
+    error: CodexAuthError,
+  },
+);
+
+export const WsServerLoginCodexWithApiKeyRpc = Rpc.make(
+  WS_METHODS.serverLoginCodexWithApiKey,
+  {
+    payload: CodexAuthApiKeyLoginInput,
+    success: CodexAuthState,
+    error: CodexAuthError,
+  },
+);
+
+export const WsServerCancelCodexChatgptLoginRpc = Rpc.make(
+  WS_METHODS.serverCancelCodexChatgptLogin,
+  {
+    payload: CodexAuthCancelLoginInput,
+    success: CodexAuthState,
+    error: CodexAuthError,
+  },
+);
+
+export const WsServerLogoutCodexRpc = Rpc.make(WS_METHODS.serverLogoutCodex, {
+  payload: Schema.Struct({}),
+  success: CodexAuthState,
+  error: CodexAuthError,
 });
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
@@ -329,6 +377,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRefreshProvidersRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerGetCodexAuthStateRpc,
+  WsServerStartCodexChatgptLoginRpc,
+  WsServerLoginCodexWithApiKeyRpc,
+  WsServerCancelCodexChatgptLoginRpc,
+  WsServerLogoutCodexRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,

@@ -95,6 +95,17 @@ export interface WsRpcClient {
     readonly updateSettings: (
       patch: ServerSettingsPatch,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateSettings>>;
+    readonly getCodexAuthState: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetCodexAuthState>;
+    readonly startCodexChatgptLogin: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverStartCodexChatgptLogin
+    >;
+    readonly loginCodexWithApiKey: RpcUnaryMethod<
+      typeof WS_METHODS.serverLoginCodexWithApiKey
+    >;
+    readonly cancelCodexChatgptLogin: (
+      input?: RpcInput<typeof WS_METHODS.serverCancelCodexChatgptLogin>,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCancelCodexChatgptLogin>>;
+    readonly logoutCodex: RpcUnaryNoArgMethod<typeof WS_METHODS.serverLogoutCodex>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
   };
@@ -210,6 +221,18 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       getSettings: () => transport.request((client) => client[WS_METHODS.serverGetSettings]({})),
       updateSettings: (patch) =>
         transport.request((client) => client[WS_METHODS.serverUpdateSettings]({ patch })),
+      getCodexAuthState: () =>
+        transport.request((client) => client[WS_METHODS.serverGetCodexAuthState]({})),
+      startCodexChatgptLogin: () =>
+        transport.request((client) => client[WS_METHODS.serverStartCodexChatgptLogin]({})),
+      loginCodexWithApiKey: (input) =>
+        transport.request((client) => client[WS_METHODS.serverLoginCodexWithApiKey](input)),
+      cancelCodexChatgptLogin: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.serverCancelCodexChatgptLogin](input ?? {}),
+        ),
+      logoutCodex: () =>
+        transport.request((client) => client[WS_METHODS.serverLogoutCodex]({})),
       subscribeConfig: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeServerConfig]({}),
