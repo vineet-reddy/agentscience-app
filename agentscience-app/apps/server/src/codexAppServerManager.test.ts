@@ -6,11 +6,13 @@ import path from "node:path";
 import { ApprovalRequestId, ThreadId } from "@agentscience/contracts";
 
 import {
+  buildCodexAppServerEnv,
   buildCodexModeDeveloperInstructions,
   buildCodexInitializeParams,
   CodexAppServerManager,
   classifyCodexStderrLine,
   isRecoverableThreadResumeError,
+  mapCodexRuntimeMode,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
@@ -255,6 +257,34 @@ describe("normalizeCodexModelSlug", () => {
   it("keeps non-aliased models as-is", () => {
     expect(normalizeCodexModelSlug("gpt-5.2-codex")).toBe("gpt-5.2-codex");
     expect(normalizeCodexModelSlug("gpt-5.2")).toBe("gpt-5.2");
+  });
+});
+
+describe("buildCodexAppServerEnv", () => {
+  it("injects python isolation guards and optional CODEX_HOME", () => {
+    expect(buildCodexAppServerEnv("/tmp/codex-home")).toMatchObject({
+      CODEX_HOME: "/tmp/codex-home",
+      PIP_REQUIRE_VIRTUALENV: "1",
+      PIP_DISABLE_PIP_VERSION_CHECK: "1",
+      PIP_NO_INPUT: "1",
+      PYTHONNOUSERSITE: "1",
+    });
+  });
+});
+
+describe("mapCodexRuntimeMode", () => {
+  it("keeps approval-required sessions in workspace-write sandbox", () => {
+    expect(mapCodexRuntimeMode("approval-required")).toEqual({
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+    });
+  });
+
+  it("keeps auto sessions in workspace-write sandbox", () => {
+    expect(mapCodexRuntimeMode("full-access")).toEqual({
+      approvalPolicy: "never",
+      sandbox: "workspace-write",
+    });
   });
 });
 

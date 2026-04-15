@@ -35,9 +35,13 @@ import {
   resolveCodexModelForAccount,
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
-import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
+import {
+  buildCodexAppServerEnv,
+  buildCodexInitializeParams,
+  killCodexChildProcess,
+} from "./provider/codexAppServer";
 
-export { buildCodexInitializeParams } from "./provider/codexAppServer";
+export { buildCodexAppServerEnv, buildCodexInitializeParams } from "./provider/codexAppServer";
 export { readCodexAccountSnapshot, resolveCodexModelForAccount } from "./provider/codexAccount";
 
 type PendingRequestKey = string;
@@ -315,20 +319,14 @@ export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): s
   return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${collaborationModeInstructions}`;
 }
 
-function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
+export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: "on-request" | "never";
-  readonly sandbox: "workspace-write" | "danger-full-access";
+  readonly sandbox: "workspace-write";
 } {
-  if (runtimeMode === "approval-required") {
-    return {
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
-    };
-  }
-
   return {
-    approvalPolicy: "never",
-    sandbox: "danger-full-access",
+    approvalPolicy: runtimeMode === "approval-required" ? "on-request" : "never",
+    // Keep command execution inside the current repo/worktree even in auto mode.
+    sandbox: "workspace-write",
   };
 }
 
@@ -489,10 +487,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
-        env: {
-          ...process.env,
-          ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
-        },
+        env: buildCodexAppServerEnv(codexHomePath),
         stdio: ["pipe", "pipe", "pipe"],
         shell: process.platform === "win32",
       });
@@ -1552,10 +1547,7 @@ function assertSupportedCodexCliVersion(input: {
 }): void {
   const result = spawnSync(input.binaryPath, ["--version"], {
     cwd: input.cwd,
-    env: {
-      ...process.env,
-      ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
-    },
+    env: buildCodexAppServerEnv(input.homePath),
     encoding: "utf8",
     shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "pipe"],

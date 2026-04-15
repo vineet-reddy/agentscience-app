@@ -14,6 +14,21 @@ function readErrorMessage(response: JsonRpcProbeResponse): string | undefined {
   return typeof response.error?.message === "string" ? response.error.message : undefined;
 }
 
+const CODEX_PYTHON_GUARD_ENV = {
+  PIP_REQUIRE_VIRTUALENV: "1",
+  PIP_DISABLE_PIP_VERSION_CHECK: "1",
+  PIP_NO_INPUT: "1",
+  PYTHONNOUSERSITE: "1",
+} as const;
+
+export function buildCodexAppServerEnv(homePath?: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...CODEX_PYTHON_GUARD_ENV,
+    ...(homePath ? { CODEX_HOME: homePath } : {}),
+  };
+}
+
 export function buildCodexInitializeParams() {
   return {
     clientInfo: {
@@ -47,10 +62,7 @@ export async function probeCodexAccount(input: {
 }): Promise<CodexAccountSnapshot> {
   return await new Promise((resolve, reject) => {
     const child = spawn(input.binaryPath, ["app-server"], {
-      env: {
-        ...process.env,
-        ...(input.homePath ? { CODEX_HOME: input.homePath } : {}),
-      },
+      env: buildCodexAppServerEnv(input.homePath),
       stdio: ["pipe", "pipe", "pipe"],
       shell: process.platform === "win32",
     });
