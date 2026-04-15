@@ -560,6 +560,28 @@ function resolveManagedCodexDependencies(
   );
 }
 
+function toBunInstallTargetOs(platform: typeof BuildPlatform.Type): "darwin" | "linux" | "win32" {
+  switch (platform) {
+    case "mac":
+      return "darwin";
+    case "linux":
+      return "linux";
+    case "win":
+      return "win32";
+  }
+}
+
+function toBunInstallTargetCpu(arch: typeof BuildArch.Type): "arm64" | "x64" | "*" {
+  switch (arch) {
+    case "arm64":
+      return "arm64";
+    case "x64":
+      return "x64";
+    case "universal":
+      return "*";
+  }
+}
+
 function resolveGitHubPublishConfig():
   | {
       readonly provider: "github";
@@ -819,13 +841,15 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   );
 
   yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
+  const bunInstallTargetOs = toBunInstallTargetOs(options.platform);
+  const bunInstallTargetCpu = toBunInstallTargetCpu(options.arch);
   yield* runCommand(
     ChildProcess.make({
       cwd: stageAppDir,
       ...commandOutputOptions(options.verbose),
       // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
       shell: process.platform === "win32",
-    })`bun install --production`,
+    })`bun install --production --os ${bunInstallTargetOs} --cpu ${bunInstallTargetCpu}`,
   );
 
   yield* bundleManagedCodexRuntime(
