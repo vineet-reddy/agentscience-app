@@ -16,6 +16,7 @@ import { Throttler } from "@tanstack/react-pacer";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { DesktopConnectionPortal } from "../components/DesktopConnectionPortal";
 import {
   SlowRpcAckToastCoordinator,
   WebSocketConnectionCoordinator,
@@ -25,11 +26,12 @@ import { Button } from "../components/ui/button";
 import {
   AnchoredToastProvider,
   ToastProvider,
-  toastManager,
 } from "../components/ui/toast";
 import { readNativeApi } from "../nativeApi";
 import {
   startServerStateSync,
+  useServerConfig,
+  useServerProviders,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
 import {
@@ -48,6 +50,7 @@ import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 import { deriveReplayRetryDecision } from "../orchestrationRecovery";
 import { getWsRpcClient } from "~/wsRpcClient";
+import { isElectron } from "../env";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -60,6 +63,10 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
+  const navigate = useNavigate();
+  const serverConfig = useServerConfig();
+  const serverProviders = useServerProviders();
+
   if (!readNativeApi()) {
     return (
       <div className="flex h-screen flex-col bg-background text-foreground">
@@ -75,6 +82,10 @@ function RootRouteView() {
     );
   }
 
+  const codexProvider = serverProviders.find((provider) => provider.provider === "codex");
+  const shouldShowDesktopConnectionPortal =
+    isElectron && serverConfig !== null && codexProvider?.auth.status !== "authenticated";
+
   return (
     <ToastProvider>
       <AnchoredToastProvider>
@@ -83,9 +94,18 @@ function RootRouteView() {
         <WebSocketConnectionCoordinator />
         <SlowRpcAckToastCoordinator />
         <WebSocketConnectionSurface>
-          <AppSidebarLayout>
-            <Outlet />
-          </AppSidebarLayout>
+          {shouldShowDesktopConnectionPortal ? (
+            <DesktopConnectionPortal
+              provider={codexProvider}
+              onOpenAdvanced={() => {
+                void navigate({ to: "/settings/general" });
+              }}
+            />
+          ) : (
+            <AppSidebarLayout>
+              <Outlet />
+            </AppSidebarLayout>
+          )}
         </WebSocketConnectionSurface>
       </AnchoredToastProvider>
     </ToastProvider>

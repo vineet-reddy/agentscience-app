@@ -45,8 +45,10 @@ import {
   type CodexAccountSnapshot,
 } from "../codexAccount";
 import { probeCodexAccount } from "../codexAppServer";
-import { buildCodexSpawnEnv, resolveCodexBinaryPath } from "../codexCli";
+import { buildCodexSpawnEnv } from "../codexCli";
+import { resolveCodexHomePath, resolveEffectiveCodexSettings } from "../codexSettings";
 import { CodexProvider } from "../Services/CodexProvider";
+import { ServerConfig } from "../../config";
 import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@agentscience/contracts";
 
@@ -199,8 +201,7 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       auth: { status: "unauthenticated" },
-      message:
-        "Codex is not authenticated. Connect it in AgentScience settings or run `codex login`.",
+      message: "Codex is not connected yet. Sign in with ChatGPT or add an API key in AgentScience.",
     };
   }
 
@@ -226,8 +227,7 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       auth: { status: "unauthenticated" },
-      message:
-        "Codex is not authenticated. Connect it in AgentScience settings or run `codex login`.",
+      message: "Codex is not connected yet. Sign in with ChatGPT or add an API key in AgentScience.",
     };
   }
   if (parsedAuth.attemptedJsonParse) {
@@ -256,10 +256,11 @@ export const readCodexConfigModelProvider = Effect.fn("readCodexConfigModelProvi
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const settingsService = yield* ServerSettingsService;
+  const config = yield* ServerConfig;
   const codexHome = yield* settingsService.getSettings.pipe(
     Effect.map(
       (settings) =>
-        settings.providers.codex.homePath ||
+        resolveCodexHomePath(settings.providers.codex, config) ||
         process.env.CODEX_HOME ||
         path.join(OS.homedir(), ".codex"),
     ),
@@ -296,13 +297,6 @@ export const hasCustomModelProvider = readCodexConfigModelProvider().pipe(
 
 const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
 
-function resolveEffectiveCodexSettings(codexSettings: CodexSettings): CodexSettings {
-  return {
-    ...codexSettings,
-    binaryPath: resolveCodexBinaryPath(codexSettings),
-  };
-}
-
 const probeCodexCapabilities = (input: {
   readonly binaryPath: string;
   readonly homePath?: string;
@@ -317,9 +311,10 @@ const probeCodexCapabilities = (input: {
   );
 
 const runCodexCommand = Effect.fn("runCodexCommand")(function* (args: ReadonlyArray<string>) {
+  const config = yield* ServerConfig;
   const settingsService = yield* ServerSettingsService;
   const codexSettings = yield* settingsService.getSettings.pipe(
-    Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex)),
+    Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex, config)),
   );
   const command = ChildProcess.make(codexSettings.binaryPath, [...args], {
     shell: process.platform === "win32",
@@ -339,11 +334,13 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   | ChildProcessSpawner.ChildProcessSpawner
   | FileSystem.FileSystem
   | Path.Path
+  | ServerConfig
   | ServerSettingsService
 > {
+  const config = yield* ServerConfig;
   const codexSettings = yield* Effect.service(ServerSettingsService).pipe(
     Effect.flatMap((service) => service.getSettings),
-    Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex)),
+    Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex, config)),
   );
   const checkedAt = new Date().toISOString();
   const models = providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, codexSettings.customModels);
@@ -359,7 +356,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Codex is disabled in Agent Science settings.",
+        message: "Codex is turned off in AgentScience advanced settings.",
       },
     });
   }
@@ -382,7 +379,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         status: "error",
         auth: { status: "unknown" },
         message: isCommandMissingCause(error)
-          ? "Codex CLI (`codex`) is not installed or not on PATH."
+          ? "AgentScience could not start Codex. Open advanced settings if you need a custom runtime."
           : `Failed to execute Codex CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
       },
     });
@@ -532,6 +529,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
 export const CodexProviderLive = Layer.effect(
   CodexProvider,
   Effect.gen(function* () {
+    const config = yield* ServerConfig;
     const serverSettings = yield* ServerSettingsService;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -551,6 +549,7 @@ export const CodexProviderLive = Layer.effect(
     const checkProvider = checkCodexProviderStatus((input) =>
       Cache.get(accountProbeCache, JSON.stringify([input.binaryPath, input.homePath])),
     ).pipe(
+      Effect.provideService(ServerConfig, config),
       Effect.provideService(ServerSettingsService, serverSettings),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),

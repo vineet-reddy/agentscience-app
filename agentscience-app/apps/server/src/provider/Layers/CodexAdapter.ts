@@ -39,7 +39,7 @@ import {
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { resolveCodexBinaryPath } from "../codexCli.ts";
+import { resolveEffectiveCodexSettings } from "../codexSettings.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
@@ -1379,6 +1379,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     }),
   );
   const serverSettingsService = yield* ServerSettingsService;
+  const config = yield* ServerConfig;
 
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
     function* (input) {
@@ -1391,7 +1392,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       }
 
       const codexSettings = yield* serverSettingsService.getSettings.pipe(
-        Effect.map((settings) => settings.providers.codex),
+        Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex, config)),
         Effect.mapError(
           (error) =>
             new ProviderAdapterProcessError({
@@ -1402,7 +1403,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             }),
         ),
       );
-      const binaryPath = resolveCodexBinaryPath(codexSettings);
+      const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,

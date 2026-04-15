@@ -1,6 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { join } from "node:path";
 import readline from "node:readline";
 
 import {
@@ -14,7 +13,8 @@ import { Effect, Layer, Ref, Schema } from "effect";
 import { ServerConfig } from "../../config";
 import { buildCodexInitializeParams, killCodexChildProcess } from "../codexAppServer";
 import { readCodexAccountSnapshot } from "../codexAccount";
-import { buildCodexSpawnEnv, resolveCodexBinaryPath } from "../codexCli";
+import { buildCodexSpawnEnv } from "../codexCli";
+import { resolveDefaultCodexHomePath, resolveEffectiveCodexSettings } from "../codexSettings";
 import { CodexAuth, type CodexAuthShape } from "../Services/CodexAuth";
 import { CodexProvider } from "../Services/CodexProvider";
 import { ServerSettingsService } from "../../serverSettings";
@@ -136,12 +136,15 @@ function makeFailedState(
 class CodexRpcClient extends EventEmitter<CodexRpcClientEvents> {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly output: readline.Interface;
+  private readonly errors: readline.Interface;
   private nextRequestId = 1;
   private closed = false;
+  private lastStderrLine: string | null = null;
 
   private constructor(private readonly child: ChildProcessWithoutNullStreams) {
     super();
     this.output = readline.createInterface({ input: child.stdout });
+    this.errors = readline.createInterface({ input: child.stderr });
     this.attachListeners();
   }
 
@@ -208,6 +211,8 @@ class CodexRpcClient extends EventEmitter<CodexRpcClientEvents> {
 
     this.output.removeAllListeners();
     this.output.close();
+    this.errors.removeAllListeners();
+    this.errors.close();
     this.child.removeAllListeners();
     if (!this.child.killed) {
       killCodexChildProcess(this.child);
@@ -219,6 +224,12 @@ class CodexRpcClient extends EventEmitter<CodexRpcClientEvents> {
     this.output.on("line", (line) => {
       this.handleStdoutLine(line);
     });
+    this.errors.on("line", (line) => {
+      const normalizedLine = line.trim();
+      if (normalizedLine.length > 0) {
+        this.lastStderrLine = normalizedLine;
+      }
+    });
 
     this.child.on("error", (error) => {
       this.closeWithError(error);
@@ -228,9 +239,10 @@ class CodexRpcClient extends EventEmitter<CodexRpcClientEvents> {
       if (this.closed) {
         return;
       }
+      const stderrSuffix = this.lastStderrLine ? ` ${this.lastStderrLine}` : "";
       this.closeWithError(
         new Error(
-          `codex app-server exited before auth completed (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
+          `codex app-server exited before auth completed (code=${code ?? "null"}, signal=${signal ?? "null"}).${stderrSuffix}`,
         ),
       );
     });
@@ -249,6 +261,8 @@ class CodexRpcClient extends EventEmitter<CodexRpcClientEvents> {
 
     this.output.removeAllListeners();
     this.output.close();
+    this.errors.removeAllListeners();
+    this.errors.close();
     this.child.removeAllListeners();
     if (!this.child.killed) {
       killCodexChildProcess(this.child);
@@ -361,7 +375,7 @@ export const CodexAuthLive = Layer.effect(
     const codexProvider = yield* CodexProvider;
     const services = yield* Effect.services();
     const runPromise = Effect.runPromiseWith(services);
-    const defaultHomePath = join(config.stateDir, "codex");
+    const defaultHomePath = resolveDefaultCodexHomePath(config);
     const refreshCodexProvider = codexProvider.refresh.pipe(
       Effect.ignore({ log: true }),
       Effect.asVoid,
@@ -379,10 +393,7 @@ export const CodexAuthLive = Layer.effect(
     );
 
     const getCodexSettings = serverSettings.getSettings.pipe(
-      Effect.map((settings) => ({
-        ...settings.providers.codex,
-        binaryPath: resolveCodexBinaryPath(settings.providers.codex),
-      })),
+      Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex, config)),
       Effect.mapError((cause) => toCodexAuthError(cause, "Failed to read Codex settings.")),
     );
 

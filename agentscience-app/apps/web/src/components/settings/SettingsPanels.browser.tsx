@@ -51,7 +51,7 @@ function createCodexProvider(overrides?: Partial<ServerConfig["providers"][numbe
       status: "unauthenticated" as const,
     },
     checkedAt: "2026-04-14T12:00:00.000Z",
-    message: "Codex is not authenticated. Connect it in AgentScience settings or run `codex login`.",
+    message: "Codex is not connected yet. Sign in with ChatGPT or add an API key in AgentScience.",
     models: [],
     ...overrides,
   };
@@ -212,7 +212,10 @@ describe("GeneralSettingsPanel observability", () => {
 
     await renderGeneralSettingsPanel();
 
-    await expect.element(page.getByText("Authentication")).toBeInTheDocument();
+    await expect.element(page.getByText("Connection")).toBeInTheDocument();
+    await expect
+      .element(page.getByText("Choose how you want to continue."))
+      .toBeInTheDocument();
     await page.getByRole("button", { name: "Continue with ChatGPT" }).click();
 
     expect(startCodexChatgptLogin).toHaveBeenCalledOnce();
@@ -253,5 +256,37 @@ describe("GeneralSettingsPanel observability", () => {
     await page.getByRole("button", { name: "Save API key" }).click();
 
     expect(loginCodexWithApiKey).toHaveBeenCalledWith({ apiKey: "sk-test-key" });
+  });
+
+  it("keeps internal Codex profile jargon out of the default settings surface", async () => {
+    window.nativeApi = {
+      server: {
+        getCodexAuthState: vi.fn().mockResolvedValue({
+          status: "idle",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+          defaultHomePath: "/repo/project/.agentscience/codex",
+        }),
+      },
+    } as unknown as NativeApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [createCodexProvider()],
+    });
+
+    await renderGeneralSettingsPanel();
+
+    await expect
+      .element(page.getByText("Continue with ChatGPT"))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("Use an API key"))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("Standalone AgentScience profile"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByText("Use desktop profile"))
+      .not.toBeInTheDocument();
   });
 });

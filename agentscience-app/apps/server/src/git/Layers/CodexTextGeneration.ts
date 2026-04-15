@@ -28,7 +28,8 @@ import {
   sanitizeThreadTitle,
   toJsonSchemaObject,
 } from "../Utils.ts";
-import { buildCodexSpawnEnv, resolveCodexBinaryPath } from "../../provider/codexCli.ts";
+import { buildCodexSpawnEnv } from "../../provider/codexCli.ts";
+import { resolveEffectiveCodexSettings } from "../../provider/codexSettings.ts";
 import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { normalizeCodexModelOptionsWithCapabilities } from "@agentscience/shared/model";
@@ -152,7 +153,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
 
     const codexSettings = yield* Effect.map(
       serverSettingsService.getSettings,
-      (settings) => settings.providers.codex,
+      (settings) => resolveEffectiveCodexSettings(settings.providers.codex, serverConfig),
     ).pipe(Effect.catch(() => Effect.undefined));
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
@@ -162,9 +163,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       );
       const reasoningEffort =
         modelSelection.options?.reasoningEffort ?? CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT;
-      const binaryPath = codexSettings
-        ? resolveCodexBinaryPath(codexSettings)
-        : resolveCodexBinaryPath({ binaryPath: "" });
+      const binaryPath = codexSettings?.binaryPath ?? "codex";
       const command = ChildProcess.make(
         binaryPath,
         [

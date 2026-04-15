@@ -129,22 +129,22 @@ const PROVIDER_STATUS_STYLES = {
 function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
     return {
-      headline: "Checking provider status",
-      detail: "Waiting for the server to report installation and authentication details.",
+      headline: "Checking connection",
+      detail: "Waiting for AgentScience to confirm the Codex runtime and sign-in state.",
     };
   }
   if (!provider.enabled) {
     return {
       headline: "Disabled",
-      detail:
-        provider.message ??
-        "This provider is installed but disabled for new sessions in AgentScience.",
+      detail: provider.message ?? "Codex is turned off in AgentScience advanced settings.",
     };
   }
   if (!provider.installed) {
     return {
-      headline: "Not found",
-      detail: provider.message ?? "Codex runtime is unavailable.",
+      headline: "Unavailable",
+      detail:
+        provider.message ??
+        "AgentScience could not start Codex. Open advanced settings if you need a custom runtime.",
     };
   }
   if (provider.auth.status === "authenticated") {
@@ -156,8 +156,10 @@ function getProviderSummary(provider: ServerProvider | undefined) {
   }
   if (provider.auth.status === "unauthenticated") {
     return {
-      headline: "Not authenticated",
-      detail: provider.message ?? null,
+      headline: "Not connected",
+      detail:
+        provider.message ??
+        "Sign in with ChatGPT or add an API key to connect Codex in AgentScience.",
     };
   }
   if (provider.status === "warning") {
@@ -182,11 +184,6 @@ function getProviderSummary(provider: ServerProvider | undefined) {
 function getProviderVersionLabel(version: string | null | undefined) {
   if (!version) return null;
   return version.startsWith("v") ? version : `v${version}`;
-}
-
-function getShortContentHash(hash: string | null | undefined) {
-  if (!hash) return null;
-  return hash.slice(0, 12);
 }
 
 function useRelativeTimeTick(intervalMs = 1_000) {
@@ -840,7 +837,6 @@ export function GeneralSettingsPanel() {
     ? getProviderVersionLabel(runtimePersonality.version)
     : null;
   const runtimePersonalityHash = runtimePersonality?.contentHash ?? null;
-  const runtimePersonalityHashShort = getShortContentHash(runtimePersonalityHash);
   return (
     <SettingsPageContainer>
       <SettingsSection title="General">
@@ -1158,7 +1154,7 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection
-        title="Providers"
+        title="Connection"
         headerAction={
           <div className="flex items-center gap-1.5">
             <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
@@ -1232,23 +1228,6 @@ export function GeneralSettingsPanel() {
                       {providerCard.summary.headline}
                       {providerCard.summary.detail ? ` - ${providerCard.summary.detail}` : null}
                     </p>
-                    {providerCard.provider === "codex" && runtimePersonalityVersionLabel ? (
-                      <div className="pt-1 text-[11px] text-muted-foreground">
-                        <span>AgentScience personality</span>{" "}
-                        <code className="font-medium text-foreground/85">
-                          {runtimePersonalityVersionLabel}
-                        </code>
-                        {runtimePersonalityHashShort ? (
-                          <>
-                            {" "}
-                            <span aria-hidden="true">·</span>{" "}
-                            <code className="font-medium text-foreground/75">
-                              {runtimePersonalityHashShort}
-                            </code>
-                          </>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </div>
                   <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
                     <Button
@@ -1263,6 +1242,7 @@ export function GeneralSettingsPanel() {
                       }
                       aria-label={`Toggle ${providerDisplayName} details`}
                     >
+                      <span>Advanced</span>
                       <ChevronDownIcon
                         className={cn(
                           "size-3.5 transition-transform",
@@ -1270,30 +1250,6 @@ export function GeneralSettingsPanel() {
                         )}
                       />
                     </Button>
-                    <Switch
-                      checked={providerCard.providerConfig.enabled}
-                      onCheckedChange={(checked) => {
-                        const isDisabling = !checked;
-                        const shouldClearModelSelection =
-                          isDisabling && textGenProvider === providerCard.provider;
-                        updateSettings({
-                          providers: {
-                            ...settings.providers,
-                            [providerCard.provider]: {
-                              ...settings.providers[providerCard.provider],
-                              enabled: Boolean(checked),
-                            },
-                          },
-                          ...(shouldClearModelSelection
-                            ? {
-                                textGenerationModelSelection:
-                                  DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                              }
-                            : {}),
-                        });
-                      }}
-                      aria-label={`Enable ${providerDisplayName}`}
-                    />
                   </div>
                 </div>
               </div>
@@ -1301,28 +1257,11 @@ export function GeneralSettingsPanel() {
               {providerCard.provider === "codex" ? (
                 <CodexAuthControls
                   provider={providerCard.liveProvider}
-                  codexHomePath={settings.providers.codex.homePath}
-                  onUseStandaloneProfile={(path) =>
-                    updateSettings({
-                      providers: {
-                        ...settings.providers,
-                        codex: {
-                          ...settings.providers.codex,
-                          homePath: path,
-                        },
-                      },
-                    })
-                  }
-                  onUseSharedProfile={() =>
-                    updateSettings({
-                      providers: {
-                        ...settings.providers,
-                        codex: {
-                          ...settings.providers.codex,
-                          homePath: "",
-                        },
-                      },
-                    })
+                  onOpenAdvanced={() =>
+                    setOpenProviderDetails((existing) => ({
+                      ...existing,
+                      [providerCard.provider]: true,
+                    }))
                   }
                 />
               ) : null}
@@ -1338,6 +1277,44 @@ export function GeneralSettingsPanel() {
               >
                 <CollapsibleContent>
                   <div className="space-y-0">
+                    <div className="border-t border-border/60 px-4 py-3 sm:px-5">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-xs font-medium text-foreground">
+                            Enable {providerDisplayName}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Turn Codex off only if you do not want AgentScience to start provider
+                            sessions.
+                          </div>
+                        </div>
+                        <Switch
+                          checked={providerCard.providerConfig.enabled}
+                          onCheckedChange={(checked) => {
+                            const isDisabling = !checked;
+                            const shouldClearModelSelection =
+                              isDisabling && textGenProvider === providerCard.provider;
+                            updateSettings({
+                              providers: {
+                                ...settings.providers,
+                                [providerCard.provider]: {
+                                  ...settings.providers[providerCard.provider],
+                                  enabled: Boolean(checked),
+                                },
+                              },
+                              ...(shouldClearModelSelection
+                                ? {
+                                    textGenerationModelSelection:
+                                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+                                  }
+                                : {}),
+                            });
+                          }}
+                          aria-label={`Enable ${providerDisplayName}`}
+                        />
+                      </div>
+                    </div>
+
                     <div className="border-t border-border/60 px-4 py-3 sm:px-5">
                       <label
                         htmlFor={`provider-install-${providerCard.provider}-binary-path`}
