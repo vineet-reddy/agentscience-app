@@ -3,7 +3,6 @@ import {
   ApprovalRequestId,
   type ChatAttachment,
   type OrchestrationEvent,
-  ProjectId,
 } from "@agentscience/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -1900,7 +1899,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           }
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
-            latestTurnId: event.payload.session.activeTurnId,
+            latestTurnId:
+              event.payload.session.status === "running" &&
+              event.payload.session.activeTurnId !== null
+                ? event.payload.session.activeTurnId
+                : existingRow.value.latestTurnId,
             updatedAt: event.occurredAt,
           });
           return;

@@ -184,6 +184,111 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
 });
 
 it.layer(
+  Layer.fresh(makeProjectionPipelinePrefixedTestLayer("agentscience-latest-turn-id-")),
+)("OrchestrationProjectionPipeline", (it) => {
+  it.effect("retains the latest turn id after a running session becomes ready", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-latest-turn");
+      const turnId = TurnId.makeUnsafe("turn-latest-turn");
+      const createdAt = "2026-02-24T00:00:00.000Z";
+      const startedAt = "2026-02-24T00:00:01.000Z";
+      const settledAt = "2026-02-24T00:00:02.000Z";
+
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-thread-latest-turn-created"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-thread-latest-turn-created"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-thread-latest-turn-created"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId: null,
+          folderSlug: "thread-latest-turn",
+          title: "Latest turn test",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.4",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.makeUnsafe("evt-thread-latest-turn-running"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: startedAt,
+        commandId: CommandId.makeUnsafe("cmd-thread-latest-turn-running"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-thread-latest-turn-running"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: startedAt,
+          },
+        },
+      });
+
+      yield* eventStore.append({
+        type: "thread.session-set",
+        eventId: EventId.makeUnsafe("evt-thread-latest-turn-ready"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: settledAt,
+        commandId: CommandId.makeUnsafe("cmd-thread-latest-turn-ready"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-thread-latest-turn-ready"),
+        metadata: {},
+        payload: {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: settledAt,
+          },
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly latestTurnId: string | null;
+      }>`
+        SELECT
+          latest_turn_id AS "latestTurnId"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+      `;
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]?.latestTurnId, turnId);
+    }),
+  );
+});
+
+it.layer(
   Layer.fresh(makeProjectionPipelinePrefixedTestLayer("agentscience-base-")),
 )("OrchestrationProjectionPipeline", (it) => {
   it.effect(

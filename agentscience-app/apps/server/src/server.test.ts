@@ -1977,7 +1977,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("routes websocket rpc orchestration methods", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
-      const snapshot = {
+      const engineSnapshot = {
         snapshotSequence: 1,
         updatedAt: now,
         projects: [
@@ -2018,15 +2018,20 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           },
         ],
       };
+      const projectionSnapshot = {
+        ...makeDefaultOrchestrationReadModel(),
+        snapshotSequence: 999,
+      };
 
       yield* buildAppUnderTest({
         layers: {
-          projectionSnapshotQuery: {
-            getSnapshot: () => Effect.succeed(snapshot),
-          },
           orchestrationEngine: {
+            getReadModel: () => Effect.succeed(engineSnapshot),
             dispatch: () => Effect.succeed({ sequence: 7 }),
             readEvents: () => Stream.empty,
+          },
+          projectionSnapshotQuery: {
+            getSnapshot: () => Effect.succeed(projectionSnapshot),
           },
           checkpointDiffQuery: {
             getTurnDiff: () =>
@@ -2054,6 +2059,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(snapshotResult.snapshotSequence, 1);
+      assert.equal(snapshotResult.threads[0]?.id, ThreadId.makeUnsafe("thread-1"));
 
       const dispatchResult = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
@@ -2666,12 +2672,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         layers: {
-          projectionSnapshotQuery: {
-            getSnapshot: () =>
-              Effect.fail(
+          orchestrationEngine: {
+            getReadModel: () =>
+              Effect.die(
                 new PersistenceSqlError({
-                  operation: "ProjectionSnapshotQuery.getSnapshot",
-                  detail: "projection unavailable",
+                  operation: "OrchestrationEngine.getReadModel",
+                  detail: "snapshot unavailable",
                 }),
               ),
           },

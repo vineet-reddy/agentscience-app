@@ -32,7 +32,6 @@ import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -51,7 +50,6 @@ import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptR
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const open = yield* Open;
@@ -362,13 +360,14 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.getSnapshot,
-          projectionSnapshotQuery.getSnapshot().pipe(
-            Effect.mapError(
-              (cause) =>
+          orchestrationEngine.getReadModel().pipe(
+            Effect.catchCause((cause) =>
+              Effect.fail(
                 new OrchestrationGetSnapshotError({
                   message: "Failed to load orchestration snapshot",
                   cause,
                 }),
+              ),
             ),
           ),
           { "rpc.aggregate": "orchestration" },
