@@ -8,7 +8,13 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 
-type AuthAction = "chatgpt" | "apiKey" | "openBrowser" | "cancel" | "logout" | null;
+type AuthAction =
+  | "chatgpt"
+  | "apiKey"
+  | "openBrowser"
+  | "cancel"
+  | "logout"
+  | null;
 type CodexAuthControlsAppearance = "settings" | "portal";
 
 interface CodexAuthControlsProps {
@@ -79,7 +85,7 @@ function resolveConnectionCopy(input: {
   }
 
   if (input.isAuthenticated) {
-    return "AgentScience will use this connection for model browsing and new papers.";
+    return "AgentScience will use this connection automatically.";
   }
 
   if (input.provider?.enabled === false) {
@@ -349,10 +355,18 @@ export function CodexAuthControls({
       <div className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-medium text-foreground">
-            {authLabel ? `Connected with ${authLabel}.` : "You're connected."}
+            {isPortal
+              ? authLabel
+                ? `Connected with ${authLabel}.`
+                : "You're connected."
+              : authLabel
+                ? `Using ${authLabel}`
+                : "Connected"}
           </p>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            AgentScience is ready to use.
+            {isPortal
+              ? "AgentScience is ready to use."
+              : "AgentScience will use this connection automatically."}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -422,16 +436,11 @@ export function CodexAuthControls({
   );
 
   const isPortal = appearance === "portal";
-  const shellClassName = isPortal ? "mt-12" : "border-t border-border/60 px-4 py-4 sm:px-5";
+  const shellClassName = isPortal ? "mt-12" : "px-4 py-4 sm:px-5";
   const shouldShowSummary =
-    !isPortal ||
-    isPending ||
-    isAuthenticated ||
-    authErrorMessage !== null ||
-    !isInstalled ||
-    !isEnabled;
+    isPortal && (isPending || isAuthenticated || authErrorMessage !== null || !isInstalled || !isEnabled);
   const shouldShowAdvancedAction =
-    !isPortal || authErrorMessage !== null || !isInstalled || !isEnabled;
+    isPortal && (authErrorMessage !== null || !isInstalled || !isEnabled);
 
   return (
     <div className={shellClassName}>

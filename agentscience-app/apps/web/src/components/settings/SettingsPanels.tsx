@@ -17,6 +17,7 @@ import {
   type ProviderKind,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerRuntimeAgentScience,
   ThreadId,
 } from "@agentscience/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@agentscience/contracts/settings";
@@ -29,6 +30,7 @@ import {
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
+  shouldOfferReleaseDownload,
 } from "../desktopUpdate.logic";
 import { CodexAuthControls } from "./CodexAuthControls";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
@@ -47,6 +49,7 @@ import {
   getCustomModelOptionsByProvider,
   resolveAppModelSelectionState,
 } from "../../modelSelection";
+import { describeAgentScienceRuntimeStatus } from "../../lib/agentScienceRuntimeStatus";
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
@@ -126,6 +129,9 @@ const PROVIDER_STATUS_STYLES = {
   },
 } as const;
 
+const AGENTSCIENCE_RELEASES_URL =
+  "https://github.com/vineet-reddy/agentscience-app/releases/latest";
+
 function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
     return {
@@ -148,10 +154,9 @@ function getProviderSummary(provider: ServerProvider | undefined) {
     };
   }
   if (provider.auth.status === "authenticated") {
-    const authLabel = provider.auth.label ?? provider.auth.type;
     return {
-      headline: authLabel ? `Authenticated · ${authLabel}` : "Authenticated",
-      detail: provider.message ?? null,
+      headline: "Ready",
+      detail: null,
     };
   }
   if (provider.auth.status === "unauthenticated") {
@@ -184,6 +189,33 @@ function getProviderSummary(provider: ServerProvider | undefined) {
 function getProviderVersionLabel(version: string | null | undefined) {
   if (!version) return null;
   return version.startsWith("v") ? version : `v${version}`;
+}
+
+function shouldShowAgentScienceUpdateAction(
+  status: ServerRuntimeAgentScience | null,
+): status is ServerRuntimeAgentScience {
+  return Boolean(status && status.state === "ready" && (status.updateAvailable || status.refreshRecommended));
+}
+
+function getAgentScienceUpdateActionLabel(status: ServerRuntimeAgentScience | null): string {
+  if (!status || status.state !== "ready") {
+    return "Update tools";
+  }
+
+  return status.updateAvailable ? "Update tools" : "Refresh tools";
+}
+
+function toFriendlyAgentScienceUpdateErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "An unknown error occurred.";
+  }
+
+  const normalizedMessage = error.message.trim();
+  if (/unknown request tag:\s*server\.applyagentscienceruntimeupdates/i.test(normalizedMessage)) {
+    return "Restart AgentScience once, then try again.";
+  }
+
+  return normalizedMessage.length > 0 ? normalizedMessage : "An unknown error occurred.";
 }
 
 function useRelativeTimeTick(intervalMs = 1_000) {
@@ -340,8 +372,22 @@ function AboutVersionSection() {
   const updateStateQuery = useDesktopUpdateState();
 
   const updateState = updateStateQuery.data ?? null;
+  const offersReleaseDownload = shouldOfferReleaseDownload(updateState);
 
   const handleButtonClick = useCallback(() => {
+    if (offersReleaseDownload) {
+      void ensureNativeApi()
+        .shell.openExternal(AGENTSCIENCE_RELEASES_URL)
+        .catch((error) => {
+          toastManager.add({
+            type: "error",
+            title: "Could not open latest release",
+            description: error instanceof Error ? error.message : "Open the latest release failed.",
+          });
+        });
+      return;
+    }
+
     const bridge = window.desktopBridge;
     if (!bridge) return;
 
@@ -406,12 +452,17 @@ function AboutVersionSection() {
           description: error instanceof Error ? error.message : "Update check failed.",
         });
       });
-  }, [queryClient, updateState]);
+  }, [offersReleaseDownload, queryClient, updateState]);
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
-  const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
-  const buttonDisabled =
-    action === "none"
+  const buttonTooltip = offersReleaseDownload
+    ? "Open the latest packaged AgentScience release."
+    : updateState
+      ? getDesktopUpdateButtonTooltip(updateState)
+      : null;
+  const buttonDisabled = offersReleaseDownload
+    ? false
+    : action === "none"
       ? !canCheckForUpdate(updateState)
       : isDesktopUpdateButtonDisabled(updateState);
 
@@ -424,10 +475,13 @@ function AboutVersionSection() {
     downloading: "Downloading…",
     "up-to-date": "Up to Date",
   };
-  const buttonLabel =
-    actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
+  const buttonLabel = offersReleaseDownload
+    ? "View latest release"
+    : actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
   const description =
-    action === "download" || action === "install"
+    offersReleaseDownload
+      ? "This development build does not update itself."
+      : action === "download" || action === "install"
       ? "Update available."
       : "Current version of the application.";
 
@@ -556,6 +610,7 @@ export function GeneralSettingsPanel() {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
+  const [isApplyingAgentScienceUpdate, setIsApplyingAgentScienceUpdate] = useState(false);
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -694,6 +749,38 @@ export function GeneralSettingsPanel() {
   const openLogsDirectory = useCallback(() => {
     openInPreferredEditor("logsDirectory", logsDirectoryPath, "Unable to open logs folder.");
   }, [logsDirectoryPath, openInPreferredEditor]);
+
+  const applyAgentScienceUpdate = useCallback(async () => {
+    if (isApplyingAgentScienceUpdate) {
+      return;
+    }
+
+    setIsApplyingAgentScienceUpdate(true);
+    try {
+      const nextStatus = await ensureNativeApi().server.applyAgentScienceRuntimeUpdates();
+      if (nextStatus.updateAvailable || nextStatus.refreshRecommended) {
+        toastManager.add({
+          type: "warning",
+          title: "Background tools still need attention",
+          description: "The update finished, but there are still details to review in Settings.",
+        });
+      } else {
+        toastManager.add({
+          type: "success",
+          title: "Background tools updated",
+          description: "This device is now up to date.",
+        });
+      }
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to update background tools",
+        description: toFriendlyAgentScienceUpdateErrorMessage(error),
+      });
+    } finally {
+      setIsApplyingAgentScienceUpdate(false);
+    }
+  }, [isApplyingAgentScienceUpdate]);
 
   const openDiagnosticsError = openPathErrorByTarget.logsDirectory ?? null;
   const isOpeningLogsDirectory = openingPathByTarget.logsDirectory;
@@ -837,6 +924,8 @@ export function GeneralSettingsPanel() {
     ? getProviderVersionLabel(runtimePersonality.version)
     : null;
   const runtimePersonalityHash = runtimePersonality?.contentHash ?? null;
+  const agentScienceRuntime = serverRuntime?.agentScience ?? null;
+  const agentScienceRuntimeDescriptor = describeAgentScienceRuntimeStatus(agentScienceRuntime);
   return (
     <SettingsPageContainer>
       <SettingsSection title="General">
@@ -1552,6 +1641,43 @@ export function GeneralSettingsPanel() {
             >
               {isOpeningLogsDirectory ? "Opening..." : "Open logs folder"}
             </Button>
+          }
+        />
+        <SettingsRow
+          title="Background tools"
+          description="Keeps the AgentScience research runtime current on this device."
+          control={
+            shouldShowAgentScienceUpdateAction(agentScienceRuntime) ? (
+              <Button
+                size="xs"
+                variant="default"
+                disabled={isApplyingAgentScienceUpdate}
+                onClick={() => void applyAgentScienceUpdate()}
+              >
+                {isApplyingAgentScienceUpdate ? (
+                  <LoaderIcon className="size-3 animate-spin" />
+                ) : null}
+                {getAgentScienceUpdateActionLabel(agentScienceRuntime)}
+              </Button>
+            ) : null
+          }
+          status={
+            <>
+              <span className="block text-[11px] font-medium text-foreground">
+                {agentScienceRuntimeDescriptor.settingsTitle}
+              </span>
+              <div className="mt-1">
+                <ProviderLastChecked lastCheckedAt={agentScienceRuntime?.checkedAt ?? null} />
+              </div>
+              {agentScienceRuntime?.cli?.version ? (
+                <span className="mt-1 block text-[11px] text-muted-foreground">
+                  Installed {getProviderVersionLabel(agentScienceRuntime.cli.version)}
+                  {agentScienceRuntime.cli.latestVersion
+                    ? ` · Available ${getProviderVersionLabel(agentScienceRuntime.cli.latestVersion)}`
+                    : null}
+                </span>
+              ) : null}
+            </>
           }
         />
         <SettingsRow

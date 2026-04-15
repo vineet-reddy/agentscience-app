@@ -108,3 +108,12 @@ export function canCheckForUpdate(state: DesktopUpdateState | null): boolean {
     state.status !== "disabled"
   );
 }
+
+export function shouldOfferReleaseDownload(state: DesktopUpdateState | null): boolean {
+  return Boolean(
+    state &&
+      !state.enabled &&
+      typeof state.message === "string" &&
+      /packaged production builds/i.test(state.message),
+  );
+}

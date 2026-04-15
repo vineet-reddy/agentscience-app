@@ -46,11 +46,16 @@ import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
+import {
+  describeAgentScienceRuntimeStatus,
+  shouldShowAgentScienceRuntimeNotice,
+} from "../lib/agentScienceRuntimeStatus";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 import { deriveReplayRetryDecision } from "../orchestrationRecovery";
 import { getWsRpcClient } from "~/wsRpcClient";
 import { isElectron } from "../env";
+import { toastManager } from "../components/ui/toast";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -93,6 +98,7 @@ function RootRouteView() {
         <EventRouter />
         <WebSocketConnectionCoordinator />
         <SlowRpcAckToastCoordinator />
+        <AgentScienceRuntimeNoticeCoordinator />
         <WebSocketConnectionSurface>
           {shouldShowDesktopConnectionPortal ? (
             <DesktopConnectionPortal
@@ -110,6 +116,49 @@ function RootRouteView() {
       </AnchoredToastProvider>
     </ToastProvider>
   );
+}
+
+function AgentScienceRuntimeNoticeCoordinator() {
+  const navigate = useNavigate();
+  const serverConfig = useServerConfig();
+  const lastNoticeKeyRef = useRef<string | null>(null);
+  const status = serverConfig?.runtime.agentScience ?? null;
+
+  useEffect(() => {
+    if (!status || !shouldShowAgentScienceRuntimeNotice(status)) {
+      return;
+    }
+
+    const descriptor = describeAgentScienceRuntimeStatus(status);
+    if (!descriptor.noticeTitle || !descriptor.noticeDescription) {
+      return;
+    }
+
+    const noticeKey = `${status.checkedAt}:${status.updateAvailable ? "update" : "no-update"}:${status.refreshRecommended ? "refresh" : "no-refresh"}`;
+    if (lastNoticeKeyRef.current === noticeKey) {
+      return;
+    }
+    lastNoticeKeyRef.current = noticeKey;
+
+    toastManager.add({
+      type: "warning",
+      title: descriptor.noticeTitle,
+      description: descriptor.noticeDescription,
+      timeout: 0,
+      actionProps: {
+        children: "Open Settings",
+        onClick: () => {
+          void navigate({ to: "/settings/general" });
+        },
+      },
+      data: {
+        dismissAfterVisibleMs: 12_000,
+        hideCopyButton: true,
+      },
+    });
+  }, [navigate, status]);
+
+  return null;
 }
 
 function RootRouteErrorView({ error, reset }: ErrorComponentProps) {

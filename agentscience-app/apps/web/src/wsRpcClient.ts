@@ -106,6 +106,9 @@ export interface WsRpcClient {
       input?: RpcInput<typeof WS_METHODS.serverCancelCodexChatgptLogin>,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCancelCodexChatgptLogin>>;
     readonly logoutCodex: RpcUnaryNoArgMethod<typeof WS_METHODS.serverLogoutCodex>;
+    readonly applyAgentScienceRuntimeUpdates: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverApplyAgentScienceRuntimeUpdates
+    >;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
   };
@@ -233,6 +236,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         ),
       logoutCodex: () =>
         transport.request((client) => client[WS_METHODS.serverLogoutCodex]({})),
+      applyAgentScienceRuntimeUpdates: () =>
+        transport.request((client) => client[WS_METHODS.serverApplyAgentScienceRuntimeUpdates]({})),
       subscribeConfig: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeServerConfig]({}),

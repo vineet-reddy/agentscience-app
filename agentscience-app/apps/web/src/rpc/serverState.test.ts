@@ -65,6 +65,14 @@ const baseServerConfig: ServerConfig = {
   },
   runtime: {
     personality: FIXTURE_RUNTIME_PERSONALITY,
+    agentScience: {
+      state: "checking",
+      checkedAt: "2026-04-15T08:00:00.000Z",
+      ok: false,
+      updateAvailable: false,
+      refreshRecommended: false,
+      nextSteps: [],
+    },
   },
   settings: DEFAULT_SERVER_SETTINGS,
 };
@@ -201,7 +209,7 @@ describe("serverState", () => {
     stop();
   });
 
-  it("merges provider and settings updates into the cached config", async () => {
+  it("merges provider, settings, and runtime updates into the cached config", async () => {
     serverApi.getConfig.mockResolvedValueOnce(baseServerConfig);
     const providersListener = vi.fn();
     const stop = startServerStateSync(serverApi);
@@ -237,11 +245,49 @@ describe("serverState", () => {
         },
       },
     });
+    emitServerConfigEvent({
+      version: 1,
+      type: "runtimeUpdated",
+      payload: {
+        runtime: {
+          ...baseServerConfig.runtime,
+          agentScience: {
+            state: "ready",
+            checkedAt: "2026-04-15T08:12:08.238Z",
+            ok: true,
+            updateAvailable: true,
+            refreshRecommended: false,
+            nextSteps: ["npm install -g agentscience@latest"],
+            cli: {
+              version: "0.5.1",
+              latestVersion: "0.5.2",
+              checkSource: "network",
+            },
+          },
+        },
+      },
+    });
 
     await waitFor(() => {
       expect(getServerConfig()).toEqual({
         ...baseServerConfig,
         providers: nextProviders,
+        runtime: {
+          ...baseServerConfig.runtime,
+          agentScience: {
+            state: "ready",
+            checkedAt: "2026-04-15T08:12:08.238Z",
+            ok: true,
+            updateAvailable: true,
+            refreshRecommended: false,
+            nextSteps: ["npm install -g agentscience@latest"],
+            cli: {
+              version: "0.5.1",
+              latestVersion: "0.5.2",
+              checkSource: "network",
+            },
+          },
+        },
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
           enableAssistantStreaming: true,

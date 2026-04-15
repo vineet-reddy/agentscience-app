@@ -69,6 +69,10 @@ export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
       applySettingsUpdated(event.payload.settings);
       return;
     }
+    case "runtimeUpdated": {
+      applyRuntimeUpdated(event.payload.runtime);
+      return;
+    }
   }
 }
 
@@ -96,6 +100,19 @@ export function applySettingsUpdated(settings: ServerSettings): void {
   const nextConfig = {
     ...latestServerConfig,
     settings,
+  } satisfies ServerConfig;
+  resolveServerConfig(nextConfig);
+}
+
+export function applyRuntimeUpdated(runtime: ServerConfig["runtime"]): void {
+  const latestServerConfig = getServerConfig();
+  if (!latestServerConfig) {
+    return;
+  }
+
+  const nextConfig = {
+    ...latestServerConfig,
+    runtime,
   } satisfies ServerConfig;
   resolveServerConfig(nextConfig);
 }

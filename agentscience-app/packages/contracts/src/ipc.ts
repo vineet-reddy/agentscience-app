@@ -30,6 +30,7 @@ import type {
   CodexAuthState,
   ServerConfig,
   ServerProviderUpdatedPayload,
+  ServerRuntimeAgentScience,
 } from "./server";
 import type {
   TerminalClearInput,
@@ -187,6 +188,7 @@ export interface NativeApi {
       input?: CodexAuthCancelLoginInput,
     ) => Promise<CodexAuthState>;
     logoutCodex: () => Promise<CodexAuthState>;
+    applyAgentScienceRuntimeUpdates: () => Promise<ServerRuntimeAgentScience>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

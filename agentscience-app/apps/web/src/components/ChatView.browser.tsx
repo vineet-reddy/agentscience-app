@@ -43,6 +43,14 @@ const FIXTURE_RUNTIME_PERSONALITY = {
   version: "1.0.2",
   contentHash: "4161bece40c054b067d73da067a2eb1f7ed42648e9e4d019096bd8ae749911a3",
 } as const;
+const FIXTURE_AGENTSCIENCE_RUNTIME = {
+  state: "checking" as const,
+  checkedAt: "2026-04-15T08:00:00.000Z",
+  ok: false,
+  updateAvailable: false,
+  refreshRecommended: false,
+  nextSteps: [],
+};
 import { DEFAULT_CLIENT_SETTINGS } from "@agentscience/contracts/settings";
 
 vi.mock("../lib/gitStatusState", () => ({
@@ -155,6 +163,7 @@ function createBaseServerConfig(): ServerConfig {
     },
     runtime: {
       personality: FIXTURE_RUNTIME_PERSONALITY,
+      agentScience: FIXTURE_AGENTSCIENCE_RUNTIME,
     },
     settings: {
       ...DEFAULT_SERVER_SETTINGS,

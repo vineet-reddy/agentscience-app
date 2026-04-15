@@ -101,6 +101,7 @@ export function createWsNativeApi(): NativeApi {
       loginCodexWithApiKey: rpcClient.server.loginCodexWithApiKey,
       cancelCodexChatgptLogin: (input) => rpcClient.server.cancelCodexChatgptLogin(input),
       logoutCodex: rpcClient.server.logoutCodex,
+      applyAgentScienceRuntimeUpdates: rpcClient.server.applyAgentScienceRuntimeUpdates,
     },
     orchestration: {
       getSnapshot: rpcClient.orchestration.getSnapshot,

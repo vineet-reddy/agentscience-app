@@ -20,6 +20,14 @@ const FIXTURE_RUNTIME_PERSONALITY = {
   version: "1.0.2",
   contentHash: "4161bece40c054b067d73da067a2eb1f7ed42648e9e4d019096bd8ae749911a3",
 } as const;
+const FIXTURE_AGENTSCIENCE_RUNTIME = {
+  state: "checking" as const,
+  checkedAt: "2026-04-15T08:00:00.000Z",
+  ok: false,
+  updateAvailable: false,
+  refreshRecommended: false,
+  nextSteps: [],
+};
 
 function createBaseServerConfig(): ServerConfig {
   return {
@@ -35,6 +43,7 @@ function createBaseServerConfig(): ServerConfig {
     },
     runtime: {
       personality: FIXTURE_RUNTIME_PERSONALITY,
+      agentScience: FIXTURE_AGENTSCIENCE_RUNTIME,
     },
     settings: DEFAULT_SERVER_SETTINGS,
   };
@@ -213,9 +222,6 @@ describe("GeneralSettingsPanel observability", () => {
     await renderGeneralSettingsPanel();
 
     await expect.element(page.getByText("Connection")).toBeInTheDocument();
-    await expect
-      .element(page.getByText("Choose how you want to continue."))
-      .toBeInTheDocument();
     await page.getByRole("button", { name: "Continue with ChatGPT" }).click();
 
     expect(startCodexChatgptLogin).toHaveBeenCalledOnce();
@@ -277,10 +283,10 @@ describe("GeneralSettingsPanel observability", () => {
     await renderGeneralSettingsPanel();
 
     await expect
-      .element(page.getByText("Continue with ChatGPT"))
+      .element(page.getByRole("button", { name: "Continue with ChatGPT" }))
       .toBeInTheDocument();
     await expect
-      .element(page.getByText("Use an API key"))
+      .element(page.getByRole("button", { name: "Use API key" }))
       .toBeInTheDocument();
     await expect
       .element(page.getByText("Standalone AgentScience profile"))
@@ -288,5 +294,96 @@ describe("GeneralSettingsPanel observability", () => {
     await expect
       .element(page.getByText("Use desktop profile"))
       .not.toBeInTheDocument();
+  });
+
+  it("shows one clear Codex connection state when already signed in", async () => {
+    window.nativeApi = {
+      server: {
+        getCodexAuthState: vi.fn().mockResolvedValue({
+          status: "idle",
+          updatedAt: "2026-04-14T12:00:00.000Z",
+          defaultHomePath: "/repo/project/.agentscience/codex",
+        }),
+      },
+    } as unknown as NativeApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [
+        createCodexProvider({
+          status: "ready",
+          auth: {
+            status: "authenticated",
+            type: "chatgpt",
+            label: "ChatGPT Pro Subscription",
+          },
+          message: "AgentScience is ready to use.",
+        }),
+      ],
+    });
+
+    await renderGeneralSettingsPanel();
+
+    await expect
+      .element(page.getByText("Using ChatGPT Pro Subscription"))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("Connected with ChatGPT Pro Subscription."))
+      .not.toBeInTheDocument();
+  });
+
+  it("applies AgentScience updates from Settings without exposing shell commands", async () => {
+    const applyAgentScienceRuntimeUpdates = vi
+      .fn<NativeApi["server"]["applyAgentScienceRuntimeUpdates"]>()
+      .mockResolvedValue({
+        state: "ready",
+        checkedAt: "2026-04-15T12:02:00.000Z",
+        ok: true,
+        updateAvailable: false,
+        refreshRecommended: false,
+        nextSteps: [],
+        cli: {
+          version: "0.5.2",
+          latestVersion: "0.5.2",
+        },
+      });
+
+    window.nativeApi = {
+      server: {
+        applyAgentScienceRuntimeUpdates,
+      },
+    } as unknown as NativeApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      runtime: {
+        personality: FIXTURE_RUNTIME_PERSONALITY,
+        agentScience: {
+          state: "ready",
+          checkedAt: "2026-04-15T12:00:00.000Z",
+          ok: true,
+          updateAvailable: true,
+          refreshRecommended: false,
+          nextSteps: ["npm install -g agentscience@latest"],
+          cli: {
+            version: "0.5.1",
+            latestVersion: "0.5.2",
+          },
+        },
+      },
+    });
+
+    await renderGeneralSettingsPanel();
+
+    await expect
+      .element(page.getByRole("button", { name: "Update tools" }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("npm install -g agentscience@latest"))
+      .not.toBeInTheDocument();
+
+    await page.getByRole("button", { name: "Update tools" }).click();
+
+    expect(applyAgentScienceRuntimeUpdates).toHaveBeenCalledOnce();
   });
 });

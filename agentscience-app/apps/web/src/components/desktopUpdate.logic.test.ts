@@ -9,6 +9,7 @@ import {
   getDesktopUpdateInstallConfirmationMessage,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
+  shouldOfferReleaseDownload,
   shouldShowArm64IntelBuildWarning,
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
@@ -287,5 +288,29 @@ describe("getDesktopUpdateButtonTooltip", () => {
     expect(getDesktopUpdateButtonTooltip({ ...baseState, status: "up-to-date" })).toBe(
       "Up to date",
     );
+  });
+});
+
+describe("shouldOfferReleaseDownload", () => {
+  it("offers the latest release link for development builds", () => {
+    expect(
+      shouldOfferReleaseDownload({
+        ...baseState,
+        enabled: false,
+        status: "disabled",
+        message: "Automatic updates are only available in packaged production builds.",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not offer the latest release link for packaged builds", () => {
+    expect(
+      shouldOfferReleaseDownload({
+        ...baseState,
+        enabled: true,
+        status: "up-to-date",
+        message: null,
+      }),
+    ).toBe(false);
   });
 });
