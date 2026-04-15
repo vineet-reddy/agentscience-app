@@ -47,6 +47,7 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
+import { AgentScienceRuntimeStatus } from "./agentScienceRuntimeStatus";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -66,6 +67,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+    const agentScienceRuntimeStatus = yield* AgentScienceRuntimeStatus;
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -328,6 +330,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const loadServerConfig = Effect.gen(function* () {
       const providers = yield* providerRegistry.getProviders;
       const settings = yield* serverSettings.getSettings;
+      const agentScience = yield* agentScienceRuntimeStatus.getSnapshot;
 
       return {
         cwd: config.cwd,
@@ -346,6 +349,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             version: PERSONALITY_VERSION,
             contentHash: PERSONALITY_CONTENT_HASH,
           },
+          agentScience,
         },
         settings,
       };
@@ -557,6 +561,16 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.serverLogoutCodex, codexAuth.logout, {
           "rpc.aggregate": "server",
         }),
+      [WS_METHODS.serverApplyAgentScienceRuntimeUpdates]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverApplyAgentScienceRuntimeUpdates,
+          Effect.gen(function* () {
+            const runtime = yield* agentScienceRuntimeStatus.applyRecommendedActions;
+            yield* providerRegistry.refresh();
+            return runtime;
+          }),
+          { "rpc.aggregate": "server" },
+        ),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         observeRpcEffect(
           WS_METHODS.projectsSearchEntries,
@@ -739,6 +753,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 payload: { settings },
               })),
             );
+            const runtimeUpdates = agentScienceRuntimeStatus.streamChanges.pipe(
+              Stream.map((agentScience) => ({
+                version: 1 as const,
+                type: "runtimeUpdated" as const,
+                payload: {
+                  runtime: {
+                    personality: {
+                      version: PERSONALITY_VERSION,
+                      contentHash: PERSONALITY_CONTENT_HASH,
+                    },
+                    agentScience,
+                  },
+                },
+              })),
+            );
 
             return Stream.concat(
               Stream.make({
@@ -746,7 +775,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 type: "snapshot" as const,
                 config: yield* loadServerConfig,
               }),
-              Stream.merge(providerStatuses, settingsUpdates),
+              Stream.merge(Stream.merge(providerStatuses, settingsUpdates), runtimeUpdates),
             );
           }),
           { "rpc.aggregate": "server" },

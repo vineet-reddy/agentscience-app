@@ -101,6 +101,11 @@ import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspaceLayoutLive } from "./workspace/Layers/WorkspaceLayout.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import {
+  AgentScienceRuntimeStatus,
+  type AgentScienceRuntimeStatusShape,
+  createInitialAgentScienceRuntimeStatus,
+} from "./agentScienceRuntimeStatus.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -108,6 +113,9 @@ const defaultModelSelection = {
   provider: "codex",
   model: "gpt-5-codex",
 } as const;
+const defaultAgentScienceRuntimeStatus = createInitialAgentScienceRuntimeStatus(
+  "2026-04-15T08:00:00.000Z",
+);
 
 const makeDefaultOrchestrationReadModel = () => {
   const now = new Date().toISOString();
@@ -305,6 +313,7 @@ const buildAppUnderTest = (options?: {
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
+    agentScienceRuntimeStatus?: Partial<AgentScienceRuntimeStatusShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -474,6 +483,15 @@ const buildAppUnderTest = (options?: {
           snapshot: Effect.succeed({ sequence: 0, events: [] }),
           stream: Stream.empty,
           ...options?.layers?.serverLifecycleEvents,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(AgentScienceRuntimeStatus)({
+          getSnapshot: Effect.succeed(defaultAgentScienceRuntimeStatus),
+          refresh: Effect.succeed(defaultAgentScienceRuntimeStatus),
+          applyRecommendedActions: Effect.succeed(defaultAgentScienceRuntimeStatus),
+          streamChanges: Stream.empty,
+          ...options?.layers?.agentScienceRuntimeStatus,
         }),
       ),
       Layer.provide(
@@ -1093,6 +1111,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             first.config.runtime.personality.contentHash,
             PERSONALITY_CONTENT_HASH,
           );
+          assert.deepEqual(first.config.runtime.agentScience, defaultAgentScienceRuntimeStatus);
           assert.deepEqual(first.config.settings, DEFAULT_SERVER_SETTINGS);
         }
         assert.deepEqual(second, {
@@ -1135,6 +1154,87 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           type: "providerStatuses",
           payload: { providers },
         });
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "routes websocket rpc subscribeServerConfig emits runtime status updates",
+    () =>
+      Effect.gen(function* () {
+        const runtime = {
+          ...defaultAgentScienceRuntimeStatus,
+          state: "ready" as const,
+          ok: true,
+          updateAvailable: true,
+          nextSteps: ["npm install -g agentscience@latest"],
+        };
+
+        yield* buildAppUnderTest({
+          layers: {
+            agentScienceRuntimeStatus: {
+              getSnapshot: Effect.succeed(defaultAgentScienceRuntimeStatus),
+              streamChanges: Stream.succeed(runtime),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const events = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.subscribeServerConfig]({}).pipe(
+              Stream.take(2),
+              Stream.runCollect,
+            ),
+          ),
+        );
+
+        const [first, second] = Array.from(events);
+        assert.equal(first?.type, "snapshot");
+        assert.deepEqual(second, {
+          version: 1,
+          type: "runtimeUpdated",
+          payload: {
+            runtime: {
+              personality: {
+                version: PERSONALITY_VERSION,
+                contentHash: PERSONALITY_CONTENT_HASH,
+              },
+              agentScience: runtime,
+            },
+          },
+        });
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "routes websocket rpc applyAgentScienceRuntimeUpdates returns the refreshed runtime status",
+    () =>
+      Effect.gen(function* () {
+        const runtime = {
+          ...defaultAgentScienceRuntimeStatus,
+          state: "ready" as const,
+          ok: true,
+          updateAvailable: false,
+          refreshRecommended: false,
+          checkedAt: "2026-04-15T08:10:00.000Z",
+        };
+
+        yield* buildAppUnderTest({
+          layers: {
+            agentScienceRuntimeStatus: {
+              applyRecommendedActions: Effect.succeed(runtime),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const result = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.serverApplyAgentScienceRuntimeUpdates]({}),
+          ),
+        );
+
+        assert.deepEqual(result, runtime);
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

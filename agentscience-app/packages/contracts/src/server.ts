@@ -84,6 +84,14 @@ export class CodexAuthError extends Schema.TaggedErrorClass<CodexAuthError>()("C
   cause: Schema.optional(Schema.Defect),
 }) {}
 
+export class AgentScienceRuntimeActionError extends Schema.TaggedErrorClass<AgentScienceRuntimeActionError>()(
+  "AgentScienceRuntimeActionError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
 export const ServerObservability = Schema.Struct({
   logsDirectoryPath: TrimmedNonEmptyString,
   localTracingEnabled: Schema.Boolean,
@@ -100,8 +108,53 @@ export const ServerRuntimePersonality = Schema.Struct({
 });
 export type ServerRuntimePersonality = typeof ServerRuntimePersonality.Type;
 
+export const ServerRuntimeAgentScienceCheckState = Schema.Literals([
+  "checking",
+  "ready",
+  "unavailable",
+  "error",
+]);
+export type ServerRuntimeAgentScienceCheckState = typeof ServerRuntimeAgentScienceCheckState.Type;
+
+export const ServerRuntimeAgentScienceCli = Schema.Struct({
+  version: Schema.optional(TrimmedNonEmptyString),
+  latestVersion: Schema.optional(TrimmedNonEmptyString),
+  personalityVersion: Schema.optional(TrimmedNonEmptyString),
+  personalityContentHash: Schema.optional(TrimmedNonEmptyString),
+  checkSource: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerRuntimeAgentScienceCli = typeof ServerRuntimeAgentScienceCli.Type;
+
+export const ServerRuntimeAgentScienceSurface = Schema.Struct({
+  surface: TrimmedNonEmptyString,
+  scope: TrimmedNonEmptyString,
+  installed: Schema.Boolean,
+  installMode: Schema.optional(TrimmedNonEmptyString),
+  autoUpdates: Schema.Boolean,
+  personalityVersion: Schema.optional(TrimmedNonEmptyString),
+  personalityContentHash: Schema.optional(TrimmedNonEmptyString),
+  refreshRecommended: Schema.Boolean,
+  current: Schema.Boolean,
+});
+export type ServerRuntimeAgentScienceSurface = typeof ServerRuntimeAgentScienceSurface.Type;
+
+export const ServerRuntimeAgentScience = Schema.Struct({
+  state: ServerRuntimeAgentScienceCheckState,
+  checkedAt: IsoDateTime,
+  ok: Schema.Boolean,
+  updateAvailable: Schema.Boolean,
+  refreshRecommended: Schema.Boolean,
+  nextSteps: Schema.Array(TrimmedNonEmptyString),
+  message: Schema.optional(TrimmedNonEmptyString),
+  cli: Schema.optional(ServerRuntimeAgentScienceCli),
+  codexActive: Schema.optional(ServerRuntimeAgentScienceSurface),
+  claudeCodeActive: Schema.optional(ServerRuntimeAgentScienceSurface),
+});
+export type ServerRuntimeAgentScience = typeof ServerRuntimeAgentScience.Type;
+
 export const ServerRuntime = Schema.Struct({
   personality: ServerRuntimePersonality,
+  agentScience: ServerRuntimeAgentScience,
 });
 export type ServerRuntime = typeof ServerRuntime.Type;
 
@@ -124,6 +177,11 @@ export const ServerConfigSettingsUpdatedPayload = Schema.Struct({
   settings: ServerSettings,
 });
 export type ServerConfigSettingsUpdatedPayload = typeof ServerConfigSettingsUpdatedPayload.Type;
+
+export const ServerConfigRuntimeUpdatedPayload = Schema.Struct({
+  runtime: ServerRuntime,
+});
+export type ServerConfigRuntimeUpdatedPayload = typeof ServerConfigRuntimeUpdatedPayload.Type;
 
 export const ServerConfigStreamSnapshotEvent = Schema.Struct({
   version: Schema.Literal(1),
@@ -148,10 +206,19 @@ export const ServerConfigStreamSettingsUpdatedEvent = Schema.Struct({
 export type ServerConfigStreamSettingsUpdatedEvent =
   typeof ServerConfigStreamSettingsUpdatedEvent.Type;
 
+export const ServerConfigStreamRuntimeUpdatedEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("runtimeUpdated"),
+  payload: ServerConfigRuntimeUpdatedPayload,
+});
+export type ServerConfigStreamRuntimeUpdatedEvent =
+  typeof ServerConfigStreamRuntimeUpdatedEvent.Type;
+
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
+  ServerConfigStreamRuntimeUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 

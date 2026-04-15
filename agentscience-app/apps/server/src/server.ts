@@ -53,6 +53,7 @@ import { WorkspaceLayoutLive } from "./workspace/Layers/WorkspaceLayout";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
+import { AgentScienceRuntimeStatusLive } from "./agentScienceRuntimeStatus";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -239,6 +240,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
+  Layer.provideMerge(AgentScienceRuntimeStatusLive),
 );
 
 const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(

@@ -63,6 +63,7 @@ import {
   TerminalWriteInput,
 } from "./terminal";
 import {
+  AgentScienceRuntimeActionError,
   CodexAuthApiKeyLoginInput,
   CodexAuthCancelLoginInput,
   CodexAuthError,
@@ -71,6 +72,7 @@ import {
   ServerConfig,
   ServerLifecycleStreamEvent,
   ServerProviderUpdatedPayload,
+  ServerRuntimeAgentScience,
 } from "./server";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 
@@ -116,6 +118,7 @@ export const WS_METHODS = {
   serverLoginCodexWithApiKey: "server.loginCodexWithApiKey",
   serverCancelCodexChatgptLogin: "server.cancelCodexChatgptLogin",
   serverLogoutCodex: "server.logoutCodex",
+  serverApplyAgentScienceRuntimeUpdates: "server.applyAgentScienceRuntimeUpdates",
 
   // Streaming subscriptions
   subscribeGitStatus: "subscribeGitStatus",
@@ -186,6 +189,15 @@ export const WsServerLogoutCodexRpc = Rpc.make(WS_METHODS.serverLogoutCodex, {
   success: CodexAuthState,
   error: CodexAuthError,
 });
+
+export const WsServerApplyAgentScienceRuntimeUpdatesRpc = Rpc.make(
+  WS_METHODS.serverApplyAgentScienceRuntimeUpdates,
+  {
+    payload: Schema.Struct({}),
+    success: ServerRuntimeAgentScience,
+    error: AgentScienceRuntimeActionError,
+  },
+);
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
@@ -382,6 +394,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerLoginCodexWithApiKeyRpc,
   WsServerCancelCodexChatgptLoginRpc,
   WsServerLogoutCodexRpc,
+  WsServerApplyAgentScienceRuntimeUpdatesRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
