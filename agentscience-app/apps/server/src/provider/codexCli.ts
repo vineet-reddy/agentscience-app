@@ -37,14 +37,16 @@ export function resolveCodexBinaryPath(settings: Pick<CodexSettings, "binaryPath
 export function buildCodexSpawnEnv(input: {
   readonly binaryPath: string;
   readonly homePath?: string;
+  readonly processEnv?: NodeJS.ProcessEnv;
 }): NodeJS.ProcessEnv {
+  const envSource = input.processEnv ?? process.env;
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...envSource,
     ...CODEX_PYTHON_GUARD_ENV,
   };
 
-  const managedBinaryPath = process.env[MANAGED_BINARY_ENV]?.trim();
-  const managedPathDir = process.env[MANAGED_PATH_DIR_ENV]?.trim();
+  const managedBinaryPath = envSource[MANAGED_BINARY_ENV]?.trim();
+  const managedPathDir = envSource[MANAGED_PATH_DIR_ENV]?.trim();
   if (
     managedBinaryPath &&
     managedPathDir &&

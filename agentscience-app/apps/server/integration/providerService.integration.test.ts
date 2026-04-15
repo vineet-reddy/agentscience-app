@@ -149,6 +149,28 @@ it.live("replays typed runtime fixture events", () =>
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.live("requires a bound cwd before starting a provider session", () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeIntegrationFixture;
+
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const error = yield* Effect.flip(
+        provider.startSession(ThreadId.makeUnsafe("thread-missing-cwd"), {
+          threadId: ThreadId.makeUnsafe("thread-missing-cwd"),
+          provider: "codex",
+          runtimeMode: "full-access",
+        }),
+      );
+
+      assert.equal(
+        error.message,
+        "Provider validation failed in ProviderService.startSession: Thread 'thread-missing-cwd' requires a bound workspace cwd before starting a provider session.",
+      );
+    }).pipe(Effect.provide(fixture.layer));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.live("replays file-changing fixture turn events", () =>
   Effect.gen(function* () {
     const fixture = yield* makeIntegrationFixture;

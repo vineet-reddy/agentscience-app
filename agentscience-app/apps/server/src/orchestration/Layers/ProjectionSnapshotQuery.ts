@@ -13,7 +13,7 @@ import {
   ThreadId,
   TurnId,
 } from "@agentscience/contracts";
-import { Effect, Layer, Option, Path, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -26,6 +26,10 @@ import { DeviceStateRepositoryLive } from "../../persistence/Layers/DeviceState.
 import { DeviceStateRepository } from "../../persistence/Services/DeviceState.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
+  getValidatedPaperWorkspaceRoot,
+  getValidatedProjectWorkspaceRoot,
+} from "../../workspace/roots.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotCounts,
   type ProjectionThreadCheckpointContext,
@@ -34,9 +38,6 @@ import {
 
 const PROJECT_METADATA_PREFIX = "local.project.";
 const THREAD_METADATA_PREFIX = "local.thread.";
-const PROJECTS_DIRNAME = "Projects";
-const PAPERS_DIRNAME = "Papers";
-const PROJECT_PAPERS_DIRNAME = "papers";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 
@@ -49,6 +50,7 @@ type ProjectMetadata = {
   readonly defaultModelSelection: ModelSelectionType | null;
   readonly scripts: ReadonlyArray<typeof ProjectScript.Type>;
   readonly deletedAt: string | null;
+  readonly workspaceRoot: string | null;
 };
 
 const ThreadMetadataSchema = Schema.Struct({
@@ -66,6 +68,7 @@ type ThreadMetadata = {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly deletedAt: string | null;
+  readonly workspaceRoot: string | null;
 };
 
 const MessageMetadataSchema = Schema.Struct({
@@ -162,6 +165,10 @@ function parseProjectMetadata(valueJson: string): ProjectMetadata | null {
     defaultModelSelection: decodedModelSelection,
     scripts: parsed.scripts,
     deletedAt: parsed.deletedAt,
+    workspaceRoot:
+      typeof (parsedJson as { workspaceRoot?: unknown }).workspaceRoot === "string"
+        ? (parsedJson as { workspaceRoot: string }).workspaceRoot
+        : null,
   };
 }
 
@@ -184,6 +191,10 @@ function parseThreadMetadata(valueJson: string): ThreadMetadata | null {
       branch: parsed.branch,
       worktreePath: parsed.worktreePath,
       deletedAt: parsed.deletedAt,
+      workspaceRoot:
+        typeof (parsedJson as { workspaceRoot?: unknown }).workspaceRoot === "string"
+          ? (parsedJson as { workspaceRoot: string }).workspaceRoot
+          : null,
     };
   } catch {
     return null;
@@ -243,27 +254,54 @@ function maxIso(left: string | null, right: string | null): string | null {
   return left > right ? left : right;
 }
 
+function resolveProjectWorkspacePath(input: {
+  readonly settingsWorkspaceRoot: string;
+  readonly projectId: ProjectId;
+  readonly projectMetadataById: ReadonlyMap<string, ProjectMetadata>;
+}): string | null {
+  const metadata = input.projectMetadataById.get(input.projectId);
+  if (!metadata?.workspaceRoot) {
+    return null;
+  }
+  return getValidatedProjectWorkspaceRoot({
+    containerRoot: input.settingsWorkspaceRoot,
+    projectWorkspaceRoot: metadata.workspaceRoot,
+  });
+}
+
 function resolveThreadWorkspacePath(input: {
-  readonly workspaceRoot: string;
-  readonly projectFolderSlug: string | null;
-  readonly folderSlug: string;
-  readonly path: Path.Path;
-}): string {
-  return input.projectFolderSlug === null
-    ? input.path.join(input.workspaceRoot, PAPERS_DIRNAME, input.folderSlug)
-    : input.path.join(
-        input.workspaceRoot,
-        PROJECTS_DIRNAME,
-        input.projectFolderSlug,
-        PROJECT_PAPERS_DIRNAME,
-        input.folderSlug,
-      );
+  readonly settingsWorkspaceRoot: string;
+  readonly threadId: ThreadId;
+  readonly projectId: ProjectId | null;
+  readonly projectMetadataById: ReadonlyMap<string, ProjectMetadata>;
+  readonly threadMetadataById: ReadonlyMap<string, ThreadMetadata>;
+}): string | null {
+  const threadMetadata = input.threadMetadataById.get(input.threadId);
+  if (!threadMetadata?.workspaceRoot) {
+    return null;
+  }
+
+  const projectWorkspaceRoot =
+    input.projectId === null
+      ? null
+      : resolveProjectWorkspacePath({
+          settingsWorkspaceRoot: input.settingsWorkspaceRoot,
+          projectId: input.projectId,
+          projectMetadataById: input.projectMetadataById,
+        });
+  if (input.projectId !== null && projectWorkspaceRoot === null) {
+    return null;
+  }
+  return getValidatedPaperWorkspaceRoot({
+    containerRoot: input.settingsWorkspaceRoot,
+    paperWorkspaceRoot: threadMetadata.workspaceRoot,
+    projectWorkspaceRoot,
+  });
 }
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const deviceStateRepository = yield* DeviceStateRepository;
-  const path = yield* Path.Path;
   const serverSettingsService = yield* ServerSettingsService;
 
   const listProjectRows = SqlSchema.findAll({
@@ -411,9 +449,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           }
 
           const messagesByThread = new Map<string, Array<OrchestrationThread["messages"][number]>>();
-          const projectFolderSlugById = new Map(
-            projectRows.map((row) => [row.projectId, row.folderSlug] as const),
-          );
           let updatedAt: string | null = null;
 
           for (const row of projectRows) {
@@ -469,11 +504,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 projectId: row.projectId,
                 folderSlug: row.folderSlug,
                 resolvedWorkspacePath: resolveThreadWorkspacePath({
-                  workspaceRoot: settings.workspaceRoot,
-                  projectFolderSlug:
-                    row.projectId === null ? null : (projectFolderSlugById.get(row.projectId) ?? null),
-                  folderSlug: row.folderSlug,
-                  path,
+                  settingsWorkspaceRoot: settings.workspaceRoot,
+                  threadId: row.threadId,
+                  projectId: row.projectId,
+                  projectMetadataById,
+                  threadMetadataById,
                 }),
                 title: row.title,
                 modelSelection: metadata.modelSelection,
@@ -581,24 +616,25 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ),
         ),
       );
-      const projectRows = yield* listProjectRows(undefined).pipe(
-        Effect.mapError(
-          toPersistenceSqlError("ProjectionSnapshotQuery.getThreadCheckpointContext:listProjects:query"),
-        ),
-      );
-      const projectFolderSlug =
-        threadRow.value.projectId === null
-          ? null
-          : (projectRows.find((row) => row.projectId === threadRow.value.projectId)?.folderSlug ??
-            null);
+      const projectStateRows = yield* deviceStateRepository.listByPrefix({
+        prefix: PROJECT_METADATA_PREFIX,
+      });
+      const projectMetadataById = new Map<string, ProjectMetadata>();
+      for (const row of projectStateRows) {
+        const metadata = parseProjectMetadata(row.valueJson);
+        if (metadata !== null) {
+          projectMetadataById.set(row.key.slice(PROJECT_METADATA_PREFIX.length), metadata);
+        }
+      }
       return Option.some({
         threadId: threadRow.value.threadId,
         projectId: threadRow.value.projectId,
         resolvedWorkspacePath: resolveThreadWorkspacePath({
-          workspaceRoot: settings.workspaceRoot,
-          projectFolderSlug,
-          folderSlug: threadRow.value.folderSlug,
-          path,
+          settingsWorkspaceRoot: settings.workspaceRoot,
+          threadId: threadRow.value.threadId,
+          projectId: threadRow.value.projectId,
+          projectMetadataById,
+          threadMetadataById: new Map([[threadRow.value.threadId, threadMetadata]]),
         }),
         worktreePath: threadMetadata.worktreePath,
         checkpoints: [],

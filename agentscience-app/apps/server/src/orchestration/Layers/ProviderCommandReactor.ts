@@ -21,6 +21,7 @@ import { ProviderAdapterRequestError, ProviderServiceError } from "../../provide
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -148,6 +149,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const git = yield* GitCore;
   const textGeneration = yield* TextGeneration;
@@ -218,6 +220,38 @@ const make = Effect.gen(function* () {
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
+  const resolveBoundThreadCwd = Effect.fn("resolveBoundThreadCwd")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderKind;
+    readonly thread?: {
+      readonly resolvedWorkspacePath: string | null;
+      readonly worktreePath: string | null;
+    };
+  }) {
+    const immediateCwd =
+      input.thread === undefined ? undefined : resolveThreadWorkspaceCwd({ thread: input.thread });
+    if (immediateCwd) {
+      return immediateCwd;
+    }
+
+    const checkpointContext = yield* projectionSnapshotQuery.getThreadCheckpointContext(
+      input.threadId,
+    );
+    if (Option.isSome(checkpointContext)) {
+      const checkpointCwd =
+        checkpointContext.value.worktreePath ?? checkpointContext.value.resolvedWorkspacePath;
+      if (checkpointCwd) {
+        return checkpointCwd;
+      }
+    }
+
+    return yield* new ProviderAdapterRequestError({
+      provider: input.provider,
+      method: "thread.turn.start",
+      detail: `Thread '${input.threadId}' does not have a bound paper workspace cwd.`,
+    });
+  });
+
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -251,7 +285,6 @@ const make = Effect.gen(function* () {
     }
     const preferredProvider: ProviderKind = currentProvider ?? threadProvider;
     const desiredModelSelection = requestedModelSelection ?? thread.modelSelection;
-    const effectiveCwd = resolveThreadWorkspaceCwd({ thread });
 
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -262,13 +295,20 @@ const make = Effect.gen(function* () {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
     }) =>
-      providerService.startSession(threadId, {
-        threadId,
-        ...(preferredProvider ? { provider: preferredProvider } : {}),
-        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-        modelSelection: desiredModelSelection,
-        ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
-        runtimeMode: desiredRuntimeMode,
+      Effect.gen(function* () {
+        const effectiveCwd = yield* resolveBoundThreadCwd({
+          threadId,
+          provider: preferredProvider,
+          thread,
+        });
+        return yield* providerService.startSession(threadId, {
+          threadId,
+          ...(preferredProvider ? { provider: preferredProvider } : {}),
+          cwd: effectiveCwd,
+          modelSelection: desiredModelSelection,
+          ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+          runtimeMode: desiredRuntimeMode,
+        });
       });
 
     const bindSessionToThread = (session: ProviderSession) =>
@@ -535,7 +575,11 @@ const make = Effect.gen(function* () {
     const isFirstUserMessageTurn =
       thread.messages.filter((entry) => entry.role === "user").length === 1;
     if (isFirstUserMessageTurn) {
-      const generationCwd = resolveThreadWorkspaceCwd({ thread }) ?? process.cwd();
+      const generationCwdOption = yield* resolveBoundThreadCwd({
+        threadId: event.payload.threadId,
+        provider: thread.modelSelection.provider,
+        thread,
+      }).pipe(Effect.option);
       const generationInput = {
         messageText: message.text,
         ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
@@ -549,10 +593,13 @@ const make = Effect.gen(function* () {
         ...generationInput,
       }).pipe(Effect.forkScoped);
 
-      if (canReplaceThreadTitle(thread.title, event.payload.titleSeed)) {
+      if (
+        Option.isSome(generationCwdOption) &&
+        canReplaceThreadTitle(thread.title, event.payload.titleSeed)
+      ) {
         yield* maybeGenerateThreadTitleForFirstTurn({
           threadId: event.payload.threadId,
-          cwd: generationCwd,
+          cwd: generationCwdOption.value,
           ...generationInput,
         }).pipe(Effect.forkScoped);
       }

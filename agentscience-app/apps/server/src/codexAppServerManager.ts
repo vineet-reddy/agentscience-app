@@ -1,6 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { realpathSync } from "node:fs";
 import readline from "node:readline";
 
 import {
@@ -317,10 +318,88 @@ export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   readonly approvalPolicy: "on-request" | "never";
   readonly sandbox: "workspace-write";
 } {
+  if (runtimeMode === "approval-required") {
+    return {
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+    };
+  }
+
   return {
-    approvalPolicy: runtimeMode === "approval-required" ? "on-request" : "never",
+    approvalPolicy: "never",
     // Keep command execution inside the current repo/worktree even in auto mode.
     sandbox: "workspace-write",
+  };
+}
+
+function buildCodexWorkspaceWriteSandboxPolicy(cwd: string): {
+  readonly type: "workspaceWrite";
+  readonly writableRoots: readonly [string];
+  readonly networkAccess: false;
+  readonly excludeSlashTmp: true;
+  readonly excludeTmpdirEnvVar: true;
+} {
+  return {
+    type: "workspaceWrite",
+    writableRoots: [cwd],
+    networkAccess: false,
+    excludeSlashTmp: true,
+    excludeTmpdirEnvVar: true,
+  };
+}
+
+function buildCodexWorkspaceWriteConfig(cwd: string): {
+  readonly sandbox_mode: "workspace-write";
+  readonly sandbox_workspace_write: {
+    readonly writable_roots: readonly [string];
+    readonly network_access: false;
+    readonly exclude_slash_tmp: true;
+    readonly exclude_tmpdir_env_var: true;
+  };
+} {
+  return {
+    sandbox_mode: "workspace-write",
+    sandbox_workspace_write: {
+      writable_roots: [cwd],
+      network_access: false,
+      exclude_slash_tmp: true,
+      exclude_tmpdir_env_var: true,
+    },
+  };
+}
+
+export function buildCodexAppServerLaunchSpec(
+  input: Readonly<{
+    binaryPath: string;
+    cwd: string;
+    homePath?: string;
+    platform?: NodeJS.Platform;
+    processEnv?: NodeJS.ProcessEnv;
+  }>,
+): Readonly<{
+  command: string;
+  args: readonly string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  shell: boolean;
+}> {
+  const platform = input.platform ?? process.platform;
+  const envBase = input.processEnv ?? process.env;
+  const resolvedCwd = realpathSync(input.cwd);
+  // Codex app-server applies its own native command sandboxing from the
+  // thread/turn workspace-write policy. Wrapping the server process itself in
+  // an outer macOS sandbox causes nested sandbox failures for legitimate
+  // in-workspace shell execution.
+  return {
+    command: input.binaryPath,
+    args: ["app-server"],
+    cwd: resolvedCwd,
+    env: buildCodexSpawnEnv({
+      binaryPath: input.binaryPath,
+      ...(input.homePath ? { homePath: input.homePath } : {}),
+      processEnv: envBase,
+    }),
+    shell: platform === "win32",
   };
 }
 
@@ -459,7 +538,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     let context: CodexSessionContext | undefined;
 
     try {
-      const resolvedCwd = input.cwd ?? process.cwd();
+      const resolvedCwd = input.cwd?.trim();
+      if (!resolvedCwd) {
+        throw new Error(`Codex session requires a bound workspace cwd for thread '${threadId}'.`);
+      }
 
       const session: ProviderSession = {
         provider: "codex",
@@ -479,14 +561,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
       });
-      const child = spawn(codexBinaryPath, ["app-server"], {
+      const launchSpec = buildCodexAppServerLaunchSpec({
+        binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
-        env: buildCodexSpawnEnv({
-          binaryPath: codexBinaryPath,
-          ...(codexHomePath ? { homePath: codexHomePath } : {}),
-        }),
+        ...(codexHomePath ? { homePath: codexHomePath } : {}),
+      });
+      const child = spawn(launchSpec.command, [...launchSpec.args], {
+        cwd: launchSpec.cwd,
+        env: launchSpec.env,
         stdio: ["pipe", "pipe", "pipe"],
-        shell: process.platform === "win32",
+        shell: launchSpec.shell,
       });
       const output = readline.createInterface({ input: child.stdout });
 
@@ -544,9 +628,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cwd: input.cwd ?? null,
         ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
       };
+      const workspaceWriteConfig = buildCodexWorkspaceWriteConfig(resolvedCwd);
 
       const threadStartParams = {
         ...sessionOverrides,
+        config: workspaceWriteConfig,
         experimentalRawEvents: false,
       };
       const resumeThreadId = readResumeThreadId(input);
@@ -701,9 +787,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       input: Array<
         { type: "text"; text: string; text_elements: [] } | { type: "image"; url: string }
       >;
+      cwd?: string;
       model?: string;
       serviceTier?: string | null;
       effort?: string;
+      sandboxPolicy?: {
+        readonly type: "workspaceWrite";
+        readonly writableRoots: readonly [string];
+        readonly networkAccess: false;
+        readonly excludeSlashTmp: true;
+        readonly excludeTmpdirEnvVar: true;
+      };
       collaborationMode?: {
         mode: "default" | "plan";
         settings: {
@@ -716,6 +810,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: providerThreadId,
       input: turnInput,
     };
+    if (context.session.cwd) {
+      turnStartParams.cwd = context.session.cwd;
+      turnStartParams.sandboxPolicy = buildCodexWorkspaceWriteSandboxPolicy(context.session.cwd);
+    }
     const normalizedModel = resolveCodexModelForAccount(
       normalizeCodexModelSlug(input.model ?? context.session.model),
       context.account,

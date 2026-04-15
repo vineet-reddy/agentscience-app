@@ -59,6 +59,13 @@ import {
 import { WorkspaceLayout } from "../../workspace/Services/WorkspaceLayout.ts";
 import { WorkspaceLayoutLive } from "../../workspace/Layers/WorkspaceLayout.ts";
 import { WorkspacePathsLive } from "../../workspace/Layers/WorkspacePaths.ts";
+import {
+  getValidatedPaperWorkspaceRoot,
+  getValidatedProjectWorkspaceRoot,
+  rebaseWorkspaceRoot,
+  resolveManagedPaperWorkspaceRoot,
+  resolveManagedProjectWorkspaceRoot,
+} from "../../workspace/roots.ts";
 
 const LOCAL_USER_ID = "local-user";
 const LOCAL_SHARING_STRATEGY = "local_only";
@@ -111,23 +118,87 @@ interface AttachmentSideEffects {
 type WorkspaceSideEffect =
   | {
       readonly type: "project.create";
-      readonly folderSlug: string;
+      readonly containerRoot: string;
+      readonly projectWorkspaceRoot: string;
     }
   | {
       readonly type: "paper.create";
-      readonly projectFolderSlug: string | null;
-      readonly folderSlug: string;
+      readonly containerRoot: string;
+      readonly paperWorkspaceRoot: string;
+      readonly projectWorkspaceRoot?: string | null;
     }
   | {
       readonly type: "paper.move";
-      readonly fromProjectFolderSlug: string | null;
-      readonly toProjectFolderSlug: string | null;
-      readonly folderSlug: string;
+      readonly containerRoot: string;
+      readonly fromPaperWorkspaceRoot: string;
+      readonly fromProjectWorkspaceRoot?: string | null;
+      readonly toPaperWorkspaceRoot: string;
+      readonly toProjectWorkspaceRoot?: string | null;
     }
   | {
       readonly type: "workspace.rootChange";
       readonly newRoot: string;
     };
+
+interface StoredProjectMetadata {
+  readonly defaultModelSelection: unknown;
+  readonly scripts: ReadonlyArray<unknown>;
+  readonly deletedAt: string | null;
+  readonly workspaceRoot: string | null;
+}
+
+interface StoredThreadMetadata {
+  readonly modelSelection: unknown;
+  readonly runtimeMode: string;
+  readonly interactionMode: string;
+  readonly branch: string | null;
+  readonly worktreePath: string | null;
+  readonly deletedAt: string | null;
+  readonly workspaceRoot: string | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseStoredProjectMetadata(valueJson: string): StoredProjectMetadata | null {
+  try {
+    const parsed = JSON.parse(valueJson);
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    return {
+      defaultModelSelection: parsed.defaultModelSelection ?? null,
+      scripts: Array.isArray(parsed.scripts) ? parsed.scripts : [],
+      deletedAt: typeof parsed.deletedAt === "string" ? parsed.deletedAt : null,
+      workspaceRoot: typeof parsed.workspaceRoot === "string" ? parsed.workspaceRoot : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredThreadMetadata(valueJson: string): StoredThreadMetadata | null {
+  try {
+    const parsed = JSON.parse(valueJson);
+    if (!isRecord(parsed)) {
+      return null;
+    }
+    return {
+      modelSelection: parsed.modelSelection ?? null,
+      runtimeMode:
+        typeof parsed.runtimeMode === "string" ? parsed.runtimeMode : "full-access",
+      interactionMode:
+        typeof parsed.interactionMode === "string" ? parsed.interactionMode : "default",
+      branch: typeof parsed.branch === "string" ? parsed.branch : null,
+      worktreePath: typeof parsed.worktreePath === "string" ? parsed.worktreePath : null,
+      deletedAt: typeof parsed.deletedAt === "string" ? parsed.deletedAt : null,
+      workspaceRoot: typeof parsed.workspaceRoot === "string" ? parsed.workspaceRoot : null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 const materializeAttachmentsForProjection = Effect.fn(
   "materializeAttachmentsForProjection",
@@ -550,24 +621,31 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
       yield* Effect.forEach(sideEffects.workspaceOperations, (operation) => {
         switch (operation.type) {
           case "project.create":
-            return workspaceLayout.createProjectFolder({
-              workspaceRoot: settings.workspaceRoot,
-              folderSlug: operation.folderSlug,
+            return workspaceLayout.ensureProjectWorkspace({
+              containerRoot: operation.containerRoot,
+              projectWorkspaceRoot: operation.projectWorkspaceRoot,
             });
 
           case "paper.create":
-            return workspaceLayout.createPaperFolder({
-              workspaceRoot: settings.workspaceRoot,
-              projectFolderSlug: operation.projectFolderSlug,
-              folderSlug: operation.folderSlug,
+            return workspaceLayout.ensurePaperWorkspace({
+              containerRoot: operation.containerRoot,
+              paperWorkspaceRoot: operation.paperWorkspaceRoot,
+              ...(operation.projectWorkspaceRoot !== undefined
+                ? { projectWorkspaceRoot: operation.projectWorkspaceRoot }
+                : {}),
             });
 
           case "paper.move":
-            return workspaceLayout.movePaperFolder({
-              workspaceRoot: settings.workspaceRoot,
-              fromProjectFolderSlug: operation.fromProjectFolderSlug,
-              toProjectFolderSlug: operation.toProjectFolderSlug,
-              folderSlug: operation.folderSlug,
+            return workspaceLayout.movePaperWorkspace({
+              containerRoot: operation.containerRoot,
+              fromPaperWorkspaceRoot: operation.fromPaperWorkspaceRoot,
+              ...(operation.fromProjectWorkspaceRoot !== undefined
+                ? { fromProjectWorkspaceRoot: operation.fromProjectWorkspaceRoot }
+                : {}),
+              toPaperWorkspaceRoot: operation.toPaperWorkspaceRoot,
+              ...(operation.toProjectWorkspaceRoot !== undefined
+                ? { toProjectWorkspaceRoot: operation.toProjectWorkspaceRoot }
+                : {}),
             });
 
           case "workspace.rootChange":
@@ -603,14 +681,25 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
         : unknown;
       readonly scripts: ReadonlyArray<unknown>;
       readonly deletedAt: string | null;
+      readonly workspaceRoot?: string | null;
       readonly updatedAt: string;
     }) {
+      const existingProjectMetadataRow = yield* deviceStateRepository.getByKey({
+        key: projectMetadataKey(input.projectId),
+      });
+      const existingProjectMetadata = Option.isSome(existingProjectMetadataRow)
+        ? parseStoredProjectMetadata(existingProjectMetadataRow.value.valueJson)
+        : null;
       yield* deviceStateRepository.upsert({
         key: projectMetadataKey(input.projectId),
         valueJson: JSON.stringify({
           defaultModelSelection: input.defaultModelSelection,
           scripts: input.scripts,
           deletedAt: input.deletedAt,
+          workspaceRoot:
+            input.workspaceRoot !== undefined
+              ? input.workspaceRoot
+              : (existingProjectMetadata?.workspaceRoot ?? null),
         }),
         updatedAt: input.updatedAt,
       });
@@ -626,8 +715,15 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
       readonly branch: string | null;
       readonly worktreePath: string | null;
       readonly deletedAt: string | null;
+      readonly workspaceRoot?: string | null;
       readonly updatedAt: string;
     }) {
+      const existingThreadMetadataRow = yield* deviceStateRepository.getByKey({
+        key: threadMetadataKey(input.threadId),
+      });
+      const existingThreadMetadata = Option.isSome(existingThreadMetadataRow)
+        ? parseStoredThreadMetadata(existingThreadMetadataRow.value.valueJson)
+        : null;
       yield* deviceStateRepository.upsert({
         key: threadMetadataKey(input.threadId),
         valueJson: JSON.stringify({
@@ -637,11 +733,29 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           branch: input.branch,
           worktreePath: input.worktreePath,
           deletedAt: input.deletedAt,
+          workspaceRoot:
+            input.workspaceRoot !== undefined
+              ? input.workspaceRoot
+              : (existingThreadMetadata?.workspaceRoot ?? null),
         }),
         updatedAt: input.updatedAt,
       });
     },
   );
+
+  const getProjectMetadata = Effect.fn("getProjectMetadata")(function* (projectId: string) {
+    const row = yield* deviceStateRepository.getByKey({
+      key: projectMetadataKey(projectId),
+    });
+    return Option.isSome(row) ? parseStoredProjectMetadata(row.value.valueJson) : null;
+  });
+
+  const getThreadMetadata = Effect.fn("getThreadMetadata")(function* (threadId: string) {
+    const row = yield* deviceStateRepository.getByKey({
+      key: threadMetadataKey(threadId),
+    });
+    return Option.isSome(row) ? parseStoredThreadMetadata(row.value.valueJson) : null;
+  });
 
   const upsertMessageMetadata = Effect.fn("upsertMessageMetadata")(
     function* (input: {
@@ -689,16 +803,106 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
     return rows[0] ?? null;
   });
 
-  const getProjectedProjectFolderSlug = Effect.fn(
-    "getProjectedProjectFolderSlug",
-  )(function* (projectId: string | null) {
+  const resolveProjectWorkspaceRoot = Effect.fn("resolveProjectWorkspaceRoot")(function* (
+    projectId: string | null,
+  ) {
     if (projectId === null) {
       return null;
     }
-    const projectRow = yield* projectionProjectRepository.getById({
-      projectId: ProjectId.makeUnsafe(projectId),
+    const settings = yield* serverSettingsService.getSettings;
+    const projectMetadata = yield* getProjectMetadata(projectId);
+    if (!projectMetadata?.workspaceRoot) {
+      return null;
+    }
+    return getValidatedProjectWorkspaceRoot({
+      containerRoot: settings.workspaceRoot,
+      projectWorkspaceRoot: projectMetadata.workspaceRoot,
     });
-    return Option.isSome(projectRow) ? projectRow.value.folderSlug : null;
+  });
+
+  const resolveThreadWorkspaceRoot = Effect.fn("resolveThreadWorkspaceRoot")(function* (input: {
+    readonly threadId: string;
+    readonly projectId: string | null;
+  }) {
+    const settings = yield* serverSettingsService.getSettings;
+    const threadMetadata = yield* getThreadMetadata(input.threadId);
+    if (!threadMetadata?.workspaceRoot) {
+      return null;
+    }
+    const projectWorkspaceRoot = yield* resolveProjectWorkspaceRoot(input.projectId);
+    if (input.projectId !== null && projectWorkspaceRoot === null) {
+      return null;
+    }
+    return getValidatedPaperWorkspaceRoot({
+      containerRoot: settings.workspaceRoot,
+      paperWorkspaceRoot: threadMetadata.workspaceRoot,
+      projectWorkspaceRoot,
+    });
+  });
+
+  const rebaseBoundWorkspaceRoots = Effect.fn("rebaseBoundWorkspaceRoots")(function* (input: {
+    readonly fromContainerRoot: string;
+    readonly toContainerRoot: string;
+    readonly updatedAt: string;
+  }) {
+    const projectRows = yield* deviceStateRepository.listByPrefix({
+      prefix: PROJECT_METADATA_PREFIX,
+    });
+    for (const row of projectRows) {
+      const metadata = parseStoredProjectMetadata(row.valueJson);
+      if (!metadata?.workspaceRoot) {
+        continue;
+      }
+      const nextWorkspaceRoot = rebaseWorkspaceRoot({
+        workspaceRoot: metadata.workspaceRoot,
+        fromContainerRoot: input.fromContainerRoot,
+        toContainerRoot: input.toContainerRoot,
+      });
+      if (nextWorkspaceRoot === null || nextWorkspaceRoot === metadata.workspaceRoot) {
+        continue;
+      }
+      yield* deviceStateRepository.upsert({
+        key: row.key,
+        valueJson: JSON.stringify({
+          defaultModelSelection: metadata.defaultModelSelection,
+          scripts: metadata.scripts,
+          deletedAt: metadata.deletedAt,
+          workspaceRoot: nextWorkspaceRoot,
+        }),
+        updatedAt: input.updatedAt,
+      });
+    }
+
+    const threadRows = yield* deviceStateRepository.listByPrefix({
+      prefix: THREAD_METADATA_PREFIX,
+    });
+    for (const row of threadRows) {
+      const metadata = parseStoredThreadMetadata(row.valueJson);
+      if (!metadata?.workspaceRoot) {
+        continue;
+      }
+      const nextWorkspaceRoot = rebaseWorkspaceRoot({
+        workspaceRoot: metadata.workspaceRoot,
+        fromContainerRoot: input.fromContainerRoot,
+        toContainerRoot: input.toContainerRoot,
+      });
+      if (nextWorkspaceRoot === null || nextWorkspaceRoot === metadata.workspaceRoot) {
+        continue;
+      }
+      yield* deviceStateRepository.upsert({
+        key: row.key,
+        valueJson: JSON.stringify({
+          modelSelection: metadata.modelSelection,
+          runtimeMode: metadata.runtimeMode,
+          interactionMode: metadata.interactionMode,
+          branch: metadata.branch,
+          worktreePath: metadata.worktreePath,
+          deletedAt: metadata.deletedAt,
+          workspaceRoot: nextWorkspaceRoot,
+        }),
+        updatedAt: input.updatedAt,
+      });
+    }
   });
 
   const getResearchChatRow = Effect.fn("getResearchChatRow")(function* (
@@ -992,7 +1196,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
   ) =>
     Effect.gen(function* () {
       switch (event.type) {
-        case "project.created":
+        case "project.created": {
+          const settings = yield* serverSettingsService.getSettings;
+          const projectWorkspaceRoot = resolveManagedProjectWorkspaceRoot(
+            settings.workspaceRoot,
+            event.payload.folderSlug,
+          );
           yield* upsertResearchProject({
             projectId: event.payload.projectId,
             folderSlug: event.payload.folderSlug,
@@ -1005,6 +1214,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
             defaultModelSelection: event.payload.defaultModelSelection,
             scripts: event.payload.scripts,
             deletedAt: null,
+            workspaceRoot: projectWorkspaceRoot,
             updatedAt: event.payload.updatedAt,
           });
           yield* projectionProjectRepository.upsert({
@@ -1019,16 +1229,25 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           });
           sideEffects.workspaceOperations.push({
             type: "project.create",
-            folderSlug: event.payload.folderSlug,
+            containerRoot: settings.workspaceRoot,
+            projectWorkspaceRoot,
           });
           return;
+        }
 
-        case "workspace.root-changed":
+        case "workspace.root-changed": {
+          const settings = yield* serverSettingsService.getSettings;
+          yield* rebaseBoundWorkspaceRoots({
+            fromContainerRoot: settings.workspaceRoot,
+            toContainerRoot: event.payload.newRoot,
+            updatedAt: event.payload.updatedAt,
+          });
           sideEffects.workspaceOperations.push({
             type: "workspace.rootChange",
             newRoot: event.payload.newRoot,
           });
           return;
+        }
 
         case "project.meta-updated": {
           const existingRow = yield* projectionProjectRepository.getById({
@@ -1044,12 +1263,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingProjectMetadata = Option.isSome(
             existingProjectMetadataRow,
           )
-            ? (JSON.parse(existingProjectMetadataRow.value.valueJson) as {
-                readonly defaultModelSelection: unknown;
-                readonly scripts: ReadonlyArray<unknown>;
-                readonly deletedAt: string | null;
-              })
+            ? parseStoredProjectMetadata(existingProjectMetadataRow.value.valueJson)
             : null;
+          const existingProjectWorkspaceRoot = yield* resolveProjectWorkspaceRoot(
+            event.payload.projectId,
+          );
           if (existingResearchProject !== null) {
             yield* upsertResearchProject({
               projectId: event.payload.projectId,
@@ -1082,6 +1300,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               defaultModelSelection: fallbackDefaultModelSelection,
               scripts: fallbackScripts,
               deletedAt: fallbackDeletedAt,
+              workspaceRoot: existingProjectWorkspaceRoot,
               updatedAt: event.payload.updatedAt,
             });
           }
@@ -1108,23 +1327,25 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingRow = yield* projectionProjectRepository.getById({
             projectId: event.payload.projectId,
           });
-          const existingProjectMetadataRow =
-            yield* deviceStateRepository.getByKey({
-              key: projectMetadataKey(event.payload.projectId),
-            });
-          if (Option.isSome(existingProjectMetadataRow)) {
-            const existingProjectMetadata = JSON.parse(
-              existingProjectMetadataRow.value.valueJson,
-            ) as {
-              readonly defaultModelSelection: unknown;
-              readonly scripts: ReadonlyArray<unknown>;
-            };
+          const existingProjectWorkspaceRoot = yield* resolveProjectWorkspaceRoot(
+            event.payload.projectId,
+          );
+          const existingProjectMetadata = yield* getProjectMetadata(
+            event.payload.projectId,
+          );
+          if (existingProjectMetadata !== null || Option.isSome(existingRow)) {
             yield* upsertProjectMetadata({
               projectId: event.payload.projectId,
               defaultModelSelection:
-                existingProjectMetadata.defaultModelSelection,
-              scripts: existingProjectMetadata.scripts,
+                existingProjectMetadata?.defaultModelSelection ??
+                (Option.isSome(existingRow)
+                  ? existingRow.value.defaultModelSelection
+                  : null),
+              scripts:
+                existingProjectMetadata?.scripts ??
+                (Option.isSome(existingRow) ? existingRow.value.scripts : []),
               deletedAt: event.payload.deletedAt,
+              workspaceRoot: existingProjectWorkspaceRoot,
               updatedAt: event.payload.deletedAt,
             });
           }
@@ -1156,13 +1377,28 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
   ) =>
     Effect.gen(function* () {
       switch (event.type) {
-        case "thread.created":
+        case "thread.created": {
+          const settings = yield* serverSettingsService.getSettings;
+          const projectWorkspaceRoot = yield* resolveProjectWorkspaceRoot(
+            event.payload.projectId,
+          );
+          if (event.payload.projectId !== null && projectWorkspaceRoot === null) {
+            throw new Error(
+              `Missing bound project workspace root for project '${event.payload.projectId}' during thread creation.`,
+            );
+          }
+          const threadWorkspaceRoot = resolveManagedPaperWorkspaceRoot({
+            containerRoot: settings.workspaceRoot,
+            projectWorkspaceRoot,
+            folderSlug: event.payload.folderSlug,
+          });
           attachmentSideEffects.workspaceOperations.push({
             type: "paper.create",
-            projectFolderSlug: yield* getProjectedProjectFolderSlug(
-              event.payload.projectId,
-            ),
-            folderSlug: event.payload.folderSlug,
+            containerRoot: settings.workspaceRoot,
+            paperWorkspaceRoot: threadWorkspaceRoot,
+            ...(projectWorkspaceRoot !== null
+              ? { projectWorkspaceRoot }
+              : { projectWorkspaceRoot: null }),
           });
           yield* upsertResearchChat({
             threadId: event.payload.threadId,
@@ -1185,6 +1421,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
             deletedAt: null,
+            workspaceRoot: threadWorkspaceRoot,
             updatedAt: event.payload.updatedAt,
           });
           yield* projectionThreadRepository.upsert({
@@ -1204,6 +1441,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
             deletedAt: null,
           });
           return;
+        }
 
         case "thread.project-set": {
           const existingRow = yield* projectionThreadRepository.getById({
@@ -1212,18 +1450,53 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingResearchChat = yield* getResearchChatRow(
             event.payload.threadId,
           );
-          const fromProjectFolderSlug = yield* getProjectedProjectFolderSlug(
-            existingResearchChat?.projectId ?? null,
-          );
-          const toProjectFolderSlug = yield* getProjectedProjectFolderSlug(
+          const settings = yield* serverSettingsService.getSettings;
+          const existingThreadWorkspaceRoot =
+            existingResearchChat === null
+              ? null
+              : (yield* resolveThreadWorkspaceRoot({
+                  projectId: existingResearchChat.projectId,
+                  threadId: existingResearchChat.threadId,
+                }));
+          const fromProjectWorkspaceRoot =
+            existingResearchChat === null
+              ? null
+              : (yield* resolveProjectWorkspaceRoot(existingResearchChat.projectId));
+          const toProjectWorkspaceRoot = yield* resolveProjectWorkspaceRoot(
             event.payload.projectId,
           );
+          if (event.payload.projectId !== null && toProjectWorkspaceRoot === null) {
+            throw new Error(
+              `Missing bound project workspace root for target project '${event.payload.projectId}' during paper move.`,
+            );
+          }
+          const nextThreadWorkspaceRoot =
+            existingResearchChat === null
+              ? null
+              : resolveManagedPaperWorkspaceRoot({
+                  containerRoot: settings.workspaceRoot,
+                  projectWorkspaceRoot: toProjectWorkspaceRoot,
+                  folderSlug: existingResearchChat.folderSlug,
+                });
           if (existingResearchChat !== null) {
+            if (existingThreadWorkspaceRoot === null || nextThreadWorkspaceRoot === null) {
+              throw new Error(
+                `Missing bound thread workspace root for thread '${event.payload.threadId}' during paper move.`,
+              );
+            }
+            const boundExistingThreadWorkspaceRoot = existingThreadWorkspaceRoot;
+            const boundNextThreadWorkspaceRoot = nextThreadWorkspaceRoot;
             attachmentSideEffects.workspaceOperations.push({
               type: "paper.move",
-              fromProjectFolderSlug,
-              toProjectFolderSlug,
-              folderSlug: existingResearchChat.folderSlug,
+              containerRoot: settings.workspaceRoot,
+              fromPaperWorkspaceRoot: boundExistingThreadWorkspaceRoot,
+              ...(fromProjectWorkspaceRoot !== null
+                ? { fromProjectWorkspaceRoot }
+                : { fromProjectWorkspaceRoot: null }),
+              toPaperWorkspaceRoot: boundNextThreadWorkspaceRoot,
+              ...(toProjectWorkspaceRoot !== null
+                ? { toProjectWorkspaceRoot }
+                : { toProjectWorkspaceRoot: null }),
             });
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
@@ -1238,6 +1511,25 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               event.payload.projectId,
               event.payload.threadId,
             );
+            const existingThreadMetadata = yield* getThreadMetadata(
+              event.payload.threadId,
+            );
+            if (existingThreadMetadata === null) {
+              throw new Error(
+                `Missing thread metadata for thread '${event.payload.threadId}' during paper move.`,
+              );
+            }
+            yield* upsertThreadMetadata({
+              threadId: event.payload.threadId,
+              modelSelection: existingThreadMetadata.modelSelection,
+              runtimeMode: existingThreadMetadata.runtimeMode,
+              interactionMode: existingThreadMetadata.interactionMode,
+              branch: existingThreadMetadata.branch,
+              worktreePath: existingThreadMetadata.worktreePath,
+              deletedAt: existingThreadMetadata.deletedAt,
+              workspaceRoot: boundNextThreadWorkspaceRoot,
+              updatedAt: event.payload.updatedAt,
+            });
           }
           if (Option.isNone(existingRow)) {
             return;
@@ -1257,18 +1549,52 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingResearchChat = yield* getResearchChatRow(
             event.payload.threadId,
           );
-          const fromProjectFolderSlug = yield* getProjectedProjectFolderSlug(
+          const settings = yield* serverSettingsService.getSettings;
+          const existingThreadWorkspaceRoot =
+            existingResearchChat === null
+              ? null
+              : (yield* resolveThreadWorkspaceRoot({
+                  projectId: event.payload.fromProjectId,
+                  threadId: existingResearchChat.threadId,
+                }));
+          const fromProjectWorkspaceRoot = yield* resolveProjectWorkspaceRoot(
             event.payload.fromProjectId,
           );
-          const toProjectFolderSlug = yield* getProjectedProjectFolderSlug(
+          const toProjectWorkspaceRoot = yield* resolveProjectWorkspaceRoot(
             event.payload.toProjectId,
           );
+          if (event.payload.toProjectId !== null && toProjectWorkspaceRoot === null) {
+            throw new Error(
+              `Missing bound project workspace root for target project '${event.payload.toProjectId}' during paper move.`,
+            );
+          }
+          const nextThreadWorkspaceRoot =
+            existingResearchChat === null
+              ? null
+              : resolveManagedPaperWorkspaceRoot({
+                  containerRoot: settings.workspaceRoot,
+                  projectWorkspaceRoot: toProjectWorkspaceRoot,
+                  folderSlug: existingResearchChat.folderSlug,
+                });
           if (existingResearchChat !== null) {
+            if (existingThreadWorkspaceRoot === null || nextThreadWorkspaceRoot === null) {
+              throw new Error(
+                `Missing bound thread workspace root for thread '${event.payload.threadId}' during paper move.`,
+              );
+            }
+            const boundExistingThreadWorkspaceRoot = existingThreadWorkspaceRoot;
+            const boundNextThreadWorkspaceRoot = nextThreadWorkspaceRoot;
             attachmentSideEffects.workspaceOperations.push({
               type: "paper.move",
-              fromProjectFolderSlug,
-              toProjectFolderSlug,
-              folderSlug: existingResearchChat.folderSlug,
+              containerRoot: settings.workspaceRoot,
+              fromPaperWorkspaceRoot: boundExistingThreadWorkspaceRoot,
+              ...(fromProjectWorkspaceRoot !== null
+                ? { fromProjectWorkspaceRoot }
+                : { fromProjectWorkspaceRoot: null }),
+              toPaperWorkspaceRoot: boundNextThreadWorkspaceRoot,
+              ...(toProjectWorkspaceRoot !== null
+                ? { toProjectWorkspaceRoot }
+                : { toProjectWorkspaceRoot: null }),
             });
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
@@ -1283,6 +1609,25 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               event.payload.toProjectId,
               event.payload.threadId,
             );
+            const existingThreadMetadata = yield* getThreadMetadata(
+              event.payload.threadId,
+            );
+            if (existingThreadMetadata === null) {
+              throw new Error(
+                `Missing thread metadata for thread '${event.payload.threadId}' during paper move.`,
+              );
+            }
+            yield* upsertThreadMetadata({
+              threadId: event.payload.threadId,
+              modelSelection: existingThreadMetadata.modelSelection,
+              runtimeMode: existingThreadMetadata.runtimeMode,
+              interactionMode: existingThreadMetadata.interactionMode,
+              branch: existingThreadMetadata.branch,
+              worktreePath: existingThreadMetadata.worktreePath,
+              deletedAt: existingThreadMetadata.deletedAt,
+              workspaceRoot: boundNextThreadWorkspaceRoot,
+              updatedAt: event.payload.updatedAt,
+            });
           }
           if (Option.isNone(existingRow)) {
             return;
@@ -1360,24 +1705,17 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingResearchChat = yield* getResearchChatRow(
             event.payload.threadId,
           );
-          const existingThreadMetadataRow =
-            yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
+          const existingThreadMetadata = yield* getThreadMetadata(
+            event.payload.threadId,
+          );
           if (
             existingResearchChat !== null &&
-            Option.isSome(existingThreadMetadataRow)
+            existingThreadMetadata !== null
           ) {
-            const existingThreadMetadata = JSON.parse(
-              existingThreadMetadataRow.value.valueJson,
-            ) as {
-              readonly modelSelection: unknown;
-              readonly runtimeMode: string;
-              readonly interactionMode: string;
-              readonly branch: string | null;
-              readonly worktreePath: string | null;
-              readonly deletedAt: string | null;
-            };
+            const existingThreadWorkspaceRoot = yield* resolveThreadWorkspaceRoot({
+              threadId: event.payload.threadId,
+              projectId: existingResearchChat.projectId,
+            });
             yield* upsertResearchChat({
               threadId: existingResearchChat.threadId,
               projectId: existingResearchChat.projectId,
@@ -1403,6 +1741,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
                   ? event.payload.worktreePath
                   : existingThreadMetadata.worktreePath,
               deletedAt: existingThreadMetadata.deletedAt,
+              workspaceRoot: existingThreadWorkspaceRoot,
               updatedAt: event.payload.updatedAt,
             });
           }
@@ -1432,20 +1771,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
-          const existingThreadMetadataRow =
-            yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
-          if (Option.isSome(existingThreadMetadataRow)) {
-            const existingThreadMetadata = JSON.parse(
-              existingThreadMetadataRow.value.valueJson,
-            ) as {
-              readonly modelSelection: unknown;
-              readonly interactionMode: string;
-              readonly branch: string | null;
-              readonly worktreePath: string | null;
-              readonly deletedAt: string | null;
-            };
+          const existingThreadMetadata = yield* getThreadMetadata(
+            event.payload.threadId,
+          );
+          if (existingThreadMetadata !== null) {
             yield* upsertThreadMetadata({
               threadId: event.payload.threadId,
               modelSelection: existingThreadMetadata.modelSelection,
@@ -1454,6 +1783,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               branch: existingThreadMetadata.branch,
               worktreePath: existingThreadMetadata.worktreePath,
               deletedAt: existingThreadMetadata.deletedAt,
+              workspaceRoot: existingThreadMetadata.workspaceRoot,
               updatedAt: event.payload.updatedAt,
             });
           }
@@ -1472,20 +1802,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
-          const existingThreadMetadataRow =
-            yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
-          if (Option.isSome(existingThreadMetadataRow)) {
-            const existingThreadMetadata = JSON.parse(
-              existingThreadMetadataRow.value.valueJson,
-            ) as {
-              readonly modelSelection: unknown;
-              readonly runtimeMode: string;
-              readonly branch: string | null;
-              readonly worktreePath: string | null;
-              readonly deletedAt: string | null;
-            };
+          const existingThreadMetadata = yield* getThreadMetadata(
+            event.payload.threadId,
+          );
+          if (existingThreadMetadata !== null) {
             yield* upsertThreadMetadata({
               threadId: event.payload.threadId,
               modelSelection: existingThreadMetadata.modelSelection,
@@ -1494,6 +1814,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               branch: existingThreadMetadata.branch,
               worktreePath: existingThreadMetadata.worktreePath,
               deletedAt: existingThreadMetadata.deletedAt,
+              workspaceRoot: existingThreadMetadata.workspaceRoot,
               updatedAt: event.payload.updatedAt,
             });
           }
@@ -1510,20 +1831,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
 
         case "thread.deleted": {
           attachmentSideEffects.deletedThreadIds.add(event.payload.threadId);
-          const existingThreadMetadataRow =
-            yield* deviceStateRepository.getByKey({
-              key: threadMetadataKey(event.payload.threadId),
-            });
-          if (Option.isSome(existingThreadMetadataRow)) {
-            const existingThreadMetadata = JSON.parse(
-              existingThreadMetadataRow.value.valueJson,
-            ) as {
-              readonly modelSelection: unknown;
-              readonly runtimeMode: string;
-              readonly interactionMode: string;
-              readonly branch: string | null;
-              readonly worktreePath: string | null;
-            };
+          const existingThreadMetadata = yield* getThreadMetadata(
+            event.payload.threadId,
+          );
+          if (existingThreadMetadata !== null) {
             yield* upsertThreadMetadata({
               threadId: event.payload.threadId,
               modelSelection: existingThreadMetadata.modelSelection,
@@ -1532,6 +1843,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
               branch: existingThreadMetadata.branch,
               worktreePath: existingThreadMetadata.worktreePath,
               deletedAt: event.payload.deletedAt,
+              workspaceRoot: existingThreadMetadata.workspaceRoot,
               updatedAt: event.payload.deletedAt,
             });
           }

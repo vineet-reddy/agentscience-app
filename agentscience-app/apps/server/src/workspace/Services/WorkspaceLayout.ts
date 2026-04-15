@@ -15,20 +15,21 @@ export interface WorkspaceLayoutShape {
   readonly ensureRoot: (
     workspaceRoot: string,
   ) => Effect.Effect<void, WorkspaceLayoutError>;
-  readonly createProjectFolder: (input: {
-    workspaceRoot: string;
-    folderSlug: string;
+  readonly ensureProjectWorkspace: (input: {
+    containerRoot: string;
+    projectWorkspaceRoot: string;
   }) => Effect.Effect<void, WorkspaceLayoutError>;
-  readonly createPaperFolder: (input: {
-    workspaceRoot: string;
-    projectFolderSlug: string | null;
-    folderSlug: string;
+  readonly ensurePaperWorkspace: (input: {
+    containerRoot: string;
+    paperWorkspaceRoot: string;
+    projectWorkspaceRoot?: string | null;
   }) => Effect.Effect<void, WorkspaceLayoutError>;
-  readonly movePaperFolder: (input: {
-    workspaceRoot: string;
-    fromProjectFolderSlug: string | null;
-    toProjectFolderSlug: string | null;
-    folderSlug: string;
+  readonly movePaperWorkspace: (input: {
+    containerRoot: string;
+    fromPaperWorkspaceRoot: string;
+    fromProjectWorkspaceRoot?: string | null;
+    toPaperWorkspaceRoot: string;
+    toProjectWorkspaceRoot?: string | null;
   }) => Effect.Effect<void, WorkspaceLayoutError>;
   readonly moveWorkspaceRoot: (input: {
     fromWorkspaceRoot: string;

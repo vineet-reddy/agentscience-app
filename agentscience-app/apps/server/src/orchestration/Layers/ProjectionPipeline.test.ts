@@ -2183,4 +2183,258 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           .pipe(Effect.ignore({ log: false }));
       }),
   );
+
+  it.effect("preserves a thread workspace binding across title renames", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const sql = yield* SqlClient.SqlClient;
+      const workspaceRoot = `/tmp/agentscience-thread-rename-${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}`;
+      const serverSettings = yield* ServerSettingsService;
+      const createdAt = new Date().toISOString();
+
+      yield* serverSettings.updateSettings({ workspaceRoot });
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-rename-project-create"),
+        projectId: ProjectId.makeUnsafe("project-rename"),
+        title: "Initial Project",
+        folderSlug: "initial-project",
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-rename-thread-create"),
+        threadId: ThreadId.makeUnsafe("thread-rename"),
+        projectId: ProjectId.makeUnsafe("project-rename"),
+        folderSlug: "initial-thread-slug",
+        title: "Initial Thread",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+
+      const rowsBeforeRename = yield* sql<{
+        readonly valueJson: string;
+      }>`
+        SELECT value_json AS "valueJson"
+        FROM device_state
+        WHERE key = 'local.thread.thread-rename'
+      `;
+      const workspaceRootBeforeRename = JSON.parse(rowsBeforeRename[0]?.valueJson ?? "{}")
+        .workspaceRoot;
+
+      yield* engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-rename-thread-title"),
+        threadId: ThreadId.makeUnsafe("thread-rename"),
+        title: "Final Paper Title",
+      });
+
+      const rowsAfterRename = yield* sql<{
+        readonly valueJson: string;
+      }>`
+        SELECT value_json AS "valueJson"
+        FROM device_state
+        WHERE key = 'local.thread.thread-rename'
+      `;
+      const metadataAfterRename = JSON.parse(rowsAfterRename[0]?.valueJson ?? "{}");
+
+      assert.equal(
+        workspaceRootBeforeRename,
+        `${workspaceRoot}/Projects/initial-project/papers/initial-thread-slug`,
+      );
+      assert.equal(metadataAfterRename.workspaceRoot, workspaceRootBeforeRename);
+    }),
+  );
+
+  it.effect("moves paper files into the target project workspace and updates metadata", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sql = yield* SqlClient.SqlClient;
+      const serverSettings = yield* ServerSettingsService;
+      const workspaceRoot = `/tmp/agentscience-paper-move-${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}`;
+      const createdAt = new Date().toISOString();
+
+      yield* serverSettings.updateSettings({ workspaceRoot });
+      yield* fileSystem
+        .remove(workspaceRoot, { recursive: true, force: true })
+        .pipe(Effect.ignore({ log: false }));
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-paper-move-project-a"),
+        projectId: ProjectId.makeUnsafe("project-a"),
+        title: "Project A",
+        folderSlug: "project-a",
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-paper-move-project-b"),
+        projectId: ProjectId.makeUnsafe("project-b"),
+        title: "Project B",
+        folderSlug: "project-b",
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-paper-move-thread-create"),
+        threadId: ThreadId.makeUnsafe("thread-paper"),
+        projectId: ProjectId.makeUnsafe("project-a"),
+        folderSlug: "paper-slug",
+        title: "Paper Title",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+
+      const originalPaperRoot = path.join(
+        workspaceRoot,
+        "Projects",
+        "project-a",
+        "papers",
+        "paper-slug",
+      );
+      const movedPaperRoot = path.join(
+        workspaceRoot,
+        "Projects",
+        "project-b",
+        "papers",
+        "paper-slug",
+      );
+
+      yield* fileSystem.writeFileString(
+        path.join(originalPaperRoot, "paper.md"),
+        "# bound paper\n",
+      );
+
+      yield* engine.dispatch({
+        type: "paper.move",
+        commandId: CommandId.makeUnsafe("cmd-paper-move"),
+        threadId: ThreadId.makeUnsafe("thread-paper"),
+        targetProjectId: ProjectId.makeUnsafe("project-b"),
+      });
+
+      assert.isTrue(yield* exists(path.join(movedPaperRoot, "paper.md")));
+      assert.isFalse(yield* exists(path.join(originalPaperRoot, "paper.md")));
+
+      const threadMetadataRows = yield* sql<{
+        readonly valueJson: string;
+      }>`
+        SELECT value_json AS "valueJson"
+        FROM device_state
+        WHERE key = 'local.thread.thread-paper'
+      `;
+      const threadMetadata = JSON.parse(threadMetadataRows[0]?.valueJson ?? "{}");
+      assert.equal(threadMetadata.workspaceRoot, movedPaperRoot);
+    }),
+  );
+
+  it.effect("fails closed when a target project binding is missing during paper move", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sql = yield* SqlClient.SqlClient;
+      const serverSettings = yield* ServerSettingsService;
+      const workspaceRoot = `/tmp/agentscience-paper-move-missing-binding-${Date.now()}-${Math.random()
+        .toString(16)
+        .slice(2)}`;
+      const createdAt = new Date().toISOString();
+
+      yield* serverSettings.updateSettings({ workspaceRoot });
+      yield* fileSystem
+        .remove(workspaceRoot, { recursive: true, force: true })
+        .pipe(Effect.ignore({ log: false }));
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-paper-move-missing-project-a"),
+        projectId: ProjectId.makeUnsafe("project-missing-a"),
+        title: "Project A",
+        folderSlug: "project-missing-a",
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-paper-move-missing-project-b"),
+        projectId: ProjectId.makeUnsafe("project-missing-b"),
+        title: "Project B",
+        folderSlug: "project-missing-b",
+        createdAt,
+      });
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-paper-move-missing-thread-create"),
+        threadId: ThreadId.makeUnsafe("thread-paper-missing"),
+        projectId: ProjectId.makeUnsafe("project-missing-a"),
+        folderSlug: "paper-slug",
+        title: "Paper Title",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+
+      const originalPaperRoot = path.join(
+        workspaceRoot,
+        "Projects",
+        "project-missing-a",
+        "papers",
+        "paper-slug",
+      );
+      const movedPaperRoot = path.join(
+        workspaceRoot,
+        "Projects",
+        "project-missing-b",
+        "papers",
+        "paper-slug",
+      );
+
+      yield* fileSystem.writeFileString(
+        path.join(originalPaperRoot, "paper.md"),
+        "# bound paper\n",
+      );
+      yield* sql`
+        DELETE FROM device_state
+        WHERE key = 'local.project.project-missing-b'
+      `;
+
+      const exit = yield* engine
+        .dispatch({
+          type: "paper.move",
+          commandId: CommandId.makeUnsafe("cmd-paper-move-missing-binding"),
+          threadId: ThreadId.makeUnsafe("thread-paper-missing"),
+          targetProjectId: ProjectId.makeUnsafe("project-missing-b"),
+        })
+        .pipe(Effect.exit);
+
+      assert.equal(exit._tag, "Failure");
+      assert.isTrue(yield* exists(path.join(originalPaperRoot, "paper.md")));
+      assert.isFalse(yield* exists(path.join(movedPaperRoot, "paper.md")));
+    }),
+  );
 });

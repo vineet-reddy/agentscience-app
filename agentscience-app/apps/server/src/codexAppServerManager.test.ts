@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ApprovalRequestId, ThreadId } from "@agentscience/contracts";
@@ -9,6 +9,7 @@ import {
   buildCodexAppServerEnv,
   buildCodexModeDeveloperInstructions,
   buildCodexInitializeParams,
+  buildCodexAppServerLaunchSpec,
   CodexAppServerManager,
   classifyCodexStderrLine,
   isRecoverableThreadResumeError,
@@ -29,6 +30,7 @@ function createSendTurnHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      cwd: "/tmp/workspace",
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
@@ -73,6 +75,7 @@ function createThreadControlHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      cwd: "/tmp/workspace",
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
@@ -106,6 +109,7 @@ function createPendingUserInputHarness() {
       threadId: "thread_1",
       runtimeMode: "full-access",
       model: "gpt-5.3-codex",
+      cwd: "/tmp/workspace",
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
@@ -398,6 +402,29 @@ describe("resolveCodexModelForAccount", () => {
 });
 
 describe("startSession", () => {
+  it("launches codex app-server directly and preserves the resolved workspace cwd", () => {
+    const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "agentscience-codex-launch-"));
+    const resolvedWorkspaceRoot = realpathSync(workspaceRoot);
+
+    try {
+      const launchSpec = buildCodexAppServerLaunchSpec({
+        binaryPath: "/opt/homebrew/bin/codex",
+        cwd: workspaceRoot,
+        homePath: "/Users/test/.codex",
+        platform: "darwin",
+        processEnv: {},
+      });
+
+      expect(launchSpec.command).toBe("/opt/homebrew/bin/codex");
+      expect(launchSpec.args).toEqual(["app-server"]);
+      expect(launchSpec.cwd).toBe(resolvedWorkspaceRoot);
+      expect(launchSpec.shell).toBe(false);
+      expect(launchSpec.env.CODEX_HOME).toBe("/Users/test/.codex");
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("enables Codex experimental api capabilities during initialize", () => {
     expect(buildCodexInitializeParams()).toEqual({
       clientInfo: {
@@ -411,7 +438,7 @@ describe("startSession", () => {
     });
   });
 
-  it("emits session/startFailed when resolving cwd throws before process launch", async () => {
+  it("emits session/startFailed when no bound cwd is provided", async () => {
     const manager = new CodexAppServerManager();
     const events: Array<{ method: string; kind: string; message?: string }> = [];
     manager.on("event", (event) => {
@@ -422,9 +449,6 @@ describe("startSession", () => {
       });
     });
 
-    const processCwd = vi.spyOn(process, "cwd").mockImplementation(() => {
-      throw new Error("cwd missing");
-    });
     try {
       await expect(
         manager.startSession({
@@ -433,15 +457,14 @@ describe("startSession", () => {
           binaryPath: "codex",
           runtimeMode: "full-access",
         }),
-      ).rejects.toThrow("cwd missing");
+      ).rejects.toThrow("Codex session requires a bound workspace cwd for thread 'thread-1'.");
       expect(events).toHaveLength(1);
       expect(events[0]).toEqual({
         method: "session/startFailed",
         kind: "error",
-        message: "cwd missing",
+        message: "Codex session requires a bound workspace cwd for thread 'thread-1'.",
       });
     } finally {
-      processCwd.mockRestore();
       manager.stopAll();
     }
   });
@@ -479,6 +502,7 @@ describe("startSession", () => {
         manager.startSession({
           threadId: asThreadId("thread-1"),
           provider: "codex",
+          cwd: "/tmp/workspace",
           binaryPath: "codex",
           runtimeMode: "full-access",
         }),
@@ -539,9 +563,17 @@ describe("sendTurn", () => {
           url: "data:image/png;base64,AAAA",
         },
       ],
+      cwd: "/tmp/workspace",
       model: "gpt-5.3-codex",
       serviceTier: "fast",
       effort: "high",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/tmp/workspace"],
+        networkAccess: false,
+        excludeSlashTmp: true,
+        excludeTmpdirEnvVar: true,
+      },
     });
     expect(updateSession).toHaveBeenCalledWith(context, {
       status: "running",
@@ -571,7 +603,15 @@ describe("sendTurn", () => {
           url: "data:image/png;base64,BBBB",
         },
       ],
+      cwd: "/tmp/workspace",
       model: "gpt-5.3-codex",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/tmp/workspace"],
+        networkAccess: false,
+        excludeSlashTmp: true,
+        excludeTmpdirEnvVar: true,
+      },
     });
   });
 
@@ -593,7 +633,15 @@ describe("sendTurn", () => {
           text_elements: [],
         },
       ],
+      cwd: "/tmp/workspace",
       model: "gpt-5.3-codex",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/tmp/workspace"],
+        networkAccess: false,
+        excludeSlashTmp: true,
+        excludeTmpdirEnvVar: true,
+      },
       collaborationMode: {
         mode: "plan",
         settings: {
@@ -623,7 +671,15 @@ describe("sendTurn", () => {
           text_elements: [],
         },
       ],
+      cwd: "/tmp/workspace",
       model: "gpt-5.3-codex",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/tmp/workspace"],
+        networkAccess: false,
+        excludeSlashTmp: true,
+        excludeTmpdirEnvVar: true,
+      },
       collaborationMode: {
         mode: "default",
         settings: {
@@ -691,7 +747,15 @@ describe("sendTurn", () => {
           text_elements: [],
         },
       ],
+      cwd: "/tmp/workspace",
       model: "gpt-5.2-codex",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/tmp/workspace"],
+        networkAccess: false,
+        excludeSlashTmp: true,
+        excludeTmpdirEnvVar: true,
+      },
       collaborationMode: {
         mode: "plan",
         settings: {

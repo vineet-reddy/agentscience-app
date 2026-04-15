@@ -236,11 +236,17 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
       const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
       const persistedModelSelection = readPersistedModelSelection(input.binding.runtimePayload);
+      if (!persistedCwd) {
+        return yield* toValidationError(
+          input.operation,
+          `Cannot recover thread '${input.binding.threadId}' because no bound workspace cwd is persisted.`,
+        );
+      }
 
       const resumed = yield* adapter.startSession({
         threadId: input.binding.threadId,
         provider: input.binding.provider,
-        ...(persistedCwd ? { cwd: persistedCwd } : {}),
+        cwd: persistedCwd,
         ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
         ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
         runtimeMode: input.binding.runtimeMode ?? "full-access",
@@ -310,6 +316,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         threadId,
         provider: parsed.provider ?? "codex",
       };
+      if (!input.cwd) {
+        return yield* toValidationError(
+          "ProviderService.startSession",
+          `Thread '${threadId}' requires a bound workspace cwd before starting a provider session.`,
+        );
+      }
       yield* Effect.annotateCurrentSpan({
         "provider.operation": "start-session",
         "provider.kind": input.provider,

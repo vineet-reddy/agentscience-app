@@ -166,6 +166,7 @@ export interface OrchestrationIntegrationHarness {
   readonly workspaceDir: string;
   readonly dbPath: string;
   readonly adapterHarness: TestProviderAdapterHarness | null;
+  readonly serverSettings: ServerSettingsService["Service"];
   readonly engine: OrchestrationEngineShape;
   readonly snapshotQuery: ProjectionSnapshotQuery["Service"];
   readonly providerService: ProviderService["Service"];
@@ -338,7 +339,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(orchestrationReactorLayer),
       Layer.provide(persistenceLayer),
-      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(serverSettingsLayer),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -346,6 +347,9 @@ export const makeOrchestrationIntegrationHarness = (
     const runtime = ManagedRuntime.make(layer);
     const engine = yield* tryRuntimePromise("load OrchestrationEngine service", () =>
       runtime.runPromise(Effect.service(OrchestrationEngineService)),
+    ).pipe(Effect.orDie);
+    const serverSettings = yield* tryRuntimePromise("load ServerSettings service", () =>
+      runtime.runPromise(Effect.service(ServerSettingsService)),
     ).pipe(Effect.orDie);
     const reactor = yield* tryRuntimePromise("load OrchestrationReactor service", () =>
       runtime.runPromise(Effect.service(OrchestrationReactor)),
@@ -504,6 +508,7 @@ export const makeOrchestrationIntegrationHarness = (
       workspaceDir,
       dbPath,
       adapterHarness,
+      serverSettings,
       engine,
       snapshotQuery,
       providerService,

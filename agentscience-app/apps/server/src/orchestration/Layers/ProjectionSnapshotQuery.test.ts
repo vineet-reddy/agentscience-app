@@ -59,12 +59,12 @@ describe("ProjectionSnapshotQuery", () => {
         INSERT INTO device_state (key, value_json, updated_at) VALUES
         (
           'local.project.project-1',
-          '{"defaultModelSelection":{"provider":"codex","model":"gpt-5-codex"},"scripts":[],"deletedAt":null}',
+          '{"defaultModelSelection":{"provider":"codex","model":"gpt-5-codex"},"scripts":[],"deletedAt":null,"workspaceRoot":"/tmp/AgentScience/Projects/project-1"}',
           '2026-02-24T00:00:01.000Z'
         ),
         (
           'local.thread.thread-1',
-          '{"modelSelection":{"provider":"codex","model":"gpt-5-codex"},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"deletedAt":null}',
+          '{"modelSelection":{"provider":"codex","model":"gpt-5-codex"},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"deletedAt":null,"workspaceRoot":"/tmp/AgentScience/Projects/project-1/papers/thread-1"}',
           '2026-02-24T00:00:03.000Z'
         )
       `;
@@ -162,12 +162,12 @@ describe("ProjectionSnapshotQuery", () => {
         INSERT INTO device_state (key, value_json, updated_at) VALUES
         (
           'local.project.project-ctx',
-          '{"defaultModelSelection":null,"scripts":[],"deletedAt":null}',
+          '{"defaultModelSelection":null,"scripts":[],"deletedAt":null,"workspaceRoot":"/tmp/AgentScience/Projects/canonical-project-root"}',
           '2026-02-25T00:00:01.000Z'
         ),
         (
           'local.thread.thread-ctx',
-          '{"modelSelection":{"provider":"codex","model":"gpt-5-codex"},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":"/tmp/context-worktree","deletedAt":null}',
+          '{"modelSelection":{"provider":"codex","model":"gpt-5-codex"},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":"/tmp/context-worktree","deletedAt":null,"workspaceRoot":"/tmp/AgentScience/Projects/canonical-project-root/papers/canonical-thread-root"}',
           '2026-02-25T00:00:03.000Z'
         )
       `;
@@ -204,15 +204,66 @@ describe("ProjectionSnapshotQuery", () => {
       expect(result.context.value).toEqual({
         threadId: ThreadId.makeUnsafe("thread-ctx"),
         projectId: ProjectId.makeUnsafe("project-ctx"),
-        resolvedWorkspacePath: "/tmp/AgentScience/Projects/context-project/papers/context-thread",
+        resolvedWorkspacePath:
+          "/tmp/AgentScience/Projects/canonical-project-root/papers/canonical-thread-root",
         worktreePath: "/tmp/context-worktree",
         checkpoints: [],
       });
     }
   });
 
-  it("falls back to research project rows when project metadata is missing", async () => {
+  it("prefers an explicit thread workspace root over folder slugs and titles", async () => {
     const snapshot = await Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO research_projects (
+          project_id, user_id, folder_slug, title, sharing_strategy, sync_state, created_at, updated_at
+        ) VALUES (
+          'project-rename', 'local-user', 'old-project-slug', 'Renamed Project', 'local_only', 'local_only',
+          '2026-02-27T00:00:00.000Z', '2026-02-27T00:00:01.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO research_chats (
+          chat_id, project_id, folder_slug, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+        ) VALUES (
+          'thread-rename', 'project-rename', 'old-thread-slug', 'local-user', 'Final Paper Title', 'local_only', 'local_only',
+          '2026-02-27T00:00:02.000Z', '2026-02-27T00:00:03.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO device_state (key, value_json, updated_at) VALUES
+        (
+          'local.project.project-rename',
+          '{"defaultModelSelection":null,"scripts":[],"deletedAt":null,"workspaceRoot":"/tmp/AgentScience/Projects/canonical-project-root"}',
+          '2026-02-27T00:00:01.000Z'
+        ),
+        (
+          'local.thread.thread-rename',
+          '{"modelSelection":{"provider":"codex","model":"gpt-5-codex"},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"deletedAt":null,"workspaceRoot":"/tmp/AgentScience/Projects/canonical-project-root/papers/canonical-paper-root"}',
+          '2026-02-27T00:00:03.000Z'
+        )
+      `;
+
+      return yield* snapshotQuery.getSnapshot();
+    }).pipe(Effect.provide(testLayer), Effect.runPromise);
+
+    expect(snapshot.threads).toEqual([
+      expect.objectContaining({
+        id: ThreadId.makeUnsafe("thread-rename"),
+        projectId: ProjectId.makeUnsafe("project-rename"),
+        folderSlug: "old-thread-slug",
+        title: "Final Paper Title",
+        resolvedWorkspacePath:
+          "/tmp/AgentScience/Projects/canonical-project-root/papers/canonical-paper-root",
+      }),
+    ]);
+  });
+
+  it("fails closed when workspace metadata is missing", async () => {
+    const result = await Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
 
@@ -243,10 +294,13 @@ describe("ProjectionSnapshotQuery", () => {
 
       return {
         snapshot: yield* snapshotQuery.getSnapshot(),
+        context: yield* snapshotQuery.getThreadCheckpointContext(
+          ThreadId.makeUnsafe("thread-fallback"),
+        ),
       };
     }).pipe(Effect.provide(testLayer), Effect.runPromise);
 
-    expect(snapshot.snapshot.projects).toEqual([
+    expect(result.snapshot.projects).toEqual([
       {
         id: ProjectId.makeUnsafe("project-fallback"),
         title: "Fallback Project",
@@ -258,5 +312,70 @@ describe("ProjectionSnapshotQuery", () => {
         deletedAt: null,
       },
     ]);
+    expect(result.snapshot.threads).toEqual([
+      expect.objectContaining({
+        id: ThreadId.makeUnsafe("thread-fallback"),
+        resolvedWorkspacePath: null,
+      }),
+    ]);
+    expect(Option.isSome(result.context)).toBe(true);
+    if (Option.isSome(result.context)) {
+      expect(result.context.value.resolvedWorkspacePath).toBeNull();
+    }
+  });
+
+  it("rejects workspace metadata outside the managed container layout", async () => {
+    const result = await Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO research_projects (
+          project_id, user_id, folder_slug, title, sharing_strategy, sync_state, created_at, updated_at
+        ) VALUES (
+          'project-invalid', 'local-user', 'invalid-project', 'Invalid Project', 'local_only', 'local_only',
+          '2026-02-28T00:00:00.000Z', '2026-02-28T00:00:01.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO research_chats (
+          chat_id, project_id, folder_slug, user_id, title, sharing_strategy, sync_state, created_at, updated_at
+        ) VALUES (
+          'thread-invalid', 'project-invalid', 'invalid-thread', 'local-user', 'Invalid Thread', 'local_only', 'local_only',
+          '2026-02-28T00:00:02.000Z', '2026-02-28T00:00:03.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO device_state (key, value_json, updated_at) VALUES
+        (
+          'local.project.project-invalid',
+          '{"defaultModelSelection":null,"scripts":[],"deletedAt":null,"workspaceRoot":"/tmp/rogue-project-root"}',
+          '2026-02-28T00:00:01.000Z'
+        ),
+        (
+          'local.thread.thread-invalid',
+          '{"modelSelection":{"provider":"codex","model":"gpt-5-codex"},"runtimeMode":"full-access","interactionMode":"default","branch":null,"worktreePath":null,"deletedAt":null,"workspaceRoot":"/tmp/rogue-project-root/papers/invalid-thread"}',
+          '2026-02-28T00:00:03.000Z'
+        )
+      `;
+
+      return {
+        snapshot: yield* snapshotQuery.getSnapshot(),
+        context: yield* snapshotQuery.getThreadCheckpointContext(
+          ThreadId.makeUnsafe("thread-invalid"),
+        ),
+      };
+    }).pipe(Effect.provide(testLayer), Effect.runPromise);
+
+    expect(result.snapshot.threads).toEqual([
+      expect.objectContaining({
+        id: ThreadId.makeUnsafe("thread-invalid"),
+        resolvedWorkspacePath: null,
+      }),
+    ]);
+    expect(Option.isSome(result.context)).toBe(true);
+    if (Option.isSome(result.context)) {
+      expect(result.context.value.resolvedWorkspacePath).toBeNull();
+    }
   });
 });

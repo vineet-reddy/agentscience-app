@@ -1,10 +1,10 @@
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { OrchestrationReadModel } from "@agentscience/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { DeviceStateRepository } from "../../persistence/Services/DeviceState.ts";
 import { TerminalManager } from "../../terminal/Services/Manager.ts";
 import { ProjectSetupScriptRunner } from "../Services/ProjectSetupScriptRunner.ts";
 import { ProjectSetupScriptRunnerLive } from "./ProjectSetupScriptRunner.ts";
@@ -34,6 +34,25 @@ const emptySnapshot = (
     latestTurnByThreadId: {},
   }) as unknown as OrchestrationReadModel;
 
+const deviceStateRepositoryLayer = (projectWorkspaceRoot: string) =>
+  Layer.succeed(DeviceStateRepository, {
+    upsert: () => Effect.die(new Error("unused")),
+    getByKey: ({ key }) =>
+      Effect.succeed(
+        key === "local.project.project-1"
+          ? Option.some({
+              key,
+              valueJson: JSON.stringify({
+                workspaceRoot: projectWorkspaceRoot,
+              }),
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            })
+          : Option.none(),
+      ),
+    listByPrefix: () => Effect.succeed([]),
+    deleteByKey: () => Effect.die(new Error("unused")),
+  } as typeof DeviceStateRepository.Service);
+
 describe("ProjectSetupScriptRunner", () => {
   it("returns no-script when no setup script exists", async () => {
     const open = vi.fn();
@@ -61,7 +80,7 @@ describe("ProjectSetupScriptRunner", () => {
                 subscribe: () => Effect.succeed(() => undefined),
               }),
             ),
-            Layer.provideMerge(ServerSettingsService.layerTest({ workspaceRoot: "/repo" })),
+            Layer.provideMerge(deviceStateRepositoryLayer("/repo/Projects/project")),
             Layer.provideMerge(NodeServices.layer),
           ),
         ),
@@ -131,7 +150,7 @@ describe("ProjectSetupScriptRunner", () => {
                 subscribe: () => Effect.succeed(() => undefined),
               }),
             ),
-            Layer.provideMerge(ServerSettingsService.layerTest({ workspaceRoot: "/repo" })),
+            Layer.provideMerge(deviceStateRepositoryLayer("/repo/Projects/project")),
             Layer.provideMerge(NodeServices.layer),
           ),
         ),
@@ -168,5 +187,65 @@ describe("ProjectSetupScriptRunner", () => {
       terminalId: "setup-setup",
       data: "bun install\r",
     });
+  });
+
+  it("rejects project cwd values that drift from the bound project workspace", async () => {
+    const open = vi.fn();
+    const write = vi.fn();
+    const runner = await Effect.runPromise(
+      Effect.service(ProjectSetupScriptRunner).pipe(
+        Effect.provide(
+          ProjectSetupScriptRunnerLive.pipe(
+            Layer.provideMerge(
+              Layer.succeed(OrchestrationEngineService, {
+                getReadModel: () =>
+                  Effect.succeed(
+                    emptySnapshot([
+                      {
+                        id: "setup",
+                        name: "Setup",
+                        command: "bun install",
+                        icon: "configure",
+                        runOnWorktreeCreate: true,
+                      },
+                    ]),
+                  ),
+                readEvents: () => Stream.empty,
+                dispatch: () => Effect.die(new Error("unused")),
+                streamDomainEvents: Stream.empty,
+              }),
+            ),
+            Layer.provideMerge(
+              Layer.succeed(TerminalManager, {
+                open,
+                write,
+                resize: () => Effect.void,
+                clear: () => Effect.void,
+                restart: () => Effect.die(new Error("unused")),
+                close: () => Effect.void,
+                subscribe: () => Effect.succeed(() => undefined),
+              }),
+            ),
+            Layer.provideMerge(deviceStateRepositoryLayer("/repo/Projects/project")),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+
+    await expect(
+      Effect.runPromise(
+        runner.runForThread({
+          threadId: "thread-1",
+          projectId: "project-1",
+          projectCwd: "/repo/Projects/other-project",
+          worktreePath: "/repo/worktrees/a",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Project setup script cwd '/repo/Projects/other-project' does not match bound project workspace '/repo/Projects/project'.",
+    );
+    expect(open).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
   });
 });
