@@ -31,6 +31,11 @@ import { RotatingFileSink } from "@agentscience/shared/logging";
 import { parsePersistedServerObservabilitySettings } from "@agentscience/shared/serverSettings";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveManagedCodexRuntime } from "./codexManagedRuntime";
+import {
+  resolveDefaultDesktopCodexHomePath,
+  resolveDesktopServerSettingsPath,
+  resolveDesktopStateDir,
+} from "./statePaths";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
@@ -62,10 +67,10 @@ const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const BASE_DIR = process.env.AGENTSCIENCE_HOME?.trim() || Path.join(OS.homedir(), ".agentscience");
-const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "agentscience";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const STATE_DIR = resolveDesktopStateDir(BASE_DIR, isDevelopment);
 const APP_DISPLAY_NAME = isDevelopment ? "AgentScience (Dev)" : "AgentScience";
 const APP_USER_MODEL_ID = "com.agentscience.app";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment
@@ -82,8 +87,11 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
-const SERVER_SETTINGS_PATH = Path.join(STATE_DIR, "settings.json");
-const DEFAULT_STANDALONE_CODEX_HOME_PATH = Path.join(STATE_DIR, "codex");
+const SERVER_SETTINGS_PATH = resolveDesktopServerSettingsPath(BASE_DIR, isDevelopment);
+const DEFAULT_STANDALONE_CODEX_HOME_PATH = resolveDefaultDesktopCodexHomePath(
+  BASE_DIR,
+  isDevelopment,
+);
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
@@ -147,28 +155,52 @@ function readPersistedBackendObservabilitySettings(): {
   }
 }
 
-function ensureDefaultDesktopServerSettings(): void {
+function readPersistedDesktopCodexHomePath(): string {
   try {
-    if (FS.existsSync(SERVER_SETTINGS_PATH)) {
-      return;
+    if (!FS.existsSync(SERVER_SETTINGS_PATH)) {
+      return DEFAULT_STANDALONE_CODEX_HOME_PATH;
     }
 
+    const parsed = JSON.parse(FS.readFileSync(SERVER_SETTINGS_PATH, "utf8")) as {
+      providers?: {
+        codex?: {
+          homePath?: unknown;
+        };
+      };
+    };
+    const configuredHomePath = parsed.providers?.codex?.homePath;
+    return typeof configuredHomePath === "string" && configuredHomePath.trim().length > 0
+      ? configuredHomePath.trim()
+      : DEFAULT_STANDALONE_CODEX_HOME_PATH;
+  } catch (error) {
+    console.warn("[desktop] failed to read persisted Codex home path", error);
+    return DEFAULT_STANDALONE_CODEX_HOME_PATH;
+  }
+}
+
+function ensureDefaultDesktopServerSettings(): void {
+  try {
     FS.mkdirSync(Path.dirname(SERVER_SETTINGS_PATH), { recursive: true });
-    FS.writeFileSync(
-      SERVER_SETTINGS_PATH,
-      `${JSON.stringify(
-        {
-          providers: {
-            codex: {
-              homePath: DEFAULT_STANDALONE_CODEX_HOME_PATH,
+
+    if (!FS.existsSync(SERVER_SETTINGS_PATH)) {
+      FS.writeFileSync(
+        SERVER_SETTINGS_PATH,
+        `${JSON.stringify(
+          {
+            providers: {
+              codex: {
+                homePath: DEFAULT_STANDALONE_CODEX_HOME_PATH,
+              },
             },
           },
-        },
-        null,
-        2,
-      )}\n`,
-      "utf8",
-    );
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+    }
+
+    FS.mkdirSync(readPersistedDesktopCodexHomePath(), { recursive: true });
   } catch (error) {
     console.warn("[desktop] failed to seed default server settings", error);
   }
