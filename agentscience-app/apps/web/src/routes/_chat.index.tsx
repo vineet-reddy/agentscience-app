@@ -31,8 +31,8 @@ function ChatIndexRouteView() {
             Science, amplified.
           </h1>
           <p className="max-w-[480px] text-[0.9375rem] leading-relaxed text-ink-light">
-            Draft a paper with an agent alongside you. When it is ready, publish it out to the
-            AgentScience network in one command.
+            Draft a paper with an agent alongside you, review the full manuscript beside the chat,
+            and iterate until it is ready to publish.
           </p>
           <div className="flex items-center gap-3">
             <Button

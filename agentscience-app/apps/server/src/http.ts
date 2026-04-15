@@ -20,6 +20,8 @@ import { resolveAttachmentPathById } from "./attachmentStore.ts";
 import { ServerConfig } from "./config.ts";
 import { decodeOtlpTraceRecords } from "./observability/TraceRecord.ts";
 import { BrowserTraceCollector } from "./observability/Services/BrowserTraceCollector.ts";
+import { PAPER_REVIEW_ROUTE_PREFIX, ThreadId } from "@agentscience/contracts";
+import { PaperReviewService } from "./paperReview.ts";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver.ts";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
@@ -179,6 +181,81 @@ export const projectFaviconRouteLayer = HttpRouter.add(
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
       ),
     );
+  }),
+);
+
+function decodePaperReviewSegments(rawPathname: string): string[] {
+  return rawPathname
+    .slice(PAPER_REVIEW_ROUTE_PREFIX.length)
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => decodeURIComponent(segment));
+}
+
+export const paperReviewSnapshotRouteLayer = HttpRouter.add(
+  "GET",
+  `${PAPER_REVIEW_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const segments = decodePaperReviewSegments(url.value.pathname);
+    const threadIdSegment = segments[0];
+    if (segments.length === 1 && threadIdSegment) {
+      const paperReview = yield* PaperReviewService;
+      const snapshot = yield* paperReview.getSnapshot(ThreadId.makeUnsafe(threadIdSegment));
+      return yield* HttpServerResponse.json(snapshot);
+    }
+
+    if (segments.length >= 3 && threadIdSegment && segments[1] === "files") {
+      const paperReview = yield* PaperReviewService;
+      const relativePath = segments.slice(2).join("/");
+      const filePath = yield* paperReview.resolveFilePath(
+        ThreadId.makeUnsafe(threadIdSegment),
+        relativePath,
+      );
+      if (!filePath) {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
+
+      return yield* HttpServerResponse.file(filePath, {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+        ),
+      );
+    }
+
+    return HttpServerResponse.text("Not Found", { status: 404 });
+  }),
+);
+
+export const paperReviewCompileRouteLayer = HttpRouter.add(
+  "POST",
+  `${PAPER_REVIEW_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const segments = decodePaperReviewSegments(url.value.pathname);
+    const threadIdSegment = segments[0];
+    if (segments.length === 2 && threadIdSegment && segments[1] === "compile") {
+      const paperReview = yield* PaperReviewService;
+      const snapshot = yield* paperReview.compile(ThreadId.makeUnsafe(threadIdSegment));
+      return yield* HttpServerResponse.json(snapshot);
+    }
+
+    return HttpServerResponse.text("Not Found", { status: 404 });
   }),
 );
 

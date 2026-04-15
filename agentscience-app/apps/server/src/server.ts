@@ -5,6 +5,8 @@ import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
   otlpTracesProxyRouteLayer,
+  paperReviewCompileRouteLayer,
+  paperReviewSnapshotRouteLayer,
   projectFaviconRouteLayer,
   staticAndDevRouteLayer,
 } from "./http";
@@ -54,6 +56,7 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
 import { AgentScienceRuntimeStatusLive } from "./agentScienceRuntimeStatus";
+import { PaperReviewServiceLive } from "./paperReview";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -140,6 +143,10 @@ const OrchestrationLayerLive = Layer.mergeAll(
   OrchestrationEngineLive.pipe(
     Layer.provide(OrchestrationInfrastructureLayerLive),
   ),
+);
+
+const PaperReviewLayerLive = PaperReviewServiceLive.pipe(
+  Layer.provide(OrchestrationLayerLive),
 );
 
 const CheckpointingLayerLive = Layer.empty.pipe(
@@ -229,10 +236,8 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
   Layer.provideMerge(ProviderLayerLive),
   Layer.provideMerge(TerminalLayerLive),
-  Layer.provideMerge(PersistenceLayerLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(CodexAuthLive.pipe(Layer.provide(CodexProviderLive))),
-  Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
 
@@ -241,15 +246,20 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
   Layer.provideMerge(AgentScienceRuntimeStatusLive),
+  Layer.provideMerge(PaperReviewLayerLive),
 );
 
 const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
   Layer.provideMerge(RuntimeDependenciesLive),
+  Layer.provideMerge(PersistenceLayerLive),
+  Layer.provideMerge(ServerSettingsLive),
 );
 
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
   otlpTracesProxyRouteLayer,
+  paperReviewSnapshotRouteLayer,
+  paperReviewCompileRouteLayer,
   projectFaviconRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,

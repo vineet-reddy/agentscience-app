@@ -319,6 +319,9 @@ const terminalContextIdListsEqual = (
 
 interface ChatViewProps {
   threadId: ThreadId;
+  paperReviewAvailable?: boolean;
+  paperReviewOpen?: boolean;
+  onTogglePaperReview?: () => void;
 }
 
 interface TerminalLaunchContext {
@@ -563,7 +566,12 @@ function PersistentThreadTerminalDrawer({
   );
 }
 
-export default function ChatView({ threadId }: ChatViewProps) {
+export default function ChatView({
+  threadId,
+  paperReviewAvailable = false,
+  paperReviewOpen = false,
+  onTogglePaperReview,
+}: ChatViewProps) {
   const serverThread = useThreadById(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
@@ -3916,6 +3924,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          paperReviewAvailable={paperReviewAvailable}
+          paperReviewOpen={paperReviewOpen}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -3924,6 +3934,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          onTogglePaperReview={onTogglePaperReview ?? (() => undefined)}
         />
       </header>
 

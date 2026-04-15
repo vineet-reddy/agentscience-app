@@ -8,6 +8,10 @@ import {
   GitCommandError,
   MessageId,
   OpenError,
+  type PaperReviewSnapshot,
+  paperReviewCompileRoutePath,
+  paperReviewFileRoutePath,
+  paperReviewSnapshotRoutePath,
   TerminalNotRunningError,
   type OrchestrationCommand,
   type OrchestrationEvent,
@@ -106,6 +110,10 @@ import {
   type AgentScienceRuntimeStatusShape,
   createInitialAgentScienceRuntimeStatus,
 } from "./agentScienceRuntimeStatus.ts";
+import {
+  PaperReviewService,
+  type PaperReviewServiceShape,
+} from "./paperReview.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -116,6 +124,35 @@ const defaultModelSelection = {
 const defaultAgentScienceRuntimeStatus = createInitialAgentScienceRuntimeStatus(
   "2026-04-15T08:00:00.000Z",
 );
+const makeDefaultPaperReviewSnapshot = (
+  overrides: Partial<PaperReviewSnapshot> = {},
+): PaperReviewSnapshot => ({
+  threadId: defaultThreadId,
+  threadTitle: "Default Thread",
+  workspaceRoot: null,
+  source: null,
+  pdf: null,
+  bibliography: null,
+  notes: null,
+  preview: {
+    kind: "empty",
+    relativePath: null,
+    url: null,
+    updatedAt: null,
+  },
+  compile: {
+    status: "unavailable",
+    compiler: "none",
+    compilerLabel: null,
+    canCompile: false,
+    needsBuild: false,
+    lastBuiltAt: null,
+    lastError: null,
+    outputExcerpt: null,
+  },
+  reviewRecommended: false,
+  ...overrides,
+});
 
 const makeDefaultOrchestrationReadModel = () => {
   const now = new Date().toISOString();
@@ -314,6 +351,7 @@ const buildAppUnderTest = (options?: {
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     agentScienceRuntimeStatus?: Partial<AgentScienceRuntimeStatusShape>;
+    paperReview?: Partial<PaperReviewServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -492,6 +530,14 @@ const buildAppUnderTest = (options?: {
           applyRecommendedActions: Effect.succeed(defaultAgentScienceRuntimeStatus),
           streamChanges: Stream.empty,
           ...options?.layers?.agentScienceRuntimeStatus,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(PaperReviewService)({
+          getSnapshot: () => Effect.succeed(makeDefaultPaperReviewSnapshot()),
+          compile: () => Effect.succeed(makeDefaultPaperReviewSnapshot()),
+          resolveFilePath: () => Effect.succeed(null),
+          ...options?.layers?.paperReview,
         }),
       ),
       Layer.provide(
@@ -680,6 +726,99 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
       assert.equal(response.status, 200);
       assert.equal(yield* response.text, "attachment-encoded-ok");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves paper review snapshots", () =>
+    Effect.gen(function* () {
+      const snapshot = makeDefaultPaperReviewSnapshot({
+        workspaceRoot: "/tmp/agentscience/thread-default",
+        reviewRecommended: true,
+        preview: {
+          kind: "markdown",
+          relativePath: "paper.md",
+          url: "/api/paper-review/thread-default/files/paper.md",
+          updatedAt: "2026-04-15T12:00:00.000Z",
+        },
+        compile: {
+          status: "idle",
+          compiler: "none",
+          compilerLabel: null,
+          canCompile: false,
+          needsBuild: false,
+          lastBuiltAt: null,
+          lastError: null,
+          outputExcerpt: null,
+        },
+      });
+
+      yield* buildAppUnderTest({
+        layers: {
+          paperReview: {
+            getSnapshot: () => Effect.succeed(snapshot),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.get(paperReviewSnapshotRoutePath(defaultThreadId));
+      assert.equal(response.status, 200);
+      assert.deepStrictEqual(yield* response.json, snapshot);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("triggers paper review compilation", () =>
+    Effect.gen(function* () {
+      const snapshot = makeDefaultPaperReviewSnapshot({
+        reviewRecommended: true,
+        compile: {
+          status: "ready",
+          compiler: "managed-pdflatex",
+          compilerLabel: "Bundled paper engine",
+          canCompile: true,
+          needsBuild: false,
+          lastBuiltAt: "2026-04-15T12:05:00.000Z",
+          lastError: null,
+          outputExcerpt: "Paper compiled successfully.",
+        },
+      });
+
+      yield* buildAppUnderTest({
+        layers: {
+          paperReview: {
+            compile: () => Effect.succeed(snapshot),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.post(paperReviewCompileRoutePath(defaultThreadId));
+      assert.equal(response.status, 200);
+      assert.deepStrictEqual(yield* response.json, snapshot);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves paper review files from the workspace", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "agentscience-router-paper-review-file-",
+      });
+      const manuscriptPath = path.join(workspaceRoot, "paper.md");
+      yield* fileSystem.writeFileString(manuscriptPath, "# Draft\n\nPaper review file route");
+
+      yield* buildAppUnderTest({
+        layers: {
+          paperReview: {
+            resolveFilePath: () => Effect.succeed(manuscriptPath),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.get(
+        paperReviewFileRoutePath(defaultThreadId, "paper.md"),
+      );
+      assert.equal(response.status, 200);
+      assert.equal(yield* response.text, "# Draft\n\nPaper review file route");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
