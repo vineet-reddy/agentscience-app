@@ -25,7 +25,7 @@ import { isElectron } from "../env";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
-import { cn, newCommandId, newProjectId } from "../lib/utils";
+import { cn, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { formatRelativeTimeLabel } from "../timestampFormat";
@@ -60,6 +60,9 @@ import {
 } from "./ui/sidebar";
 
 type SidebarThreadEntry = SidebarThreadEntryRecord<ThreadId, ProjectId | null>;
+
+const MAC_COMPACT_LOGO_URL = new URL("../../../../assets/logo-compact-v3.svg", import.meta.url)
+  .href;
 
 interface EditingState {
   kind: "project" | "thread";
@@ -471,17 +474,28 @@ export default function Sidebar() {
   const contextThread = contextMenu
     ? visibleThreadsById.get(contextMenu.threadId)
     : undefined;
+  const useCompactMacBranding = isElectron && isMacPlatform(navigator.platform);
 
   return (
     <>
       <SidebarHeader
         className={cn(
           "border-b border-sidebar-border px-4",
-          isElectron ? "drag-region h-[52px] py-0 pl-[86px]" : "h-[52px] py-0",
+          isElectron ? "drag-region h-[52px] py-0" : "h-[52px] py-0",
+          useCompactMacBranding && "pl-[74px]",
         )}
       >
         <div className="flex h-full min-w-0 w-full items-center gap-2 text-sidebar-foreground">
-          <BrandMark size={22} wordmarkClassName="text-[1rem]" />
+          {useCompactMacBranding ? (
+            <img
+              src={MAC_COMPACT_LOGO_URL}
+              alt="AgentScience"
+              className="pointer-events-none h-[26px] w-auto shrink-0 select-none"
+              draggable={false}
+            />
+          ) : (
+            <BrandMark size={22} wordmarkClassName="text-[1rem]" />
+          )}
         </div>
       </SidebarHeader>
 

@@ -1,7 +1,9 @@
 import type { ServerProvider } from "@agentscience/contracts";
 
 import { BrandMark } from "./BrandMark";
+import { isMacPlatform } from "../lib/utils";
 import { CodexAuthControls } from "./settings/CodexAuthControls";
+import { isElectron } from "../env";
 
 interface DesktopConnectionPortalProps {
   readonly provider: ServerProvider | undefined;
@@ -12,9 +14,16 @@ export function DesktopConnectionPortal({
   provider,
   onOpenAdvanced,
 }: DesktopConnectionPortalProps) {
+  const useMacTitlebarInset = isElectron && isMacPlatform(navigator.platform);
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-rule pl-[86px] pr-6">
+      <div
+        className={[
+          "drag-region flex h-[52px] shrink-0 items-center border-b border-rule pr-6",
+          useMacTitlebarInset ? "pl-[104px]" : "pl-6",
+        ].join(" ")}
+      >
         <BrandMark
           size={24}
           className="text-ink"
