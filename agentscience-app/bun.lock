@@ -16,7 +16,7 @@
     },
     "apps/desktop": {
       "name": "@agentscience/desktop",
-      "version": "0.0.19",
+      "version": "0.0.23",
       "dependencies": {
         "@openai/codex": "0.120.0",
         "effect": "catalog:",
@@ -34,7 +34,7 @@
     },
     "apps/server": {
       "name": "@agentscience/server",
-      "version": "0.0.19",
+      "version": "0.0.23",
       "bin": {
         "agentscience-server": "./dist/bin.mjs",
       },
@@ -63,7 +63,7 @@
     },
     "apps/web": {
       "name": "@agentscience/web",
-      "version": "0.0.19",
+      "version": "0.0.23",
       "dependencies": {
         "@agentscience/contracts": "workspace:*",
         "@agentscience/shared": "workspace:*",
@@ -115,7 +115,7 @@
     },
     "packages/contracts": {
       "name": "@agentscience/contracts",
-      "version": "0.0.19",
+      "version": "0.0.23",
       "dependencies": {
         "effect": "catalog:",
       },
