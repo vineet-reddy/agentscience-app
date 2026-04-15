@@ -276,6 +276,23 @@ describe("buildCodexAppServerEnv", () => {
   });
 });
 
+describe("buildCodexModeDeveloperInstructions", () => {
+  it("tells desktop turns not to rerun the startup runtime check or repeat the intro", () => {
+    for (const mode of ["default", "plan"] as const) {
+      const instructions = buildCodexModeDeveloperInstructions(mode);
+      expect(instructions).toContain(
+        "AgentScience desktop already performs the runtime/update health check at app startup.",
+      );
+      expect(instructions).toContain(
+        "Do not run `agentscience runtime status --json` automatically inside a thread",
+      );
+      expect(instructions).toContain(
+        'Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread.',
+      );
+    }
+  });
+});
+
 describe("mapCodexRuntimeMode", () => {
   it("keeps approval-required sessions in workspace-write sandbox", () => {
     expect(mapCodexRuntimeMode("approval-required")).toEqual({
@@ -725,6 +742,27 @@ describe("sendTurn", () => {
     expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain("./.venv");
     expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain(
       "Never run `pip install`",
+    );
+  });
+
+  it("injects desktop runtime-check overrides into collaboration instructions", async () => {
+    const { manager, sendRequest } = createSendTurnHarness();
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "hello",
+      interactionMode: "default",
+    });
+
+    const requestParams = sendRequest.mock.calls[0]?.[2] as {
+      collaborationMode?: { settings?: { developer_instructions?: string } };
+    };
+
+    expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain(
+      "Do not run `agentscience runtime status --json` automatically inside a thread",
+    );
+    expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain(
+      'Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread.',
     );
   });
 

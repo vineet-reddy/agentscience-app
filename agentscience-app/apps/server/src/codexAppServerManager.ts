@@ -300,6 +300,13 @@ Run Python and pip through that environment, for example \`./.venv/bin/python -m
 Never run \`pip install\`, \`python -m pip install\`, or \`pip install --user\` against the host interpreter, and never install Python packages globally.
 </python_environment>`;
 
+export const CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS = `<agentscience_desktop_app>
+AgentScience desktop already performs the runtime/update health check at app startup.
+
+- Do not run \`agentscience runtime status --json\` automatically inside a thread unless the user explicitly asks about runtime health or setup.
+- Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread. Start by helping with the user's actual message.
+</agentscience_desktop_app>`;
+
 const AGENTSCIENCE_PERSONALITY = loadPersonality();
 
 export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version;
@@ -311,7 +318,7 @@ export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): s
       ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
       : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
 
-  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${collaborationModeInstructions}`;
+  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${collaborationModeInstructions}`;
 }
 
 export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
