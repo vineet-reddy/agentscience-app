@@ -1,7 +1,16 @@
 import { ThreadId } from "@agentscience/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Suspense, lazy, type CSSProperties, type ReactNode, useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Suspense,
+  lazy,
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import ChatView from "../components/ChatView";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
@@ -30,7 +39,6 @@ const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
 const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
-const PAPER_REVIEW_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1320px)";
 const PAPER_REVIEW_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_paper_review_sidebar_width";
 const PAPER_REVIEW_INLINE_DEFAULT_WIDTH = "clamp(30rem,44vw,54rem)";
 const PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH = 28 * 16;
@@ -167,32 +175,6 @@ const DiffPanelInlineSidebar = (props: {
   );
 };
 
-const PaperReviewSheet = (props: {
-  reviewOpen: boolean;
-  onCloseReview: () => void;
-  threadId: ThreadId;
-}) => {
-  return (
-    <Sheet
-      open={props.reviewOpen}
-      onOpenChange={(open) => {
-        if (!open) {
-          props.onCloseReview();
-        }
-      }}
-    >
-      <SheetPopup
-        side="right"
-        showCloseButton={false}
-        keepMounted
-        className="w-[min(94vw,960px)] max-w-[960px] p-0"
-      >
-        <PaperReviewPanel threadId={props.threadId} />
-      </SheetPopup>
-    </Sheet>
-  );
-};
-
 const PaperReviewInlineSidebar = (props: {
   reviewOpen: boolean;
   onCloseReview: () => void;
@@ -223,7 +205,7 @@ const PaperReviewInlineSidebar = (props: {
       <Sidebar
         side="right"
         collapsible="offcanvas"
-        className="border-l border-border bg-card text-foreground"
+        className="border-l border-border bg-background text-foreground"
         resizable={{
           minWidth: PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH,
           storageKey: PAPER_REVIEW_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
@@ -238,6 +220,7 @@ const PaperReviewInlineSidebar = (props: {
 
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
@@ -249,20 +232,39 @@ function ChatThreadRouteView() {
   );
   const routeThreadExists = threadExists || draftThreadExists;
   const diffOpen = search.diff === "1";
-  const shouldUseReviewSheet = useMediaQuery(PAPER_REVIEW_INLINE_LAYOUT_MEDIA_QUERY);
+  const threadUpdatedAt = useStore(
+    (store) => store.threads.find((entry) => entry.id === threadId)?.updatedAt ?? null,
+  );
+  const latestPaperPresentedActivityId = useStore((store) => {
+    const thread = store.threads.find((entry) => entry.id === threadId);
+    if (!thread) {
+      return null;
+    }
+    for (let index = thread.activities.length - 1; index >= 0; index -= 1) {
+      const activity = thread.activities[index];
+      if (activity?.kind === "paper.presented") {
+        return activity.id;
+      }
+    }
+    return null;
+  });
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
   const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [hasOpenedReview, setHasOpenedReview] = useState(false);
   const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>({});
+  const lastHandledPaperPresentationByThreadIdRef = useRef<Record<string, string>>({});
+  const lastObservedThreadUpdatedAtByThreadIdRef = useRef<Record<string, string | null>>({});
   const paperReviewQuery = useQuery({
     queryKey: ["paper-review", threadId],
     queryFn: () => fetchPaperReviewSnapshot(threadId),
     enabled: routeThreadExists,
     refetchInterval: 5_000,
   });
-  const paperReviewAvailable = Boolean(paperReviewQuery.data?.reviewRecommended);
+  const paperReviewAvailable = Boolean(
+    paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId,
+  );
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY) || reviewOpen;
   const closeDiff = useCallback(() => {
     void navigate({
@@ -302,6 +304,41 @@ function ChatThreadRouteView() {
   }, [threadId]);
 
   useEffect(() => {
+    if (!latestPaperPresentedActivityId) {
+      return;
+    }
+    if (lastHandledPaperPresentationByThreadIdRef.current[threadId] === latestPaperPresentedActivityId) {
+      return;
+    }
+    lastHandledPaperPresentationByThreadIdRef.current[threadId] = latestPaperPresentedActivityId;
+    openReview();
+    void queryClient.invalidateQueries({ queryKey: ["paper-review", threadId] });
+  }, [latestPaperPresentedActivityId, openReview, queryClient, threadId]);
+
+  useEffect(() => {
+    const previousUpdatedAt = lastObservedThreadUpdatedAtByThreadIdRef.current[threadId];
+    lastObservedThreadUpdatedAtByThreadIdRef.current[threadId] = threadUpdatedAt;
+
+    if (
+      !reviewOpen ||
+      !paperReviewAvailable ||
+      !threadUpdatedAt ||
+      previousUpdatedAt === undefined ||
+      previousUpdatedAt === threadUpdatedAt
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: ["paper-review", threadId] });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [paperReviewAvailable, queryClient, reviewOpen, threadId, threadUpdatedAt]);
+
+  useEffect(() => {
     if (diffOpen) {
       setHasOpenedDiff(true);
     }
@@ -337,34 +374,6 @@ function ChatThreadRouteView() {
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
   const shouldRenderReviewContent = reviewOpen || hasOpenedReview;
 
-  if (!shouldUseDiffSheet && !shouldUseReviewSheet) {
-    return (
-      <>
-        <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-          <ChatView
-            threadId={threadId}
-            paperReviewAvailable={paperReviewAvailable}
-            paperReviewOpen={reviewOpen}
-            onTogglePaperReview={reviewOpen ? closeReview : openReview}
-          />
-        </SidebarInset>
-        <PaperReviewInlineSidebar
-          reviewOpen={reviewOpen}
-          onCloseReview={closeReview}
-          onOpenReview={openReview}
-          renderReviewContent={shouldRenderReviewContent}
-          threadId={threadId}
-        />
-        <DiffPanelInlineSidebar
-          diffOpen={diffOpen}
-          onCloseDiff={closeDiff}
-          onOpenDiff={openDiff}
-          renderDiffContent={shouldRenderDiffContent}
-        />
-      </>
-    );
-  }
-
   return (
     <>
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
@@ -375,10 +384,25 @@ function ChatThreadRouteView() {
           onTogglePaperReview={reviewOpen ? closeReview : openReview}
         />
       </SidebarInset>
-      <PaperReviewSheet reviewOpen={reviewOpen} onCloseReview={closeReview} threadId={threadId} />
-      <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
-        {shouldRenderDiffContent ? <LazyDiffPanel mode="sheet" /> : null}
-      </DiffPanelSheet>
+      <PaperReviewInlineSidebar
+        reviewOpen={reviewOpen}
+        onCloseReview={closeReview}
+        onOpenReview={openReview}
+        renderReviewContent={shouldRenderReviewContent}
+        threadId={threadId}
+      />
+      {shouldUseDiffSheet ? (
+        <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>
+          {shouldRenderDiffContent ? <LazyDiffPanel mode="sheet" /> : null}
+        </DiffPanelSheet>
+      ) : (
+        <DiffPanelInlineSidebar
+          diffOpen={diffOpen}
+          onCloseDiff={closeDiff}
+          onOpenDiff={openDiff}
+          renderDiffContent={shouldRenderDiffContent}
+        />
+      )}
     </>
   );
 }

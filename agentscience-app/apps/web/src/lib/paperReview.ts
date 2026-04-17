@@ -4,23 +4,57 @@ import {
   paperReviewSnapshotRoutePath,
   type ThreadId,
 } from "@agentscience/contracts";
+import { resolveServerUrl } from "./utils";
+
+function resolvePaperReviewRequestUrl(url: string): string {
+  return new URL(
+    url,
+    resolveServerUrl({
+      protocol: "http",
+      pathname: "/",
+    }),
+  ).toString();
+}
+
+function normalizeSnapshotUrls(snapshot: PaperReviewSnapshot): PaperReviewSnapshot {
+  return {
+    ...snapshot,
+    ...(snapshot.source ? { source: { ...snapshot.source, url: resolvePaperReviewRequestUrl(snapshot.source.url) } } : {}),
+    ...(snapshot.pdf ? { pdf: { ...snapshot.pdf, url: resolvePaperReviewRequestUrl(snapshot.pdf.url) } } : {}),
+    ...(snapshot.bibliography
+      ? {
+          bibliography: {
+            ...snapshot.bibliography,
+            url: resolvePaperReviewRequestUrl(snapshot.bibliography.url),
+          },
+        }
+      : {}),
+    ...(snapshot.notes ? { notes: { ...snapshot.notes, url: resolvePaperReviewRequestUrl(snapshot.notes.url) } } : {}),
+    preview: snapshot.preview.url
+      ? {
+          ...snapshot.preview,
+          url: resolvePaperReviewRequestUrl(snapshot.preview.url),
+        }
+      : snapshot.preview,
+  };
+}
 
 async function parsePaperReviewResponse(response: Response): Promise<PaperReviewSnapshot> {
   if (!response.ok) {
     throw new Error(`Paper review request failed with status ${response.status}.`);
   }
-  return (await response.json()) as PaperReviewSnapshot;
+  return normalizeSnapshotUrls((await response.json()) as PaperReviewSnapshot);
 }
 
 export async function fetchPaperReviewSnapshot(threadId: ThreadId): Promise<PaperReviewSnapshot> {
-  const response = await fetch(paperReviewSnapshotRoutePath(threadId), {
+  const response = await fetch(resolvePaperReviewRequestUrl(paperReviewSnapshotRoutePath(threadId)), {
     credentials: "same-origin",
   });
   return parsePaperReviewResponse(response);
 }
 
 export async function compilePaperReview(threadId: ThreadId): Promise<PaperReviewSnapshot> {
-  const response = await fetch(paperReviewCompileRoutePath(threadId), {
+  const response = await fetch(resolvePaperReviewRequestUrl(paperReviewCompileRoutePath(threadId)), {
     method: "POST",
     credentials: "same-origin",
   });
@@ -28,11 +62,21 @@ export async function compilePaperReview(threadId: ThreadId): Promise<PaperRevie
 }
 
 export async function fetchPaperReviewText(url: string): Promise<string> {
-  const response = await fetch(url, {
+  const response = await fetch(resolvePaperReviewRequestUrl(url), {
     credentials: "same-origin",
   });
   if (!response.ok) {
     throw new Error(`Paper source request failed with status ${response.status}.`);
   }
   return response.text();
+}
+
+export async function fetchPaperReviewBytes(url: string): Promise<Uint8Array> {
+  const response = await fetch(resolvePaperReviewRequestUrl(url), {
+    credentials: "same-origin",
+  });
+  if (!response.ok) {
+    throw new Error(`Paper file request failed with status ${response.status}.`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
 }

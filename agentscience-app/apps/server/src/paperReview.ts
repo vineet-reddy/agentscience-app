@@ -17,6 +17,11 @@ import { Effect, Layer, ServiceMap } from "effect";
 
 import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
 import { runProcess } from "./processRunner";
+import {
+  PAPER_PRESENTED_ACTIVITY_KIND,
+  parsePresentedManuscriptPayload,
+  type PresentedManuscriptManifest,
+} from "./paperPresentation.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import type { OrchestrationEngineShape } from "./orchestration/Services/OrchestrationEngine";
 
@@ -24,6 +29,11 @@ type ResolvedPaperReviewThread = {
   readonly id: ThreadId;
   readonly title: string;
   readonly workspaceRoot: string | null;
+  readonly activities: ReadonlyArray<{
+    readonly kind: string;
+    readonly payload: unknown;
+    readonly createdAt: string;
+  }>;
 };
 
 type ExistingArtifact = PaperReviewArtifact & {
@@ -226,6 +236,15 @@ async function statIfFile(absolutePath: string): Promise<{
   }
 }
 
+async function statIfDirectory(absolutePath: string): Promise<boolean> {
+  try {
+    const result = await fs.stat(absolutePath);
+    return result.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 async function readTopLevelEntries(workspaceRoot: string): Promise<string[]> {
   try {
     return await fs.readdir(workspaceRoot);
@@ -355,6 +374,299 @@ async function discoverPriorityArtifact(
   return null;
 }
 
+type WorkspaceArtifactSnapshot = {
+  readonly source: ExistingArtifact | null;
+  readonly pdf: ExistingArtifact | null;
+  readonly bibliography: ExistingArtifact | null;
+  readonly notes: ExistingArtifact | null;
+};
+
+async function discoverWorkspaceArtifacts(
+  threadId: ThreadId,
+  workspaceRoot: string,
+): Promise<WorkspaceArtifactSnapshot> {
+  const source = await discoverSourceArtifact(threadId, workspaceRoot);
+  const bibliography = await discoverPriorityArtifact(threadId, workspaceRoot, BIB_PRIORITY, {
+    kind: "bibliography",
+    label: "References",
+  });
+  const notes = await discoverPriorityArtifact(threadId, workspaceRoot, NOTES_PRIORITY, {
+    kind: "notes",
+    label: "Figure notes",
+  });
+  const pdf = await discoverPdfArtifact(threadId, workspaceRoot, source);
+
+  return {
+    source,
+    pdf,
+    bibliography,
+    notes,
+  };
+}
+
+function resolveDescendantPathWithinRoot(input: {
+  readonly root: string;
+  readonly candidate: string;
+  readonly allowRoot?: boolean;
+}): string | null {
+  const absolutePath = path.isAbsolute(input.candidate)
+    ? path.resolve(input.candidate)
+    : path.resolve(input.root, input.candidate);
+  const relativePath = path.relative(input.root, absolutePath).replaceAll("\\", "/");
+
+  if (relativePath.length === 0 || relativePath === ".") {
+    return input.allowRoot ? absolutePath : null;
+  }
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith("../") ||
+    path.isAbsolute(relativePath)
+  ) {
+    return null;
+  }
+
+  return absolutePath;
+}
+
+function relativePathWithinRoot(root: string, absolutePath: string): string | null {
+  return (
+    resolveDescendantPathWithinRoot({
+      root,
+      candidate: absolutePath,
+      allowRoot: false,
+    }) &&
+    path.relative(root, absolutePath).replaceAll("\\", "/")
+  );
+}
+
+async function toArtifactFromAbsolutePath(
+  threadId: ThreadId,
+  workspaceRoot: string,
+  absolutePath: string,
+  input: {
+    readonly kind: PaperReviewArtifact["kind"];
+    readonly label: string;
+  },
+): Promise<ExistingArtifact | null> {
+  const relativePath = relativePathWithinRoot(workspaceRoot, absolutePath);
+  if (!relativePath) {
+    return null;
+  }
+  const fileInfo = await statIfFile(absolutePath);
+  if (!fileInfo) {
+    return null;
+  }
+  return {
+    kind: input.kind,
+    label: input.label,
+    relativePath,
+    url: paperReviewFileRoutePath(threadId, relativePath),
+    sizeBytes: fileInfo.sizeBytes,
+    updatedAt: toIsoDateTime(fileInfo.updatedAtMs),
+    updatedAtMs: fileInfo.updatedAtMs,
+    absolutePath,
+    contentType: toContentType(relativePath),
+  };
+}
+
+function latestPresentedManuscript(
+  thread: ResolvedPaperReviewThread,
+): PresentedManuscriptManifest | null {
+  for (const activity of [...thread.activities].reverse()) {
+    if (activity.kind !== PAPER_PRESENTED_ACTIVITY_KIND) {
+      continue;
+    }
+    const presentation = parsePresentedManuscriptPayload(activity.payload);
+    if (presentation) {
+      return presentation;
+    }
+  }
+  return null;
+}
+
+function resolvePresentedArtifactPath(input: {
+  readonly threadWorkspaceRoot: string;
+  readonly workspaceRoot: string | null;
+  readonly presentedPath: string | undefined;
+}): string | null {
+  if (!input.presentedPath) {
+    return null;
+  }
+  const baseRoot = input.workspaceRoot ?? input.threadWorkspaceRoot;
+  return resolveDescendantPathWithinRoot({
+    root: baseRoot,
+    candidate: input.presentedPath,
+    allowRoot: false,
+  });
+}
+
+async function resolvePresentedWorkspaceRoot(input: {
+  readonly threadWorkspaceRoot: string;
+  readonly presentation: PresentedManuscriptManifest;
+}): Promise<string | null> {
+  const explicitWorkspaceRootCandidate = input.presentation.workspaceRoot
+    ? resolveDescendantPathWithinRoot({
+        root: input.threadWorkspaceRoot,
+        candidate: input.presentation.workspaceRoot,
+        allowRoot: true,
+      })
+    : null;
+  const explicitWorkspaceRoot =
+    explicitWorkspaceRootCandidate && (await statIfDirectory(explicitWorkspaceRootCandidate))
+      ? explicitWorkspaceRootCandidate
+      : null;
+  if (explicitWorkspaceRoot) {
+    return explicitWorkspaceRoot;
+  }
+
+  for (const presentedPath of [
+    input.presentation.source,
+    input.presentation.pdf,
+    input.presentation.bibliography,
+    input.presentation.notes,
+  ]) {
+    const absolutePath = resolvePresentedArtifactPath({
+      threadWorkspaceRoot: input.threadWorkspaceRoot,
+      workspaceRoot: explicitWorkspaceRoot,
+      presentedPath,
+    });
+    if (!absolutePath) {
+      continue;
+    }
+    const directory = path.dirname(absolutePath);
+    if (await statIfDirectory(directory)) {
+      return directory;
+    }
+  }
+
+  return null;
+}
+
+async function resolvePresentedWorkspaceArtifacts(input: {
+  readonly threadId: ThreadId;
+  readonly threadWorkspaceRoot: string;
+  readonly presentation: PresentedManuscriptManifest;
+}): Promise<
+  | {
+      readonly workspaceRoot: string;
+      readonly source: ExistingArtifact | null;
+      readonly pdf: ExistingArtifact | null;
+      readonly bibliography: ExistingArtifact | null;
+      readonly notes: ExistingArtifact | null;
+    }
+  | null
+> {
+  const workspaceRoot = await resolvePresentedWorkspaceRoot({
+    threadWorkspaceRoot: input.threadWorkspaceRoot,
+    presentation: input.presentation,
+  });
+  if (!workspaceRoot) {
+    return null;
+  }
+
+  const explicitSourcePath = resolvePresentedArtifactPath({
+    threadWorkspaceRoot: input.threadWorkspaceRoot,
+    workspaceRoot,
+    presentedPath: input.presentation.source,
+  });
+  const explicitPdfPath = resolvePresentedArtifactPath({
+    threadWorkspaceRoot: input.threadWorkspaceRoot,
+    workspaceRoot,
+    presentedPath: input.presentation.pdf,
+  });
+  const explicitBibliographyPath = resolvePresentedArtifactPath({
+    threadWorkspaceRoot: input.threadWorkspaceRoot,
+    workspaceRoot,
+    presentedPath: input.presentation.bibliography,
+  });
+  const explicitNotesPath = resolvePresentedArtifactPath({
+    threadWorkspaceRoot: input.threadWorkspaceRoot,
+    workspaceRoot,
+    presentedPath: input.presentation.notes,
+  });
+
+  const source =
+    (explicitSourcePath
+      ? await toArtifactFromAbsolutePath(input.threadId, workspaceRoot, explicitSourcePath, {
+          kind: explicitSourcePath.toLowerCase().endsWith(".md") ? "markdown" : "latex",
+          label: "Manuscript",
+        })
+      : null) ?? (await discoverSourceArtifact(input.threadId, workspaceRoot));
+  const bibliography =
+    (explicitBibliographyPath
+      ? await toArtifactFromAbsolutePath(input.threadId, workspaceRoot, explicitBibliographyPath, {
+          kind: "bibliography",
+          label: "References",
+        })
+      : null) ??
+    (await discoverPriorityArtifact(input.threadId, workspaceRoot, BIB_PRIORITY, {
+      kind: "bibliography",
+      label: "References",
+    }));
+  const notes =
+    (explicitNotesPath
+      ? await toArtifactFromAbsolutePath(input.threadId, workspaceRoot, explicitNotesPath, {
+          kind: "notes",
+          label: "Figure notes",
+        })
+      : null) ??
+    (await discoverPriorityArtifact(input.threadId, workspaceRoot, NOTES_PRIORITY, {
+      kind: "notes",
+      label: "Figure notes",
+    }));
+  const pdf =
+    (explicitPdfPath
+      ? await toArtifactFromAbsolutePath(input.threadId, workspaceRoot, explicitPdfPath, {
+          kind: "pdf",
+          label: "Preview PDF",
+        })
+      : null) ?? (await discoverPdfArtifact(input.threadId, workspaceRoot, source));
+
+  if (!source && !pdf) {
+    return null;
+  }
+
+  return {
+    workspaceRoot,
+    source,
+    pdf,
+    bibliography,
+    notes,
+  };
+}
+
+async function candidateManuscriptWorkspaceRoots(
+  threadWorkspaceRoot: string,
+): Promise<readonly string[]> {
+  const nestedWorkspaceRoot = path.join(threadWorkspaceRoot, "workspace");
+  const nestedManuscriptRoot = path.join(threadWorkspaceRoot, "manuscript");
+  return unique(
+    [
+      (await statIfDirectory(nestedWorkspaceRoot)) ? nestedWorkspaceRoot : "",
+      (await statIfDirectory(nestedManuscriptRoot)) ? nestedManuscriptRoot : "",
+      threadWorkspaceRoot,
+    ].filter((candidate) => candidate.length > 0),
+  );
+}
+
+async function resolveManuscriptWorkspaceRoot(
+  input: {
+    readonly threadId: ThreadId;
+    readonly threadWorkspaceRoot: string;
+  },
+): Promise<string> {
+  for (const candidateWorkspaceRoot of await candidateManuscriptWorkspaceRoots(
+    input.threadWorkspaceRoot,
+  )) {
+    const candidateArtifacts = await discoverWorkspaceArtifacts(input.threadId, candidateWorkspaceRoot);
+    if (candidateArtifacts.source || candidateArtifacts.pdf) {
+      return candidateWorkspaceRoot;
+    }
+  }
+
+  return input.threadWorkspaceRoot;
+}
+
 async function newestFigureInputTime(workspaceRoot: string): Promise<number | null> {
   const figuresRoot = path.join(workspaceRoot, FIGURES_DIRNAME);
   const queue = [figuresRoot];
@@ -416,14 +728,8 @@ async function newestSourceDependencyTime(input: {
 function previewForState(input: {
   readonly source: ExistingArtifact | null;
   readonly pdf: ExistingArtifact | null;
-  readonly needsBuild: boolean;
-  readonly compileStatus: PaperReviewCompileState["status"];
 }): PaperReviewPreview {
-  if (
-    input.pdf &&
-    (!input.needsBuild || input.compileStatus === "ready") &&
-    input.compileStatus !== "error"
-  ) {
+  if (input.pdf) {
     return {
       kind: "pdf",
       relativePath: input.pdf.relativePath,
@@ -463,6 +769,11 @@ async function resolveThread(
     id: thread.id,
     title: thread.title,
     workspaceRoot: resolveThreadWorkspaceCwd({ thread }) ?? null,
+    activities: thread.activities.map((activity) => ({
+      kind: activity.kind,
+      payload: activity.payload,
+      createdAt: activity.createdAt,
+    })),
   };
 }
 
@@ -496,18 +807,44 @@ async function inspectThreadWorkspace(
     };
   }
 
-  const source = await discoverSourceArtifact(thread.id, thread.workspaceRoot);
-  const bibliography = await discoverPriorityArtifact(thread.id, thread.workspaceRoot, BIB_PRIORITY, {
-    kind: "bibliography",
-    label: "References",
-  });
-  const notes = await discoverPriorityArtifact(thread.id, thread.workspaceRoot, NOTES_PRIORITY, {
-    kind: "notes",
-    label: "Figure notes",
-  });
-  const pdf = await discoverPdfArtifact(thread.id, thread.workspaceRoot, source);
+  const presentedWorkspace = (() => {
+    const presentation = latestPresentedManuscript(thread);
+    if (!presentation) {
+      return null;
+    }
+    return resolvePresentedWorkspaceArtifacts({
+      threadId: thread.id,
+      threadWorkspaceRoot: thread.workspaceRoot,
+      presentation,
+    });
+  })();
+  const resolvedPresentedWorkspace = presentedWorkspace ? await presentedWorkspace : null;
+  const manuscriptWorkspaceRoot =
+    resolvedPresentedWorkspace?.workspaceRoot ??
+    (await resolveManuscriptWorkspaceRoot({
+      threadId: thread.id,
+      threadWorkspaceRoot: thread.workspaceRoot,
+    }));
+
+  const source =
+    resolvedPresentedWorkspace?.source ?? (await discoverSourceArtifact(thread.id, manuscriptWorkspaceRoot));
+  const bibliography =
+    resolvedPresentedWorkspace?.bibliography ??
+    (await discoverPriorityArtifact(thread.id, manuscriptWorkspaceRoot, BIB_PRIORITY, {
+      kind: "bibliography",
+      label: "References",
+    }));
+  const notes =
+    resolvedPresentedWorkspace?.notes ??
+    (await discoverPriorityArtifact(thread.id, manuscriptWorkspaceRoot, NOTES_PRIORITY, {
+      kind: "notes",
+      label: "Figure notes",
+    }));
+  const pdf =
+    resolvedPresentedWorkspace?.pdf ??
+    (await discoverPdfArtifact(thread.id, manuscriptWorkspaceRoot, source));
   const dependencyTime = await newestSourceDependencyTime({
-    workspaceRoot: thread.workspaceRoot,
+    workspaceRoot: manuscriptWorkspaceRoot,
     source,
     bibliography,
     notes,
@@ -555,7 +892,7 @@ async function inspectThreadWorkspace(
   return {
     threadId: thread.id,
     threadTitle: thread.title,
-    workspaceRoot: thread.workspaceRoot,
+    workspaceRoot: manuscriptWorkspaceRoot,
     source,
     pdf,
     bibliography,
@@ -563,8 +900,6 @@ async function inspectThreadWorkspace(
     preview: previewForState({
       source,
       pdf,
-      needsBuild: Boolean(needsBuild),
-      compileStatus: compile.status,
     }),
     compile,
     reviewRecommended: Boolean(source || pdf),
@@ -583,8 +918,8 @@ function compileEnv(pathDir: string | undefined): NodeJS.ProcessEnv | undefined 
 
 async function runLatexBuild(input: {
   readonly workspaceRoot: string;
-  readonly source: ExistingArtifact;
-  readonly bibliography: ExistingArtifact | null;
+  readonly source: PaperReviewArtifact;
+  readonly bibliography: PaperReviewArtifact | null;
   readonly compiler: ResolvedCompiler & { kind: Exclude<PaperReviewCompilerKind, "none"> };
 }): Promise<{ outputExcerpt: string | null }> {
   const env = compileEnv(input.compiler.pathDir);
@@ -665,6 +1000,81 @@ const makePaperReviewService = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const compileSessions = new Map<string, CompileSessionState>();
 
+  const startCompile = async (input: {
+    readonly thread: ResolvedPaperReviewThread;
+    readonly snapshot: PaperReviewSnapshot;
+    readonly force: boolean;
+    readonly awaitBuild: boolean;
+  }): Promise<boolean> => {
+    const { snapshot, thread } = input;
+    if (!thread.workspaceRoot || !snapshot.workspaceRoot) {
+      return false;
+    }
+    if (!snapshot.source || snapshot.source.kind !== "latex") {
+      return false;
+    }
+    if (!snapshot.compile.canCompile || snapshot.compile.compiler === "none") {
+      return false;
+    }
+    if (!input.force && snapshot.compile.status !== "idle") {
+      return false;
+    }
+    if (!input.force && !snapshot.compile.needsBuild) {
+      return false;
+    }
+
+    const compiler = resolveCompiler();
+    if (compiler.kind === "none") {
+      return false;
+    }
+
+    const state = nextCompileState(compileSessions.get(thread.id));
+    if (state.inFlightBuild) {
+      if (input.awaitBuild) {
+        await state.inFlightBuild;
+      }
+      return true;
+    }
+
+    state.status = "compiling";
+    state.lastError = null;
+    state.outputExcerpt = null;
+
+    const buildPromise = runLatexBuild({
+      workspaceRoot: snapshot.workspaceRoot,
+      source: snapshot.source,
+      bibliography: snapshot.bibliography,
+      compiler,
+    })
+      .then((result) => {
+        state.status = "ready";
+        state.lastBuiltAt = new Date().toISOString();
+        state.lastError = null;
+        state.outputExcerpt = result.outputExcerpt;
+      })
+      .catch((error: unknown) => {
+        state.status = "error";
+        state.lastBuiltAt = new Date().toISOString();
+        state.lastError =
+          error instanceof Error ? error.message : "Paper build failed unexpectedly.";
+        state.outputExcerpt = trimExcerpt(
+          `${state.outputExcerpt ?? ""}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+        );
+      })
+      .finally(() => {
+        state.inFlightBuild = null;
+      });
+
+    state.inFlightBuild = buildPromise;
+    compileSessions.set(thread.id, state);
+
+    if (input.awaitBuild) {
+      await buildPromise;
+    }
+
+    return true;
+  };
+
   const inspect = async (threadId: ThreadId): Promise<PaperReviewSnapshot> => {
     const thread = await resolveThread(orchestrationEngine, threadId);
     if (!thread) {
@@ -690,7 +1100,27 @@ const makePaperReviewService = Effect.gen(function* () {
         reviewRecommended: false,
       };
     }
-    return inspectThreadWorkspace(thread, compileSessions.get(threadId) ?? null);
+
+    const snapshot = await inspectThreadWorkspace(thread, compileSessions.get(threadId) ?? null);
+    const startedCompile = await startCompile({
+      thread,
+      snapshot,
+      force: false,
+      awaitBuild: false,
+    });
+
+    if (!startedCompile || snapshot.compile.status !== "idle") {
+      return snapshot;
+    }
+
+    return {
+      ...snapshot,
+      compile: {
+        ...snapshot.compile,
+        status: "compiling",
+        lastError: null,
+      },
+    };
   };
 
   const getSnapshot: PaperReviewServiceShape["getSnapshot"] = (threadId) =>
@@ -704,69 +1134,15 @@ const makePaperReviewService = Effect.gen(function* () {
       }
 
       const initialSnapshot = await inspectThreadWorkspace(thread, compileSessions.get(threadId) ?? null);
-      if (!initialSnapshot.source || initialSnapshot.source.kind !== "latex") {
+      const startedCompile = await startCompile({
+        thread,
+        snapshot: initialSnapshot,
+        force: true,
+        awaitBuild: true,
+      });
+      if (!startedCompile) {
         return initialSnapshot;
       }
-      if (!initialSnapshot.compile.canCompile || initialSnapshot.compile.compiler === "none") {
-        return initialSnapshot;
-      }
-
-      const compiler = resolveCompiler();
-      if (compiler.kind === "none") {
-        return initialSnapshot;
-      }
-
-      const source = await discoverSourceArtifact(thread.id, thread.workspaceRoot);
-      if (!source || source.kind !== "latex") {
-        return initialSnapshot;
-      }
-      const bibliography = await discoverPriorityArtifact(
-        thread.id,
-        thread.workspaceRoot,
-        BIB_PRIORITY,
-        {
-          kind: "bibliography",
-          label: "References",
-        },
-      );
-
-      const state = nextCompileState(compileSessions.get(threadId));
-      if (state.inFlightBuild) {
-        await state.inFlightBuild;
-        return inspect(threadId);
-      }
-
-      state.status = "compiling";
-      state.lastError = null;
-      state.outputExcerpt = null;
-      const buildPromise = runLatexBuild({
-        workspaceRoot: thread.workspaceRoot,
-        source,
-        bibliography,
-        compiler,
-      })
-        .then((result) => {
-          state.status = "ready";
-          state.lastBuiltAt = new Date().toISOString();
-          state.lastError = null;
-          state.outputExcerpt = result.outputExcerpt;
-        })
-        .catch((error: unknown) => {
-          state.status = "error";
-          state.lastBuiltAt = new Date().toISOString();
-          state.lastError =
-            error instanceof Error ? error.message : "Paper build failed unexpectedly.";
-          state.outputExcerpt = trimExcerpt(
-            `${state.outputExcerpt ?? ""}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`,
-          );
-        })
-        .finally(() => {
-          state.inFlightBuild = null;
-        });
-
-      state.inFlightBuild = buildPromise;
-      compileSessions.set(threadId, state);
-      await buildPromise;
       return inspect(threadId);
     });
 
@@ -776,6 +1152,20 @@ const makePaperReviewService = Effect.gen(function* () {
       if (!thread?.workspaceRoot) {
         return null;
       }
+      const presentation = latestPresentedManuscript(thread);
+      const presentedWorkspace = presentation
+        ? await resolvePresentedWorkspaceArtifacts({
+            threadId: thread.id,
+            threadWorkspaceRoot: thread.workspaceRoot,
+            presentation,
+          })
+        : null;
+      const manuscriptWorkspaceRoot =
+        presentedWorkspace?.workspaceRoot ??
+        (await resolveManuscriptWorkspaceRoot({
+          threadId: thread.id,
+          threadWorkspaceRoot: thread.workspaceRoot,
+        }));
 
       const normalized = path.posix.normalize(relativePath.trim().replaceAll("\\", "/"));
       if (
@@ -787,8 +1177,10 @@ const makePaperReviewService = Effect.gen(function* () {
         return null;
       }
 
-      const absolutePath = path.resolve(thread.workspaceRoot, normalized);
-      const relativeToRoot = path.relative(thread.workspaceRoot, absolutePath).replaceAll("\\", "/");
+      const absolutePath = path.resolve(manuscriptWorkspaceRoot, normalized);
+      const relativeToRoot = path
+        .relative(manuscriptWorkspaceRoot, absolutePath)
+        .replaceAll("\\", "/");
       if (
         relativeToRoot.length === 0 ||
         relativeToRoot === "." ||
