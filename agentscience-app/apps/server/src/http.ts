@@ -28,8 +28,11 @@ const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const DATASET_REGISTRY_PROXY_PATH = "/api/datasets/registry";
+const DATASET_REGISTRY_PROVIDERS_PROXY_PATH = "/api/datasets/registry/providers";
 const DATASET_REGISTRY_DEFAULT_LIMIT = 500;
 const DATASET_REGISTRY_MAX_LIMIT = 500;
+const DATASET_PROVIDERS_DEFAULT_LIMIT = 100;
+const DATASET_PROVIDERS_MAX_LIMIT = 200;
 
 class DecodeOtlpTraceRecordsError extends Data.TaggedError("DecodeOtlpTraceRecordsError")<{
   readonly cause: unknown;
@@ -37,6 +40,11 @@ class DecodeOtlpTraceRecordsError extends Data.TaggedError("DecodeOtlpTraceRecor
 }> {}
 
 class DatasetRegistryProxyError extends Data.TaggedError("DatasetRegistryProxyError")<{
+  readonly cause: unknown;
+  readonly upstreamUrl: string;
+}> {}
+
+class DatasetProvidersProxyError extends Data.TaggedError("DatasetProvidersProxyError")<{
   readonly cause: unknown;
   readonly upstreamUrl: string;
 }> {}
@@ -251,6 +259,31 @@ async function loadDatasetRegistryPayload(input: {
   return enrichDatasetRegistryPayload(payload, input.baseUrl, paperById);
 }
 
+async function loadDatasetProvidersPayload(input: {
+  baseUrl: string;
+  query: string | undefined;
+  limit: number;
+}): Promise<unknown> {
+  const providersUrl = new URL("/api/v1/registry/providers", input.baseUrl);
+  if (input.query) {
+    providersUrl.searchParams.set("q", input.query);
+  }
+  providersUrl.searchParams.set("limit", String(input.limit));
+
+  const response = await fetch(providersUrl.toString(), {
+    headers: {
+      accept: "application/json",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Dataset providers request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return response.json();
+}
+
 export const otlpTracesProxyRouteLayer = HttpRouter.add(
   "POST",
   OTLP_TRACES_PROXY_PATH,
@@ -397,6 +430,72 @@ export const projectFaviconRouteLayer = HttpRouter.add(
     }).pipe(
       Effect.catch(() =>
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+      ),
+    );
+  }),
+);
+
+export const datasetProvidersRouteLayer = HttpRouter.add(
+  "GET",
+  DATASET_REGISTRY_PROVIDERS_PROXY_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const config = yield* ServerConfig;
+    const upstreamUrl = new URL("/api/v1/registry/providers", config.agentScienceBaseUrl);
+    const query = url.value.searchParams.get("q")?.trim();
+    const limit = parsePositiveInt(
+      url.value.searchParams.get("limit"),
+      DATASET_PROVIDERS_DEFAULT_LIMIT,
+      DATASET_PROVIDERS_MAX_LIMIT,
+    );
+
+    if (query) {
+      upstreamUrl.searchParams.set("q", query);
+    }
+    upstreamUrl.searchParams.set("limit", String(limit));
+
+    return yield* Effect.tryPromise({
+      try: () =>
+        loadDatasetProvidersPayload({
+          baseUrl: config.agentScienceBaseUrl,
+          query: query || undefined,
+          limit,
+        }),
+      catch: (cause) =>
+        new DatasetProvidersProxyError({
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+    }).pipe(
+      Effect.flatMap((payload) =>
+        HttpServerResponse.json(payload, {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }),
+      ),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Failed to load dataset providers from AgentScience", {
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+      ),
+      Effect.catchTag("DatasetProvidersProxyError", () =>
+        Effect.succeed(
+          HttpServerResponse.text("Dataset providers unavailable.", {
+            status: 502,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+          }),
+        ),
       ),
     );
   }),

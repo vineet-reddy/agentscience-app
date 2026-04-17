@@ -4,6 +4,7 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
+  datasetProvidersRouteLayer,
   datasetRegistryRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewCompileRouteLayer,
@@ -258,6 +259,9 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
 
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
+  // Providers must be registered before the registry layer so the longer path
+  // wins exact-match routing on /api/datasets/registry/providers.
+  datasetProvidersRouteLayer,
   datasetRegistryRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewSnapshotRouteLayer,
