@@ -307,6 +307,21 @@ AgentScience desktop already performs the runtime/update health check at app sta
 - Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread. Start by helping with the user's actual message.
 </agentscience_desktop_app>`;
 
+export const CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS = `<agentscience_paper_presentation>
+When you create or update a manuscript that should be reviewed in the desktop app, explicitly present it to the client instead of pasting the whole paper inline.
+
+- Append a \`<present_manuscript>\` block to the assistant message once the files already exist.
+- Inside the block, emit valid JSON with:
+  - \`workspaceRoot\`: the manuscript directory to review
+  - \`source\`: the LaTeX or Markdown source path
+  - \`pdf\`: the compiled PDF path, if it exists
+  - \`bibliography\`: the bibliography path, if it exists
+  - \`notes\`: the figure notes / experiment log path, if it exists
+- Paths may be absolute or relative to the current thread workspace, but they must point to the real files you just created.
+- Keep the visible prose outside the block short, for example: "The manuscript is ready for review on the right."
+- Do not paste the full paper inline when the user is trying to review it in the app. Present the manuscript block instead so the review pane can open.
+</agentscience_paper_presentation>`;
+
 const AGENTSCIENCE_PERSONALITY = loadPersonality();
 
 export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version;
@@ -318,7 +333,7 @@ export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): s
       ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
       : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
 
-  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${collaborationModeInstructions}`;
+  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${collaborationModeInstructions}`;
 }
 
 export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {

@@ -2,6 +2,7 @@ import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
   CommandId,
+  EventId,
   MessageId,
   type OrchestrationEvent,
   type OrchestrationProposedPlanId,
@@ -22,6 +23,10 @@ import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/Projectio
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import {
+  extractPresentedManuscriptFromText,
+  PAPER_PRESENTED_ACTIVITY_KIND,
+} from "../../paperPresentation.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -653,12 +658,16 @@ const make = Effect.fn("make")(function* () {
     fallbackText?: string;
   }) {
     const bufferedText = yield* takeBufferedAssistantText(input.messageId);
-    const text =
+    const rawText =
       bufferedText.length > 0
         ? bufferedText
         : (input.fallbackText?.trim().length ?? 0) > 0
           ? input.fallbackText!
           : "";
+    const manuscriptPresentation = extractPresentedManuscriptFromText({
+      text: rawText,
+    });
+    const text = manuscriptPresentation.sanitizedText;
 
     if (text.length > 0) {
       yield* orchestrationEngine.dispatch({
@@ -680,6 +689,24 @@ const make = Effect.fn("make")(function* () {
       ...(input.turnId ? { turnId: input.turnId } : {}),
       createdAt: input.createdAt,
     });
+
+    if (manuscriptPresentation.presentation) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: providerCommandId(input.event, "paper-presented"),
+        threadId: input.threadId,
+        activity: {
+          id: EventId.makeUnsafe(`paper-presented:${input.event.eventId}`),
+          createdAt: input.createdAt,
+          tone: "info",
+          kind: PAPER_PRESENTED_ACTIVITY_KIND,
+          summary: "Paper ready to review",
+          payload: manuscriptPresentation.presentation,
+          turnId: input.turnId ?? null,
+        },
+        createdAt: input.createdAt,
+      });
+    }
     yield* clearAssistantMessageState(input.messageId);
   });
 

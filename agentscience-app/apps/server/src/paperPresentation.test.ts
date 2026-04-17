@@ -1,0 +1,52 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  extractPresentedManuscriptFromText,
+  parsePresentedManuscriptPayload,
+} from "./paperPresentation.ts";
+
+describe("paperPresentation", () => {
+  it("parses a valid manuscript presentation payload", () => {
+    expect(
+      parsePresentedManuscriptPayload({
+        workspaceRoot: "/tmp/manuscript",
+        source: "paper.tex",
+        pdf: "paper.pdf",
+      }),
+    ).toEqual({
+      workspaceRoot: "/tmp/manuscript",
+      source: "paper.tex",
+      pdf: "paper.pdf",
+    });
+  });
+
+  it("returns null for payloads without a presentable manuscript", () => {
+    expect(parsePresentedManuscriptPayload({ notes: "figure-descriptions.md" })).toBeNull();
+    expect(parsePresentedManuscriptPayload("{not json}")).toBeNull();
+  });
+
+  it("extracts and strips the presentation block from assistant text", () => {
+    const result = extractPresentedManuscriptFromText({
+      text: [
+        "The manuscript is ready for review on the right.",
+        "",
+        "<present_manuscript>",
+        JSON.stringify({
+          workspaceRoot: "/tmp/manuscript",
+          source: "paper.tex",
+          pdf: "paper.pdf",
+          bibliography: "references.bib",
+        }),
+        "</present_manuscript>",
+      ].join("\n"),
+    });
+
+    expect(result.sanitizedText).toBe("The manuscript is ready for review on the right.");
+    expect(result.presentation).toEqual({
+      workspaceRoot: "/tmp/manuscript",
+      source: "paper.tex",
+      pdf: "paper.pdf",
+      bibliography: "references.bib",
+    });
+  });
+});
