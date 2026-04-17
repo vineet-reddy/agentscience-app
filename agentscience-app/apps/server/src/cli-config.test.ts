@@ -5,7 +5,7 @@ import { ConfigProvider, Effect, FileSystem, Layer, Option, Path } from "effect"
 
 import { NetService } from "@agentscience/shared/Net";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { deriveServerPaths } from "./config";
+import { DEFAULT_AGENTSCIENCE_BASE_URL, deriveServerPaths } from "./config";
 import { resolveServerConfig } from "./cli";
 
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
@@ -76,6 +76,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved).toEqual({
         logLevel: "Warn",
         ...defaultObservabilityConfig,
+        agentScienceBaseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
         mode: "desktop",
         port: 4001,
         cwd: process.cwd(),
@@ -168,6 +169,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved).toEqual({
         logLevel: "Debug",
         ...defaultObservabilityConfig,
+        agentScienceBaseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
         mode: "web",
         port: 8788,
         cwd: process.cwd(),
@@ -238,6 +240,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         ...defaultObservabilityConfig,
         otlpTracesUrl: "http://localhost:4318/v1/traces",
         otlpMetricsUrl: "http://localhost:4318/v1/metrics",
+        agentScienceBaseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
         mode: "desktop",
         port: 4888,
         cwd: process.cwd(),
@@ -358,6 +361,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(resolved).toEqual({
         logLevel: "Debug",
         ...defaultObservabilityConfig,
+        agentScienceBaseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
         mode: "web",
         port: 8788,
         cwd: process.cwd(),
@@ -422,6 +426,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         ...defaultObservabilityConfig,
         otlpTracesUrl: "http://localhost:4318/v1/traces",
         otlpMetricsUrl: "http://localhost:4318/v1/metrics",
+        agentScienceBaseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
         mode: "desktop",
         port: 4888,
         cwd: process.cwd(),

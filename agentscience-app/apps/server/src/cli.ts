@@ -4,6 +4,7 @@ import { Config, Effect, FileSystem, LogLevel, Option, Path, Schema } from "effe
 import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
 import {
+  DEFAULT_AGENTSCIENCE_BASE_URL,
   DEFAULT_PORT,
   deriveServerPaths,
   ensureServerDirectories,
@@ -112,6 +113,9 @@ const EnvServerConfig = Config.all({
   ),
   otlpServiceName: Config.string("AGENTSCIENCE_OTLP_SERVICE_NAME").pipe(
     Config.withDefault("agentscience-server"),
+  ),
+  agentScienceBaseUrl: Config.string("AGENTSCIENCE_BASE_URL").pipe(
+    Config.withDefault(DEFAULT_AGENTSCIENCE_BASE_URL),
   ),
   mode: Config.schema(RuntimeMode, "AGENTSCIENCE_MODE").pipe(
     Config.option,
@@ -328,6 +332,7 @@ export const resolveServerConfig = (
         persistedObservabilitySettings.otlpMetricsUrl,
       otlpExportIntervalMs: env.otlpExportIntervalMs,
       otlpServiceName: env.otlpServiceName,
+      agentScienceBaseUrl: env.agentScienceBaseUrl,
       mode,
       port,
       cwd,

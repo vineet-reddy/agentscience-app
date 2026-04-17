@@ -4,6 +4,7 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
+  datasetRegistryRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewCompileRouteLayer,
   paperReviewSnapshotRouteLayer,
@@ -257,6 +258,7 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
 
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
+  datasetRegistryRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewSnapshotRouteLayer,
   paperReviewCompileRouteLayer,

@@ -9,6 +9,7 @@
 import { Effect, FileSystem, Layer, LogLevel, Path, Schema, ServiceMap } from "effect";
 
 export const DEFAULT_PORT = 3773;
+export const DEFAULT_AGENTSCIENCE_BASE_URL = "https://agentscience.vercel.app";
 
 export const RuntimeMode = Schema.Literals(["web", "desktop"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
@@ -50,6 +51,7 @@ export interface ServerConfigShape extends ServerDerivedPaths {
   readonly host: string | undefined;
   readonly cwd: string;
   readonly baseDir: string;
+  readonly agentScienceBaseUrl: string;
   readonly staticDir: string | undefined;
   readonly devUrl: URL | undefined;
   readonly noBrowser: boolean;
@@ -136,6 +138,7 @@ export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigS
           otlpServiceName: "agentscience-server",
           cwd,
           baseDir,
+          agentScienceBaseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
           ...derivedPaths,
           mode: "web",
           autoBootstrapProjectFromCwd: false,

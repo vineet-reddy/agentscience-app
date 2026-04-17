@@ -27,11 +27,229 @@ import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolve
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
+const DATASET_REGISTRY_PROXY_PATH = "/api/datasets/registry";
+const DATASET_REGISTRY_DEFAULT_LIMIT = 500;
+const DATASET_REGISTRY_MAX_LIMIT = 500;
 
 class DecodeOtlpTraceRecordsError extends Data.TaggedError("DecodeOtlpTraceRecordsError")<{
   readonly cause: unknown;
   readonly bodyJson: OtlpTracer.TraceData;
 }> {}
+
+class DatasetRegistryProxyError extends Data.TaggedError("DatasetRegistryProxyError")<{
+  readonly cause: unknown;
+  readonly upstreamUrl: string;
+}> {}
+
+type NormalizedDatasetSourcePaper = {
+  slug: string;
+  title: string;
+  authors: string[];
+  publishedAt: string;
+  url: string;
+};
+
+type NormalizedPaperSummary = NormalizedDatasetSourcePaper & {
+  id: string;
+};
+
+function parsePositiveInt(value: string | null, fallback: number, max = DATASET_REGISTRY_MAX_LIMIT) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.floor(parsed));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function resolveAbsoluteAgentScienceUrl(baseUrl: string, rawPathOrUrl: string): string {
+  return new URL(rawPathOrUrl, `${baseUrl.replace(/\/+$/, "")}/`).toString();
+}
+
+function normalizeSourcePaperSummary(
+  sourcePaper: unknown,
+  baseUrl: string,
+): NormalizedDatasetSourcePaper | null {
+  if (!isRecord(sourcePaper)) {
+    return null;
+  }
+
+  const slug = typeof sourcePaper.slug === "string" ? sourcePaper.slug : null;
+  const title = typeof sourcePaper.title === "string" ? sourcePaper.title : null;
+  const publishedAt =
+    typeof sourcePaper.publishedAt === "string" ? sourcePaper.publishedAt : null;
+  if (!slug || !title || !publishedAt) {
+    return null;
+  }
+
+  const authors = Array.isArray(sourcePaper.authors)
+    ? sourcePaper.authors.filter((author): author is string => typeof author === "string")
+    : [];
+  const url =
+    typeof sourcePaper.url === "string" && sourcePaper.url.length > 0
+      ? resolveAbsoluteAgentScienceUrl(baseUrl, sourcePaper.url)
+      : resolveAbsoluteAgentScienceUrl(baseUrl, `/papers/${encodeURIComponent(slug)}`);
+
+  return {
+    slug,
+    title,
+    authors,
+    publishedAt,
+    url,
+  };
+}
+
+function normalizePaperSummary(
+  paper: unknown,
+  baseUrl: string,
+): NormalizedPaperSummary | null {
+  if (!isRecord(paper)) {
+    return null;
+  }
+
+  const id = typeof paper.id === "string" ? paper.id : null;
+  const slug = typeof paper.slug === "string" ? paper.slug : null;
+  const title = typeof paper.title === "string" ? paper.title : null;
+  const publishedAt = typeof paper.publishedAt === "string" ? paper.publishedAt : null;
+  if (!id || !slug || !title || !publishedAt) {
+    return null;
+  }
+
+  const authors = Array.isArray(paper.authors)
+    ? paper.authors.flatMap((author) =>
+        isRecord(author) && typeof author.name === "string" ? [author.name] : [],
+      )
+    : [];
+
+  return {
+    id,
+    slug,
+    title,
+    authors,
+    publishedAt,
+    url: resolveAbsoluteAgentScienceUrl(baseUrl, `/papers/${encodeURIComponent(slug)}`),
+  };
+}
+
+async function fetchPublicPaperMap(baseUrl: string): Promise<Map<string, NormalizedPaperSummary>> {
+  try {
+    const papersUrl = new URL("/api/v1/papers", baseUrl);
+    papersUrl.searchParams.set("limit", String(DATASET_REGISTRY_MAX_LIMIT));
+
+    const response = await fetch(papersUrl.toString(), {
+      headers: {
+        accept: "application/json",
+      },
+    });
+    if (!response.ok) {
+      return new Map();
+    }
+
+    const payload = await response.json();
+    if (!isRecord(payload) || !Array.isArray(payload.papers)) {
+      return new Map();
+    }
+
+    const entries = payload.papers.flatMap((paper) => {
+      const normalized = normalizePaperSummary(paper, baseUrl);
+      return normalized ? [[normalized.id, normalized] as const] : [];
+    });
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function enrichDatasetRegistryPayload(
+  payload: Record<string, unknown>,
+  baseUrl: string,
+  paperById: Map<string, NormalizedPaperSummary>,
+) {
+  if (!Array.isArray(payload.datasets)) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    datasets: payload.datasets.map((dataset) => {
+      if (!isRecord(dataset)) {
+        return dataset;
+      }
+
+      const existingSourcePaper = normalizeSourcePaperSummary(dataset.sourcePaper, baseUrl);
+      const sourcePaperId =
+        typeof dataset.sourcePaperId === "string" && dataset.sourcePaperId.length > 0
+          ? dataset.sourcePaperId
+          : null;
+      const hydratedPaper = sourcePaperId ? paperById.get(sourcePaperId) ?? null : null;
+      const hydratedSourcePaper = hydratedPaper
+        ? {
+            slug: hydratedPaper.slug,
+            title: hydratedPaper.title,
+            authors: hydratedPaper.authors,
+            publishedAt: hydratedPaper.publishedAt,
+            url: hydratedPaper.url,
+          }
+        : null;
+      const resolvedSourcePaper = existingSourcePaper ?? hydratedSourcePaper;
+      const usedInPaperCount =
+        typeof dataset.usedInPaperCount === "number"
+          ? dataset.usedInPaperCount
+          : resolvedSourcePaper
+            ? 1
+            : 0;
+
+      return {
+        ...dataset,
+        sourcePaper: resolvedSourcePaper,
+        usedInPaperCount,
+      };
+    }),
+  };
+}
+
+async function loadDatasetRegistryPayload(input: {
+  baseUrl: string;
+  query: string | undefined;
+  limit: number;
+}): Promise<unknown> {
+  const registryUrl = new URL("/api/v1/registry", input.baseUrl);
+  if (input.query) {
+    registryUrl.searchParams.set("q", input.query);
+  }
+  registryUrl.searchParams.set("limit", String(input.limit));
+
+  const response = await fetch(registryUrl.toString(), {
+    headers: {
+      accept: "application/json",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Dataset registry request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const payload = await response.json();
+  if (!isRecord(payload) || !Array.isArray(payload.datasets)) {
+    return payload;
+  }
+
+  const needsSourcePaperHydration = payload.datasets.some(
+    (dataset) =>
+      isRecord(dataset) &&
+      typeof dataset.sourcePaperId === "string" &&
+      dataset.sourcePaperId.length > 0 &&
+      normalizeSourcePaperSummary(dataset.sourcePaper, input.baseUrl) === null,
+  );
+  const paperById = needsSourcePaperHydration
+    ? await fetchPublicPaperMap(input.baseUrl)
+    : new Map();
+
+  return enrichDatasetRegistryPayload(payload, input.baseUrl, paperById);
+}
 
 export const otlpTracesProxyRouteLayer = HttpRouter.add(
   "POST",
@@ -179,6 +397,71 @@ export const projectFaviconRouteLayer = HttpRouter.add(
     }).pipe(
       Effect.catch(() =>
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+      ),
+    );
+  }),
+);
+
+export const datasetRegistryRouteLayer = HttpRouter.add(
+  "GET",
+  DATASET_REGISTRY_PROXY_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const config = yield* ServerConfig;
+    const upstreamUrl = new URL("/api/v1/registry", config.agentScienceBaseUrl);
+    const query = url.value.searchParams.get("q")?.trim();
+    const limit = parsePositiveInt(
+      url.value.searchParams.get("limit"),
+      DATASET_REGISTRY_DEFAULT_LIMIT,
+    );
+
+    if (query) {
+      upstreamUrl.searchParams.set("q", query);
+    }
+    upstreamUrl.searchParams.set("limit", String(limit));
+
+    return yield* Effect.tryPromise({
+      try: () =>
+        loadDatasetRegistryPayload({
+          baseUrl: config.agentScienceBaseUrl,
+          query: query || undefined,
+          limit,
+        }),
+      catch: (cause) =>
+        new DatasetRegistryProxyError({
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+    }).pipe(
+      Effect.flatMap((payload) =>
+        HttpServerResponse.json(payload, {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }),
+      ),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Failed to load dataset registry from AgentScience", {
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+      ),
+      Effect.catchTag("DatasetRegistryProxyError", () =>
+        Effect.succeed(
+          HttpServerResponse.text("Dataset registry unavailable.", {
+            status: 502,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+          }),
+        ),
       ),
     );
   }),

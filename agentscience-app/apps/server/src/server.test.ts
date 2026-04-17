@@ -47,7 +47,11 @@ import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { vi } from "vitest";
 
 import type { ServerConfigShape } from "./config.ts";
-import { deriveServerPaths, ServerConfig } from "./config.ts";
+import {
+  DEFAULT_AGENTSCIENCE_BASE_URL,
+  deriveServerPaths,
+  ServerConfig,
+} from "./config.ts";
 import { makeRoutesLayer } from "./server.ts";
 import { resolveAttachmentRelativePath } from "./attachmentPaths.ts";
 import {
@@ -373,6 +377,7 @@ const buildAppUnderTest = (options?: {
       otlpMetricsUrl: undefined,
       otlpExportIntervalMs: 10_000,
       otlpServiceName: "agentscience-server",
+      agentScienceBaseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
       mode: "web",
       port: 0,
       host: "127.0.0.1",
@@ -674,6 +679,153 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
       assert.equal(response.status, 200);
       assert.include(yield* response.text, 'data-fallback="project-favicon"');
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("proxies dataset registry responses through the embedded server", () =>
+    Effect.gen(function* () {
+      const upstreamRequests: string[] = [];
+      const upstream = yield* Effect.acquireRelease(
+        Effect.promise(async () => {
+          const NodeHttp = await import("node:http");
+
+          return await new Promise<{
+            readonly baseUrl: string;
+            readonly close: () => Promise<void>;
+          }>((resolve, reject) => {
+            const server = NodeHttp.createServer((request, response) => {
+              upstreamRequests.push(request.url ?? "");
+              response.statusCode = 200;
+              response.setHeader("content-type", "application/json");
+
+              if (request.url === "/api/v1/registry?q=climate&limit=25") {
+                response.end(
+                  JSON.stringify({
+                    datasets: [
+                      {
+                        id: "dataset-1",
+                        name: "Open Climate Archive",
+                        url: "https://data.example.org/archive",
+                        domain: "data.example.org",
+                        description: "Registry proxy test payload.",
+                        keywords: ["climate"],
+                        sourcePaperId: "paper-1",
+                        sourceRank: 99,
+                        addedBy: "user-1",
+                        createdAt: "2026-04-17T12:00:00.000Z",
+                        sourcePaper: null,
+                        usedInPaperCount: null,
+                      },
+                    ],
+                  }),
+                );
+                return;
+              }
+
+              if (request.url === "/api/v1/papers?limit=500") {
+                response.end(
+                  JSON.stringify({
+                    papers: [
+                      {
+                        id: "paper-1",
+                        slug: "climate-registry-paper",
+                        title: "Climate Registry Paper",
+                        abstract: "Hydrated via papers API.",
+                        publishedAt: "2026-04-16T12:00:00.000Z",
+                        doi: null,
+                        keywords: ["climate"],
+                        githubUrl: null,
+                        authors: [
+                          {
+                            name: "Researcher One",
+                            handle: "researcherone",
+                            institution: null,
+                            role: "RESEARCHER",
+                          },
+                        ],
+                        score: 0,
+                        reviewCount: 0,
+                        saveCount: 0,
+                      },
+                    ],
+                  }),
+                );
+                return;
+              }
+
+              response.statusCode = 404;
+              response.end(JSON.stringify({ error: "Not Found" }));
+            });
+
+            server.on("error", reject);
+            server.listen(0, "127.0.0.1", () => {
+              const address = server.address();
+              if (!address || typeof address === "string") {
+                reject(new Error("Expected TCP address"));
+                return;
+              }
+
+              resolve({
+                baseUrl: `http://127.0.0.1:${address.port}`,
+                close: () =>
+                  new Promise<void>((resolveClose, rejectClose) => {
+                    server.close((error) => {
+                      if (error) {
+                        rejectClose(error);
+                        return;
+                      }
+                      resolveClose();
+                    });
+                  }),
+              });
+            });
+          });
+        }),
+        ({ close }) => Effect.promise(close),
+      );
+
+      yield* buildAppUnderTest({
+        config: {
+          agentScienceBaseUrl: upstream.baseUrl,
+        },
+      });
+
+      const response = yield* HttpClient.get("/api/datasets/registry?q=climate&limit=25", {
+        headers: {
+          origin: "http://localhost:5734",
+        },
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers["access-control-allow-origin"], "*");
+      assert.deepStrictEqual(yield* response.json, {
+        datasets: [
+          {
+            id: "dataset-1",
+            name: "Open Climate Archive",
+            url: "https://data.example.org/archive",
+            domain: "data.example.org",
+            description: "Registry proxy test payload.",
+            keywords: ["climate"],
+            sourcePaperId: "paper-1",
+            sourceRank: 99,
+            addedBy: "user-1",
+            createdAt: "2026-04-17T12:00:00.000Z",
+            sourcePaper: {
+              slug: "climate-registry-paper",
+              title: "Climate Registry Paper",
+              authors: ["Researcher One"],
+              publishedAt: "2026-04-16T12:00:00.000Z",
+              url: `${upstream.baseUrl}/papers/climate-registry-paper`,
+            },
+            usedInPaperCount: 1,
+          },
+        ],
+      });
+      assert.deepStrictEqual(upstreamRequests, [
+        "/api/v1/registry?q=climate&limit=25",
+        "/api/v1/papers?limit=500",
+      ]);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
