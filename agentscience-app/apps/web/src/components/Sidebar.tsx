@@ -4,6 +4,7 @@ import {
   ArchiveIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  DatabaseIcon,
   FileTextIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -918,6 +919,19 @@ export default function Sidebar() {
             >
               <FileTextIcon className="size-4" />
               <span>Papers</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="sm"
+              isActive={location.pathname.startsWith("/datasets")}
+              className="gap-2 px-2 py-2"
+              onClick={() => {
+                void navigate({ to: "/datasets" });
+              }}
+            >
+              <DatabaseIcon className="size-4" />
+              <span>Datasets</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
