@@ -19,6 +19,7 @@ import {
   materializeInlineTerminalContextPrompt,
   removeInlineTerminalContextPlaceholder,
   stripInlineTerminalContextPlaceholders,
+  stripTrailingDatasetContextBlock,
   type TerminalContextDraft,
 } from "./terminalContext";
 
@@ -206,5 +207,76 @@ describe("terminalContext", () => {
         [makeContext()],
       ),
     ).toBe("Investigate @terminal-1:12-13 carefully");
+  });
+
+  it("strips a trailing <dataset_context> block from a prompt", () => {
+    const prompt = [
+      "interested in @dataset:openneuro-ds005398",
+      "",
+      "<dataset_context>",
+      "- mention: @dataset:openneuro-ds005398",
+      "  name: OpenNeuro ds005398",
+      "  id: dataset-1",
+      "  url: https://openneuro.org/datasets/ds005398",
+      "  domain: openneuro.org",
+      "</dataset_context>",
+    ].join("\n");
+    expect(stripTrailingDatasetContextBlock(prompt)).toBe(
+      "interested in @dataset:openneuro-ds005398",
+    );
+  });
+
+  it("leaves prompts without a dataset context block untouched", () => {
+    expect(stripTrailingDatasetContextBlock("plain prompt @dataset:foo")).toBe(
+      "plain prompt @dataset:foo",
+    );
+  });
+
+  it("hides dataset references from the rendered bubble but keeps them in copy text", () => {
+    const prompt = [
+      "interested in @dataset:openneuro-ds005398",
+      "",
+      "<dataset_context>",
+      "- mention: @dataset:openneuro-ds005398",
+      "  name: OpenNeuro ds005398",
+      "  id: dataset-1",
+      "  url: https://openneuro.org/datasets/ds005398",
+      "  domain: openneuro.org",
+      "</dataset_context>",
+    ].join("\n");
+    const state = deriveDisplayedUserMessageState(prompt);
+    expect(state.visibleText).toBe("interested in @dataset:openneuro-ds005398");
+    expect(state.copyText).toBe(prompt);
+    expect(state.contextCount).toBe(0);
+    expect(state.previewTitle).toBeNull();
+    expect(state.contexts).toEqual([]);
+  });
+
+  it("strips dataset context and still surfaces terminal contexts when both are present", () => {
+    const promptWithTerminal = appendTerminalContextsToPrompt("Investigate this", [
+      makeContext(),
+    ]);
+    const fullPrompt = [
+      promptWithTerminal,
+      "",
+      "<dataset_context>",
+      "- mention: @dataset:openneuro-ds005398",
+      "  name: OpenNeuro ds005398",
+      "  id: dataset-1",
+      "  url: https://openneuro.org/datasets/ds005398",
+      "  domain: openneuro.org",
+      "</dataset_context>",
+    ].join("\n");
+
+    const state = deriveDisplayedUserMessageState(fullPrompt);
+    expect(state.visibleText).toBe("Investigate this");
+    expect(state.copyText).toBe(fullPrompt);
+    expect(state.contextCount).toBe(1);
+    expect(state.contexts).toEqual([
+      {
+        header: "Terminal 1 lines 12-13",
+        body: "12 | git status\n13 | On branch main",
+      },
+    ]);
   });
 });

@@ -39,6 +39,20 @@ export const INLINE_TERMINAL_CONTEXT_PLACEHOLDER = "\uFFFC";
 const TRAILING_TERMINAL_CONTEXT_BLOCK_PATTERN =
   /\n*<terminal_context>\n([\s\S]*?)\n<\/terminal_context>\s*$/;
 
+// The dataset reference appendix rides in message.text so the model can
+// resolve @dataset:<slug> mentions, but it's plumbing the user never wrote.
+// Strip it from the rendered user bubble the same way we strip terminal
+// context blocks. Kept colocated here (not in composerDatasetMentionStore)
+// to avoid an import cycle via composer-editor-mentions.
+const TRAILING_DATASET_CONTEXT_BLOCK_PATTERN =
+  /\n*<dataset_context>\n[\s\S]*?\n<\/dataset_context>\s*$/;
+
+export function stripTrailingDatasetContextBlock(prompt: string): string {
+  const match = TRAILING_DATASET_CONTEXT_BLOCK_PATTERN.exec(prompt);
+  if (!match) return prompt;
+  return prompt.slice(0, match.index).replace(/\n+$/, "");
+}
+
 export function normalizeTerminalContextText(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
 }
@@ -235,7 +249,10 @@ export function extractTrailingTerminalContexts(prompt: string): ExtractedTermin
 }
 
 export function deriveDisplayedUserMessageState(prompt: string): DisplayedUserMessageState {
-  const extractedContexts = extractTrailingTerminalContexts(prompt);
+  // Hide dataset plumbing from the rendered bubble; keep the raw text for
+  // copy so users (and us, debugging) can still see what the model received.
+  const withoutDatasetContext = stripTrailingDatasetContextBlock(prompt);
+  const extractedContexts = extractTrailingTerminalContexts(withoutDatasetContext);
   return {
     visibleText: extractedContexts.promptText,
     copyText: prompt,

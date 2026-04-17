@@ -128,6 +128,20 @@ import {
   useComposerThreadDraft,
 } from "../composerDraftStore";
 import {
+  appendDatasetReferencesToPrompt,
+  datasetEntryToMention,
+  datasetProviderToMention,
+  useComposerDatasetMentionStore,
+  useComposerDatasetMentionsForThread,
+} from "../composerDatasetMentionStore";
+import {
+  datasetToSlug,
+  fetchDatasetProviders,
+  fetchDatasetRegistry,
+  type DatasetEntry,
+  type DatasetProvider,
+} from "../lib/datasetRegistry";
+import {
   appendTerminalContextsToPrompt,
   formatTerminalContextLabel,
   insertInlineTerminalContextPlaceholder,
@@ -198,6 +212,8 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
+const EMPTY_DATASET_ENTRIES: DatasetEntry[] = [];
+const EMPTY_DATASET_PROVIDERS: DatasetProvider[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
@@ -631,6 +647,13 @@ export default function ChatView({
     (store) => store.syncPersistedAttachments,
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
+  const registerComposerDatasetMention = useComposerDatasetMentionStore(
+    (store) => store.registerDatasetMention,
+  );
+  const clearComposerDatasetMentions = useComposerDatasetMentionStore(
+    (store) => store.clearDatasetMentions,
+  );
+  const composerDatasetMentionsForThread = useComposerDatasetMentionsForThread(threadId);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
@@ -1447,10 +1470,58 @@ export default function ChatView({
     }),
   );
   const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const datasetRegistryQuery = useQuery<DatasetEntry[]>({
+    queryKey: ["composer-dataset-registry", effectivePathQuery] as const,
+    queryFn: ({ signal }) =>
+      fetchDatasetRegistry({
+        query: effectivePathQuery,
+        limit: 25,
+        ...(signal ? { signal } : {}),
+      }),
+    enabled: isPathTrigger,
+    staleTime: 30_000,
+    gcTime: 300_000,
+  });
+  const datasetProvidersQuery = useQuery<DatasetProvider[]>({
+    queryKey: ["composer-dataset-providers", effectivePathQuery] as const,
+    queryFn: ({ signal }) =>
+      fetchDatasetProviders({
+        query: effectivePathQuery,
+        limit: 25,
+        ...(signal ? { signal } : {}),
+      }),
+    enabled: isPathTrigger,
+    staleTime: 60_000,
+    gcTime: 300_000,
+  });
+  const datasetEntries = datasetRegistryQuery.data ?? EMPTY_DATASET_ENTRIES;
+  const datasetProviders = datasetProvidersQuery.data ?? EMPTY_DATASET_PROVIDERS;
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
-      return workspaceEntries.map((entry) => ({
+      const providerItems: ComposerCommandItem[] = datasetProviders.map((provider) => ({
+        id: `provider:${provider.id}`,
+        type: "provider",
+        providerId: provider.id,
+        slug: provider.slug,
+        name: provider.name,
+        domain: provider.domain,
+        description: provider.description,
+        datasetCount: provider.datasetCount,
+      }));
+      const datasetItems: ComposerCommandItem[] = datasetEntries.map((dataset) => ({
+        id: `dataset:${dataset.id}`,
+        type: "dataset",
+        datasetId: dataset.id,
+        slug: datasetToSlug(dataset),
+        name: dataset.name,
+        shortName: dataset.shortName,
+        url: dataset.url,
+        domain: dataset.domain,
+        description: dataset.description,
+        providerName: dataset.provider?.name ?? null,
+      }));
+      const fileItems: ComposerCommandItem[] = workspaceEntries.map((entry) => ({
         id: `path:${entry.kind}:${entry.path}`,
         type: "path",
         path: entry.path,
@@ -1458,6 +1529,7 @@ export default function ChatView({
         label: basenameOfPath(entry.path),
         description: entry.parentPath ?? "",
       }));
+      return [...providerItems, ...datasetItems, ...fileItems];
     }
 
     if (composerTrigger.kind === "slash-command") {
@@ -1509,7 +1581,13 @@ export default function ChatView({
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [composerTrigger, searchableModelOptions, workspaceEntries]);
+  }, [
+    composerTrigger,
+    datasetEntries,
+    datasetProviders,
+    searchableModelOptions,
+    workspaceEntries,
+  ]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -2911,9 +2989,13 @@ export default function ChatView({
 
     const composerImagesSnapshot = [...composerImages];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
-    const messageTextForSend = appendTerminalContextsToPrompt(
+    const promptWithTerminalContexts = appendTerminalContextsToPrompt(
       promptForSend,
       composerTerminalContextsSnapshot,
+    );
+    const messageTextForSend = appendDatasetReferencesToPrompt(
+      promptWithTerminalContexts,
+      composerDatasetMentionsForThread,
     );
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
@@ -2970,6 +3052,7 @@ export default function ChatView({
     }
     promptRef.current = "";
     clearComposerDraftContent(threadIdForSend);
+    clearComposerDatasetMentions(threadIdForSend);
     setComposerHighlightedItemId(null);
     setComposerCursor(0);
     setComposerTrigger(null);
@@ -3690,6 +3773,64 @@ export default function ChatView({
         }
         return;
       }
+      if (item.type === "dataset") {
+        const datasetEntry = datasetEntries.find((candidate) => candidate.id === item.datasetId);
+        registerComposerDatasetMention(
+          threadId,
+          datasetEntry
+            ? datasetEntryToMention(datasetEntry)
+            : {
+                kind: "dataset",
+                slug: item.slug,
+                datasetId: item.datasetId,
+                name: item.name,
+                shortName: item.shortName,
+                url: item.url,
+                domain: item.domain,
+                provider: null,
+              },
+        );
+        const replacement = `@dataset:${item.slug} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "provider") {
+        const providerEntry = datasetProviders.find(
+          (candidate) => candidate.id === item.providerId,
+        );
+        if (providerEntry) {
+          registerComposerDatasetMention(threadId, datasetProviderToMention(providerEntry));
+        }
+        const replacement = `@provider:${item.slug} `;
+        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+          snapshot.value,
+          trigger.rangeEnd,
+          replacement,
+        );
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          replacementRangeEnd,
+          replacement,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+        }
+        return;
+      }
       if (item.type === "slash-command") {
         if (item.command === "model") {
           const replacement = "/model ";
@@ -3728,9 +3869,13 @@ export default function ChatView({
     },
     [
       applyPromptReplacement,
+      datasetEntries,
+      datasetProviders,
       handleInteractionModeChange,
       onProviderModelSelect,
+      registerComposerDatasetMention,
       resolveActiveComposerTrigger,
+      threadId,
     ],
   );
   const onComposerMenuItemHighlighted = useCallback((itemId: string | null) => {
@@ -3758,7 +3903,11 @@ export default function ChatView({
     composerTriggerKind === "path" &&
     ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
       workspaceEntriesQuery.isLoading ||
-      workspaceEntriesQuery.isFetching);
+      workspaceEntriesQuery.isFetching ||
+      datasetRegistryQuery.isLoading ||
+      datasetRegistryQuery.isFetching ||
+      datasetProvidersQuery.isLoading ||
+      datasetProvidersQuery.isFetching);
 
   const onPromptChange = useCallback(
     (
@@ -4027,7 +4176,11 @@ export default function ChatView({
                 <div
                   className={cn(
                     "rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
-                    isDragOverComposer ? "border-primary/70 bg-accent/30" : "border-border",
+                    isDragOverComposer
+                      ? "border-primary/70 bg-accent/30"
+                      : composerMenuOpen && !isComposerApprovalState
+                        ? "border-primary/60"
+                        : "border-border",
                     composerProviderState.composerSurfaceClassName,
                   )}
                 >

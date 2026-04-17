@@ -58,7 +58,21 @@ import {
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
 } from "~/composer-logic";
-import { splitPromptIntoComposerSegments } from "~/composer-editor-mentions";
+import {
+  DATASET_MENTION_PREFIX,
+  extractDatasetSlug,
+  extractProviderSlug,
+  isDatasetMentionPath,
+  isProviderMentionPath,
+  isRegistryMentionPath,
+  PROVIDER_MENTION_PREFIX,
+  splitPromptIntoComposerSegments,
+} from "~/composer-editor-mentions";
+import {
+  type ComposerRegistryMention,
+  useComposerDatasetMentionStore,
+} from "~/composerDatasetMentionStore";
+import { truncateDatasetChipLabel, truncateProviderChipLabel } from "~/lib/datasetRegistry";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
@@ -246,8 +260,121 @@ function resolvedThemeFromDocument(): "light" | "dark" {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
-function renderMentionChipDom(container: HTMLElement, pathValue: string): void {
+const REGISTRY_CHIP_CLASS_NAME =
+  "inline-flex max-w-[220px] select-none items-center gap-1 rounded-md px-1.5 py-px font-medium text-[12px] leading-[1.1] align-middle";
+const DATASET_CHIP_BACKGROUND_COLOR = "#E1F5EE";
+const DATASET_CHIP_TEXT_COLOR = "#085041";
+const DATASET_CHIP_ICON_COLOR = "#0F6E56";
+const PROVIDER_CHIP_BACKGROUND_COLOR = "#EEE7FB";
+const PROVIDER_CHIP_TEXT_COLOR = "#3B1F78";
+const PROVIDER_CHIP_ICON_COLOR = "#6239C4";
+
+/**
+ * Find a registered registry mention by its Lexical path (e.g. dataset:<slug>
+ * or provider:<slug>). Searches across all threads because the chip render can
+ * run for any thread's editor instance. We key the store by prefixed-slug so
+ * dataset and provider namespaces never collide.
+ */
+function findMentionByPath(pathValue: string): ComposerRegistryMention | null {
+  const key = isDatasetMentionPath(pathValue)
+    ? `${DATASET_MENTION_PREFIX}${extractDatasetSlug(pathValue)}`
+    : isProviderMentionPath(pathValue)
+      ? `${PROVIDER_MENTION_PREFIX}${extractProviderSlug(pathValue)}`
+      : null;
+  if (!key) return null;
+  const mentionsByThreadId = useComposerDatasetMentionStore.getState().mentionsByThreadId;
+  for (const mentionsForThread of Object.values(mentionsByThreadId)) {
+    const match = mentionsForThread[key];
+    if (match) return match;
+  }
+  return null;
+}
+
+function createRegistryChipIcon(
+  strokeColor: string,
+  innerSvg: string,
+): SVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("width", "14");
+  icon.setAttribute("height", "14");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", strokeColor);
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  icon.classList.add("shrink-0");
+  icon.innerHTML = innerSvg;
+  return icon;
+}
+
+function renderDatasetChipDom(container: HTMLElement, pathValue: string): void {
   container.textContent = "";
+  container.className = REGISTRY_CHIP_CLASS_NAME;
+  container.style.setProperty("background-color", DATASET_CHIP_BACKGROUND_COLOR);
+  container.style.setProperty("color", DATASET_CHIP_TEXT_COLOR);
+  container.style.setProperty("user-select", "none");
+  container.style.setProperty("-webkit-user-select", "none");
+
+  const slug = extractDatasetSlug(pathValue);
+  const mention = findMentionByPath(pathValue);
+  const labelText =
+    mention && mention.kind === "dataset"
+      ? truncateDatasetChipLabel({ name: mention.name, shortName: mention.shortName })
+      : slug;
+
+  const icon = createRegistryChipIcon(
+    DATASET_CHIP_ICON_COLOR,
+    '<ellipse cx="12" cy="5" rx="9" ry="3"/>' +
+      '<path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>' +
+      '<path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/>',
+  );
+
+  const label = document.createElement("span");
+  label.className = `${COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME} overflow-hidden text-ellipsis`;
+  label.style.setProperty("max-width", "200px");
+  label.textContent = labelText;
+
+  container.append(icon, label);
+}
+
+function renderProviderChipDom(container: HTMLElement, pathValue: string): void {
+  container.textContent = "";
+  container.className = REGISTRY_CHIP_CLASS_NAME;
+  container.style.setProperty("background-color", PROVIDER_CHIP_BACKGROUND_COLOR);
+  container.style.setProperty("color", PROVIDER_CHIP_TEXT_COLOR);
+  container.style.setProperty("user-select", "none");
+  container.style.setProperty("-webkit-user-select", "none");
+
+  const slug = extractProviderSlug(pathValue);
+  const mention = findMentionByPath(pathValue);
+  const labelText =
+    mention && mention.kind === "provider"
+      ? truncateProviderChipLabel({ name: mention.name })
+      : slug;
+
+  // Stacked layers icon signals "a compendium of many datasets".
+  const icon = createRegistryChipIcon(
+    PROVIDER_CHIP_ICON_COLOR,
+    '<path d="M12 2 2 7l10 5 10-5-10-5z"/>' +
+      '<path d="M2 17l10 5 10-5"/>' +
+      '<path d="M2 12l10 5 10-5"/>',
+  );
+
+  const label = document.createElement("span");
+  label.className = `${COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME} overflow-hidden text-ellipsis`;
+  label.style.setProperty("max-width", "200px");
+  label.textContent = labelText;
+
+  container.append(icon, label);
+}
+
+function renderFileMentionChipDom(container: HTMLElement, pathValue: string): void {
+  container.textContent = "";
+  container.className = COMPOSER_INLINE_CHIP_CLASS_NAME;
+  container.style.removeProperty("background-color");
+  container.style.removeProperty("color");
   container.style.setProperty("user-select", "none");
   container.style.setProperty("-webkit-user-select", "none");
 
@@ -264,6 +391,18 @@ function renderMentionChipDom(container: HTMLElement, pathValue: string): void {
   label.textContent = basenameOfPath(pathValue);
 
   container.append(icon, label);
+}
+
+function renderMentionChipDom(container: HTMLElement, pathValue: string): void {
+  if (isDatasetMentionPath(pathValue)) {
+    renderDatasetChipDom(container, pathValue);
+    return;
+  }
+  if (isProviderMentionPath(pathValue)) {
+    renderProviderChipDom(container, pathValue);
+    return;
+  }
+  renderFileMentionChipDom(container, pathValue);
 }
 
 function terminalContextSignature(contexts: ReadonlyArray<TerminalContextDraft>): string {
@@ -811,6 +950,36 @@ function ComposerInlineTokenSelectionNormalizePlugin() {
   return null;
 }
 
+function ComposerDatasetMentionsRefreshPlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    return useComposerDatasetMentionStore.subscribe((next, previous) => {
+      if (next.mentionsByThreadId === previous.mentionsByThreadId) return;
+      editor.update(() => {
+        const walk = (node: LexicalNode): void => {
+          if (node instanceof ComposerMentionNode && isRegistryMentionPath(node.__path)) {
+            editor.getElementByKey(node.getKey())?.setAttribute("data-dataset-refresh", String(Date.now()));
+            const dom = editor.getElementByKey(node.getKey());
+            if (dom instanceof HTMLElement) {
+              renderMentionChipDom(dom, node.__path);
+            }
+            return;
+          }
+          if ($isElementNode(node)) {
+            for (const child of node.getChildren()) {
+              walk(child);
+            }
+          }
+        };
+        walk($getRoot());
+      });
+    });
+  }, [editor]);
+
+  return null;
+}
+
 function ComposerInlineTokenBackspacePlugin() {
   const [editor] = useLexicalComposerContext();
   const { onRemoveTerminalContext } = useContext(ComposerTerminalContextActionsContext);
@@ -1116,6 +1285,7 @@ function ComposerPromptEditorInner({
         <ComposerInlineTokenArrowPlugin />
         <ComposerInlineTokenSelectionNormalizePlugin />
         <ComposerInlineTokenBackspacePlugin />
+        <ComposerDatasetMentionsRefreshPlugin />
         <HistoryPlugin />
       </div>
     </ComposerTerminalContextActionsContext.Provider>

@@ -3,6 +3,9 @@ import {
   type TerminalContextDraft,
 } from "./lib/terminalContext";
 
+export const DATASET_MENTION_PREFIX = "dataset:";
+export const PROVIDER_MENTION_PREFIX = "provider:";
+
 export type ComposerPromptSegment =
   | {
       type: "text";
@@ -16,6 +19,38 @@ export type ComposerPromptSegment =
       type: "terminal-context";
       context: TerminalContextDraft | null;
     };
+
+export function isDatasetMentionPath(path: string): boolean {
+  return path.startsWith(DATASET_MENTION_PREFIX);
+}
+
+export function isProviderMentionPath(path: string): boolean {
+  return path.startsWith(PROVIDER_MENTION_PREFIX);
+}
+
+export function isRegistryMentionPath(path: string): boolean {
+  return isDatasetMentionPath(path) || isProviderMentionPath(path);
+}
+
+export function extractDatasetSlug(path: string): string {
+  return path.startsWith(DATASET_MENTION_PREFIX)
+    ? path.slice(DATASET_MENTION_PREFIX.length)
+    : path;
+}
+
+export function extractProviderSlug(path: string): string {
+  return path.startsWith(PROVIDER_MENTION_PREFIX)
+    ? path.slice(PROVIDER_MENTION_PREFIX.length)
+    : path;
+}
+
+export function buildDatasetMentionPath(slug: string): string {
+  return `${DATASET_MENTION_PREFIX}${slug}`;
+}
+
+export function buildProviderMentionPath(slug: string): string {
+  return `${PROVIDER_MENTION_PREFIX}${slug}`;
+}
 
 const MENTION_TOKEN_REGEX = /(^|\s)@([^\s@]+)(?=\s)/g;
 
