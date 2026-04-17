@@ -127,6 +127,33 @@ const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
 });
 const initialUpdateState = (): DesktopUpdateState =>
   createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo);
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+function focusOrCreateMainWindow(): void {
+  const existingWindow =
+    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
+  const targetWindow = existingWindow ?? createWindow();
+  if (!existingWindow) {
+    mainWindow = targetWindow;
+  }
+
+  if (targetWindow.isMinimized()) {
+    targetWindow.restore();
+  }
+  if (!targetWindow.isVisible()) {
+    targetWindow.show();
+  }
+  targetWindow.focus();
+}
+
+if (!hasSingleInstanceLock) {
+  isQuitting = true;
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    focusOrCreateMainWindow();
+  });
+}
 
 function logTimestamp(): string {
   return new Date().toISOString();
@@ -1544,27 +1571,29 @@ app.on("before-quit", () => {
   restoreStdIoCapture?.();
 });
 
-app
-  .whenReady()
-  .then(() => {
-    writeDesktopLogHeader("app ready");
-    configureAppIdentity();
-    configureApplicationMenu();
-    registerDesktopProtocol();
-    configureAutoUpdater();
-    void bootstrap().catch((error) => {
-      handleFatalStartupError("bootstrap", error);
-    });
+if (hasSingleInstanceLock) {
+  app
+    .whenReady()
+    .then(() => {
+      writeDesktopLogHeader("app ready");
+      configureAppIdentity();
+      configureApplicationMenu();
+      registerDesktopProtocol();
+      configureAutoUpdater();
+      void bootstrap().catch((error) => {
+        handleFatalStartupError("bootstrap", error);
+      });
 
-    app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createWindow();
-      }
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          mainWindow = createWindow();
+        }
+      });
+    })
+    .catch((error) => {
+      handleFatalStartupError("whenReady", error);
     });
-  })
-  .catch((error) => {
-    handleFatalStartupError("whenReady", error);
-  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin" && !isQuitting) {

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { watch } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { desktopDir, resolveElectronPath } from "./electron-launcher.mjs";
@@ -16,6 +16,8 @@ const watchedDirectories = [
   { directory: "dist-electron", files: new Set(["main.js", "preload.js"]) },
   { directory: "../server/dist", files: new Set(["bin.mjs"]) },
 ];
+const runtimeDir = join(desktopDir, ".electron-runtime");
+const launcherLockPath = join(runtimeDir, "dev-electron.lock.json");
 const forcedShutdownTimeoutMs = 1_500;
 const restartDebounceMs = 120;
 const childTreeGracePeriodMs = 1_200;
@@ -35,6 +37,108 @@ let currentApp = null;
 let restartQueue = Promise.resolve();
 const expectedExits = new WeakSet();
 const watchers = [];
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function readLauncherLockPid() {
+  try {
+    const raw = JSON.parse(readFileSync(launcherLockPath, "utf8"));
+    return typeof raw?.pid === "number" ? raw.pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function tryAcquireLauncherLock() {
+  mkdirSync(runtimeDir, { recursive: true });
+
+  try {
+    writeFileSync(launcherLockPath, `${JSON.stringify({ pid: process.pid })}\n`, {
+      flag: "wx",
+    });
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "EEXIST") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function isProcessAlive(pid) {
+  if (typeof pid !== "number" || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readProcessCommand(pid) {
+  if (process.platform === "win32") {
+    return null;
+  }
+
+  const result = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+
+  return result.stdout.trim();
+}
+
+function isDevElectronLauncher(pid) {
+  const command = readProcessCommand(pid);
+  return typeof command === "string" && command.includes("dev-electron.mjs");
+}
+
+async function ensureExclusiveLauncher() {
+  if (tryAcquireLauncherLock()) {
+    return;
+  }
+
+  const existingPid = readLauncherLockPid();
+  if (
+    typeof existingPid === "number" &&
+    existingPid !== process.pid &&
+    isProcessAlive(existingPid) &&
+    isDevElectronLauncher(existingPid)
+  ) {
+    try {
+      process.kill(existingPid, "SIGTERM");
+    } catch {}
+
+    await sleep(childTreeGracePeriodMs);
+
+    if (isProcessAlive(existingPid) && isDevElectronLauncher(existingPid)) {
+      try {
+        process.kill(existingPid, "SIGKILL");
+      } catch {}
+    }
+  }
+
+  rmSync(launcherLockPath, { force: true });
+
+  if (!tryAcquireLauncherLock()) {
+    process.exit(0);
+  }
+}
+
+function releaseLauncherLock() {
+  if (readLauncherLockPid() === process.pid) {
+    rmSync(launcherLockPath, { force: true });
+  }
+}
 
 function killChildTreeByPid(pid, signal) {
   if (process.platform === "win32" || typeof pid !== "number") {
@@ -195,13 +299,15 @@ async function shutdown(exitCode) {
 
   await stopApp();
   killChildTree("TERM");
-  await new Promise((resolve) => {
-    setTimeout(resolve, childTreeGracePeriodMs);
-  });
+  await sleep(childTreeGracePeriodMs);
   killChildTree("KILL");
+  releaseLauncherLock();
 
   process.exit(exitCode);
 }
+
+await ensureExclusiveLauncher();
+process.once("exit", releaseLauncherLock);
 
 startWatchers();
 cleanupStaleDevApps();
