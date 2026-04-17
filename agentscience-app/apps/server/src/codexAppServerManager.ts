@@ -310,6 +310,8 @@ AgentScience desktop already performs the runtime/update health check at app sta
 export const CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS = `<agentscience_paper_presentation>
 When you create or update a manuscript that should be reviewed in the desktop app, explicitly present it to the client instead of pasting the whole paper inline.
 
+- If the paper used real datasets worth contributing back to AgentScience, write an \`agentscience.publish.json\` file in the manuscript workspace root before you present the manuscript.
+- The publish manifest must be valid JSON with \`version: 1\` and a \`datasets\` array. Each dataset entry must include \`name\`, \`url\`, \`description\`, and optional \`keywords\`.
 - Append a \`<present_manuscript>\` block to the assistant message once the files already exist.
 - Inside the block, emit valid JSON with:
   - \`workspaceRoot\`: the manuscript directory to review
@@ -317,6 +319,7 @@ When you create or update a manuscript that should be reviewed in the desktop ap
   - \`pdf\`: the compiled PDF path, if it exists
   - \`bibliography\`: the bibliography path, if it exists
   - \`notes\`: the figure notes / experiment log path, if it exists
+  - \`publishManifest\`: the \`agentscience.publish.json\` path, if it exists
 - Paths may be absolute or relative to the current thread workspace, but they must point to the real files you just created.
 - Keep the visible prose outside the block short, for example: "The manuscript is ready for review on the right."
 - Do not paste the full paper inline when the user is trying to review it in the app. Present the manuscript block instead so the review pane can open.

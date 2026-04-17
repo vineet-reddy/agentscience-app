@@ -12,11 +12,13 @@ describe("paperPresentation", () => {
         workspaceRoot: "/tmp/manuscript",
         source: "paper.tex",
         pdf: "paper.pdf",
+        publishManifest: "agentscience.publish.json",
       }),
     ).toEqual({
       workspaceRoot: "/tmp/manuscript",
       source: "paper.tex",
       pdf: "paper.pdf",
+      publishManifest: "agentscience.publish.json",
     });
   });
 
@@ -36,6 +38,7 @@ describe("paperPresentation", () => {
           source: "paper.tex",
           pdf: "paper.pdf",
           bibliography: "references.bib",
+          publishManifest: "agentscience.publish.json",
         }),
         "</present_manuscript>",
       ].join("\n"),
@@ -47,6 +50,7 @@ describe("paperPresentation", () => {
       source: "paper.tex",
       pdf: "paper.pdf",
       bibliography: "references.bib",
+      publishManifest: "agentscience.publish.json",
     });
   });
 });

@@ -7,6 +7,7 @@ export interface PresentedManuscriptManifest {
   readonly pdf?: string;
   readonly bibliography?: string;
   readonly notes?: string;
+  readonly publishManifest?: string;
 }
 
 const PRESENT_MANUSCRIPT_BLOCK_REGEX =
@@ -47,6 +48,7 @@ export function parsePresentedManuscriptPayload(
   const pdf = normalizeManifestPath(record.pdf);
   const bibliography = normalizeManifestPath(record.bibliography);
   const notes = normalizeManifestPath(record.notes);
+  const publishManifest = normalizeManifestPath(record.publishManifest);
 
   if (!workspaceRoot && !source && !pdf) {
     return null;
@@ -58,6 +60,7 @@ export function parsePresentedManuscriptPayload(
     ...(pdf ? { pdf } : {}),
     ...(bibliography ? { bibliography } : {}),
     ...(notes ? { notes } : {}),
+    ...(publishManifest ? { publishManifest } : {}),
   };
 }
 

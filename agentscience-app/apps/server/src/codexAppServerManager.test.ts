@@ -289,6 +289,8 @@ describe("buildCodexModeDeveloperInstructions", () => {
       expect(instructions).toContain(
         'Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread.',
       );
+      expect(instructions).toContain("agentscience.publish.json");
+      expect(instructions).toContain("publishManifest");
     }
   });
 });
