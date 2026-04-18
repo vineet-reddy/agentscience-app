@@ -5,8 +5,10 @@ import {
   DatabaseIcon,
   ExternalLinkIcon,
   FileTextIcon,
+  LayersIcon,
   LibraryIcon,
   SearchIcon,
+  TagIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -15,29 +17,41 @@ import { isElectron } from "../env";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useSettings } from "../hooks/useSettings";
 import {
+  DATASET_AREA_KEYS,
+  type DatasetAreaKey,
+  type DatasetAreaMeta,
   type DatasetEntry,
   type DatasetProvider,
   type DatasetProviderSummary,
   type DatasetSourcePaper,
+  type DatasetTopic,
+  type DatasetTopicSummary,
   buildDatasetMentionRef,
   buildProviderMentionRef,
   fetchDatasetProviders,
   fetchDatasetRegistry,
+  fetchDatasetTopics,
   resolveSourcePaperUrl,
 } from "../lib/datasetRegistry";
 import { cn, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "../types";
 import {
+  ALL_AREAS_ID,
   ALL_PROVIDERS_ID,
+  ALL_TOPICS_ID,
   UNASSIGNED_PROVIDER_ID,
   buildProviderOptions,
+  buildTopicOptionsForArea,
+  countByArea,
   countDatasetsByProvider,
   deriveRightPaneState,
   filterDatasets,
+  type AreaFilter,
   type ProviderFilter,
   type ProviderOption,
   type RightPaneState,
+  type TopicFilter,
 } from "./DatasetsView.logic";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -46,6 +60,21 @@ import { toastManager } from "./ui/toast";
 
 const DATASET_REGISTRY_QUERY_KEY = ["dataset-registry"] as const;
 const DATASET_PROVIDERS_QUERY_KEY = ["dataset-providers"] as const;
+const DATASET_TOPICS_QUERY_KEY = ["dataset-topics"] as const;
+
+// Fallback labels for areas in case the topics endpoint hasn't responded yet.
+// Mirrors DATASET_AREA_META on the backend.
+const AREA_FALLBACK_LABELS: Record<DatasetAreaKey, string> = {
+  LIFE_SCIENCES: "Life Sciences",
+  MEDICINE_HEALTH: "Medicine & Health",
+  SOCIAL_SCIENCES: "Social Sciences",
+  PHYSICAL_SCIENCES: "Physical Sciences",
+  EARTH_ENVIRONMENT: "Earth & Environment",
+  COMPUTING_ENGINEERING: "Computing & Engineering",
+  MATH_STATISTICS: "Math & Statistics",
+  HUMANITIES: "Humanities",
+  OTHER: "Other",
+};
 
 export function DatasetsView() {
   const datasetsQuery = useQuery({
@@ -60,10 +89,29 @@ export function DatasetsView() {
     retry: false,
     staleTime: 30_000,
   });
+  const topicsQuery = useQuery({
+    queryKey: DATASET_TOPICS_QUERY_KEY,
+    queryFn: ({ signal }) => fetchDatasetTopics({ signal, limit: 500 }),
+    retry: false,
+    staleTime: 30_000,
+  });
 
   const datasets = datasetsQuery.data ?? [];
   const providers = providersQuery.data ?? [];
+  const topics = topicsQuery.data?.topics ?? [];
+  const areasMeta = useMemo<DatasetAreaMeta[]>(() => {
+    const fromApi = topicsQuery.data?.areas;
+    if (fromApi && fromApi.length > 0) return fromApi;
+    return DATASET_AREA_KEYS.map((key) => ({
+      key,
+      name: AREA_FALLBACK_LABELS[key],
+      description: "",
+    }));
+  }, [topicsQuery.data?.areas]);
+
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeArea, setActiveArea] = useState<AreaFilter>(ALL_AREAS_ID);
+  const [activeTopicSlug, setActiveTopicSlug] = useState<TopicFilter>(ALL_TOPICS_ID);
   const [activeProviderId, setActiveProviderId] = useState<ProviderFilter>(
     ALL_PROVIDERS_ID,
   );
@@ -77,23 +125,47 @@ export function DatasetsView() {
     return map;
   }, [providers]);
 
+  const topicBySlug = useMemo(() => {
+    const map = new Map<string, DatasetTopic>();
+    for (const topic of topics) {
+      map.set(topic.slug, topic);
+    }
+    return map;
+  }, [topics]);
+
   const datasetCountsByProviderId = useMemo(
     () => countDatasetsByProvider(datasets),
     [datasets],
   );
 
+  const areaCounts = useMemo(
+    () => countByArea(providers, datasets),
+    [providers, datasets],
+  );
+
+  const visibleTopics = useMemo(
+    () => buildTopicOptionsForArea(topics, activeArea),
+    [topics, activeArea],
+  );
+
   const providerOptions = useMemo(
-    () => buildProviderOptions(providers, datasetCountsByProviderId),
-    [providers, datasetCountsByProviderId],
+    () =>
+      buildProviderOptions(providers, datasetCountsByProviderId, {
+        activeArea,
+        activeTopicSlug,
+      }),
+    [providers, datasetCountsByProviderId, activeArea, activeTopicSlug],
   );
 
   const filteredDatasets = useMemo(
     () =>
       filterDatasets(datasets, {
+        activeArea,
+        activeTopicSlug,
         activeProviderId,
         searchQuery,
       }),
-    [datasets, searchQuery, activeProviderId],
+    [datasets, searchQuery, activeArea, activeTopicSlug, activeProviderId],
   );
 
   useEffect(() => {
@@ -105,6 +177,53 @@ export function DatasetsView() {
       setSelectedDatasetId(null);
     }
   }, [filteredDatasets, selectedDatasetId]);
+
+  // Clamp filters down when a parent filter drops an invalid child out of view.
+  useEffect(() => {
+    if (activeTopicSlug === ALL_TOPICS_ID) return;
+    const topic = topicBySlug.get(activeTopicSlug);
+    if (!topic) return;
+    if (activeArea !== ALL_AREAS_ID && topic.area !== activeArea) {
+      setActiveTopicSlug(ALL_TOPICS_ID);
+    }
+  }, [activeArea, activeTopicSlug, topicBySlug]);
+
+  useEffect(() => {
+    if (
+      activeProviderId === ALL_PROVIDERS_ID ||
+      activeProviderId === UNASSIGNED_PROVIDER_ID
+    ) {
+      return;
+    }
+    const stillMatches = providerOptions.some(
+      ({ provider }) => provider.id === activeProviderId,
+    );
+    if (!stillMatches) {
+      setActiveProviderId(ALL_PROVIDERS_ID);
+    }
+  }, [providerOptions, activeProviderId]);
+
+  const handleSelectArea = useCallback((next: AreaFilter) => {
+    setActiveArea(next);
+    setActiveTopicSlug(ALL_TOPICS_ID);
+    setActiveProviderId(ALL_PROVIDERS_ID);
+    setSelectedDatasetId(null);
+  }, []);
+
+  const handleSelectTopic = useCallback(
+    (next: TopicFilter) => {
+      setActiveTopicSlug(next);
+      setActiveProviderId(ALL_PROVIDERS_ID);
+      setSelectedDatasetId(null);
+      if (next !== ALL_TOPICS_ID) {
+        const topic = topicBySlug.get(next);
+        if (topic && (activeArea === ALL_AREAS_ID || activeArea !== topic.area)) {
+          setActiveArea(topic.area);
+        }
+      }
+    },
+    [activeArea, topicBySlug],
+  );
 
   const handleSelectProvider = useCallback((providerId: ProviderFilter) => {
     setActiveProviderId(providerId);
@@ -119,6 +238,18 @@ export function DatasetsView() {
     [],
   );
 
+  const handleOpenTopicFromChip = useCallback(
+    (topic: DatasetTopicSummary) => {
+      const hydrated = topicBySlug.get(topic.slug);
+      setActiveArea(topic.area);
+      setActiveTopicSlug(topic.slug);
+      setActiveProviderId(ALL_PROVIDERS_ID);
+      setSelectedDatasetId(null);
+      void hydrated;
+    },
+    [topicBySlug],
+  );
+
   const selectedDataset = useMemo(
     () => datasets.find((dataset) => dataset.id === selectedDatasetId) ?? null,
     [datasets, selectedDatasetId],
@@ -129,18 +260,23 @@ export function DatasetsView() {
       deriveRightPaneState({
         selectedDataset,
         activeProviderId,
+        activeTopicSlug,
         providerById,
+        topicBySlug,
         unassignedCount: datasetCountsByProviderId.unassigned,
       }),
     [
       selectedDataset,
       activeProviderId,
+      activeTopicSlug,
       providerById,
+      topicBySlug,
       datasetCountsByProviderId.unassigned,
     ],
   );
 
-  const isLoading = datasetsQuery.isLoading || providersQuery.isLoading;
+  const isLoading =
+    datasetsQuery.isLoading || providersQuery.isLoading || topicsQuery.isLoading;
   const errorMessage =
     datasetsQuery.error instanceof Error
       ? datasetsQuery.error.message
@@ -150,7 +286,11 @@ export function DatasetsView() {
           ? providersQuery.error.message
           : providersQuery.error
             ? "Could not load dataset providers."
-            : null;
+            : topicsQuery.error instanceof Error
+              ? topicsQuery.error.message
+              : topicsQuery.error
+                ? "Could not load the dataset taxonomy."
+                : null;
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden bg-background text-foreground isolate">
@@ -178,6 +318,13 @@ export function DatasetsView() {
             errorMessage={errorMessage}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
+            areas={areasMeta}
+            areaCounts={areaCounts}
+            activeArea={activeArea}
+            onSelectArea={handleSelectArea}
+            topicOptions={visibleTopics}
+            activeTopicSlug={activeTopicSlug}
+            onSelectTopic={handleSelectTopic}
             providerOptions={providerOptions}
             unassignedCount={datasetCountsByProviderId.unassigned}
             activeProviderId={activeProviderId}
@@ -185,7 +332,11 @@ export function DatasetsView() {
             selectedDatasetId={selectedDatasetId}
             onSelectDataset={setSelectedDatasetId}
           />
-          <RightPane state={rightPaneState} onOpenProvider={handleOpenProviderForDataset} />
+          <RightPane
+            state={rightPaneState}
+            onOpenProvider={handleOpenProviderForDataset}
+            onOpenTopic={handleOpenTopicFromChip}
+          />
         </div>
       </div>
     </SidebarInset>
@@ -195,17 +346,26 @@ export function DatasetsView() {
 function RightPane({
   state,
   onOpenProvider,
+  onOpenTopic,
 }: {
   state: RightPaneState;
   onOpenProvider: (provider: DatasetProviderSummary) => void;
+  onOpenTopic: (topic: DatasetTopicSummary) => void;
 }) {
   if (state.kind === "dataset") {
     return (
-      <DatasetDetailBody dataset={state.dataset} onOpenProvider={onOpenProvider} />
+      <DatasetDetailBody
+        dataset={state.dataset}
+        onOpenProvider={onOpenProvider}
+        onOpenTopic={onOpenTopic}
+      />
     );
   }
   if (state.kind === "provider") {
-    return <ProviderDetailBody provider={state.provider} />;
+    return <ProviderDetailBody provider={state.provider} onOpenTopic={onOpenTopic} />;
+  }
+  if (state.kind === "topic") {
+    return <TopicDetailBody topic={state.topic} />;
   }
   if (state.kind === "unassigned") {
     return <UnassignedEmptyState count={state.count} />;
@@ -221,11 +381,11 @@ function DefaultEmptyState() {
           <DatabaseIcon className="size-5" />
         </div>
         <p className="mt-4 font-display text-[1.25rem] text-ink">
-          Pick a provider or dataset
+          Pick an area, topic, or dataset
         </p>
         <p className="mt-2 text-[0.8125rem] text-ink-light">
-          Choose a provider to see how agents search inside it, or select a specific
-          dataset to see how to cite it from a new paper.
+          Narrow by field of science, zoom into a topic, or select a specific dataset
+          to see how to cite it from a new paper.
         </p>
       </div>
     </section>
@@ -258,6 +418,16 @@ interface DatasetListColumnProps {
   errorMessage: string | null;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
+  areas: DatasetAreaMeta[];
+  areaCounts: {
+    providerByArea: Map<DatasetAreaKey, Set<string>>;
+    datasetByArea: Map<DatasetAreaKey, Set<string>>;
+  };
+  activeArea: AreaFilter;
+  onSelectArea: (next: AreaFilter) => void;
+  topicOptions: DatasetTopic[];
+  activeTopicSlug: TopicFilter;
+  onSelectTopic: (next: TopicFilter) => void;
   providerOptions: ProviderOption[];
   unassignedCount: number;
   activeProviderId: ProviderFilter;
@@ -273,6 +443,13 @@ function DatasetListColumn({
   errorMessage,
   searchQuery,
   onSearchQueryChange,
+  areas,
+  areaCounts,
+  activeArea,
+  onSelectArea,
+  topicOptions,
+  activeTopicSlug,
+  onSelectTopic,
   providerOptions,
   unassignedCount,
   activeProviderId,
@@ -295,12 +472,25 @@ function DatasetListColumn({
           <Input
             size="sm"
             type="search"
-            placeholder="Search datasets or providers"
+            placeholder="Search datasets, providers, or topics"
             value={searchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
             className="pl-8"
           />
         </div>
+        <AreaStrip
+          areas={areas}
+          areaCounts={areaCounts}
+          activeArea={activeArea}
+          onSelect={onSelectArea}
+        />
+        {topicOptions.length > 0 ? (
+          <TopicPillRow
+            topics={topicOptions}
+            activeTopicSlug={activeTopicSlug}
+            onSelect={onSelectTopic}
+          />
+        ) : null}
         <ProviderFilterPills
           options={providerOptions}
           unassignedCount={unassignedCount}
@@ -337,6 +527,83 @@ function DatasetListColumn({
   );
 }
 
+function AreaStrip({
+  areas,
+  areaCounts,
+  activeArea,
+  onSelect,
+}: {
+  areas: DatasetAreaMeta[];
+  areaCounts: {
+    providerByArea: Map<DatasetAreaKey, Set<string>>;
+    datasetByArea: Map<DatasetAreaKey, Set<string>>;
+  };
+  activeArea: AreaFilter;
+  onSelect: (next: AreaFilter) => void;
+}) {
+  return (
+    <div className="-mx-1">
+      <div className="flex items-center gap-1 px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        <LayersIcon className="size-3" />
+        <span>Fields of science</span>
+      </div>
+      <div className="flex gap-1 overflow-x-auto px-1 pb-1 scrollbar-none">
+        <FilterPill
+          label="All"
+          isActive={activeArea === ALL_AREAS_ID}
+          onClick={() => onSelect(ALL_AREAS_ID)}
+        />
+        {areas.map((area) => {
+          const providerCount = areaCounts.providerByArea.get(area.key)?.size ?? 0;
+          return (
+            <FilterPill
+              key={area.key}
+              label={`${area.name} · ${providerCount}`}
+              isActive={activeArea === area.key}
+              dim={providerCount === 0}
+              onClick={() => onSelect(area.key)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TopicPillRow({
+  topics,
+  activeTopicSlug,
+  onSelect,
+}: {
+  topics: DatasetTopic[];
+  activeTopicSlug: TopicFilter;
+  onSelect: (next: TopicFilter) => void;
+}) {
+  return (
+    <div className="-mx-1">
+      <div className="flex items-center gap-1 px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        <TagIcon className="size-3" />
+        <span>Topics</span>
+      </div>
+      <div className="flex max-h-[84px] flex-wrap gap-1 overflow-y-auto px-1 pb-1">
+        <FilterPill
+          label="All topics"
+          isActive={activeTopicSlug === ALL_TOPICS_ID}
+          onClick={() => onSelect(ALL_TOPICS_ID)}
+        />
+        {topics.map((topic) => (
+          <FilterPill
+            key={topic.id}
+            label={`${topic.name} · ${topic.providerCount}`}
+            isActive={activeTopicSlug === topic.slug}
+            onClick={() => onSelect(topic.slug)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EmptyListState({
   totalCount,
   hasQuery,
@@ -360,8 +627,8 @@ function EmptyListState({
       <p className="font-medium text-ink">No matches.</p>
       <p>
         {hasQuery
-          ? "Try broader search terms or clear the active provider filter."
-          : "No datasets match the active provider. Switch to All to see everything."}
+          ? "Try broader search terms or clear the active area, topic, or provider filter."
+          : "No datasets match the active filters. Clear them to see everything."}
       </p>
     </div>
   );
@@ -410,11 +677,21 @@ function DatasetListRow({ dataset, isActive, onSelect }: DatasetListRowProps) {
           {dataset.description}
         </p>
       ) : null}
-      {providerLabel ? (
-        <span className="mt-1 inline-flex w-fit items-center rounded-full bg-[#E1F5EE] px-2 py-[2px] text-[11px] font-medium text-[#085041] dark:bg-[#11332a] dark:text-[#7ddcbd]">
-          {providerLabel}
-        </span>
-      ) : null}
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {providerLabel ? (
+          <span className="inline-flex items-center rounded-full bg-[#E1F5EE] px-2 py-[2px] text-[11px] font-medium text-[#085041] dark:bg-[#11332a] dark:text-[#7ddcbd]">
+            {providerLabel}
+          </span>
+        ) : null}
+        {dataset.topics.slice(0, 2).map((topic) => (
+          <span
+            key={topic.id}
+            className="inline-flex items-center rounded-full bg-[#EEE6FB] px-2 py-[2px] text-[11px] font-medium text-[#6D4AA8] dark:bg-[#27173f] dark:text-[#b499e7]"
+          >
+            {topic.name}
+          </span>
+        ))}
+      </div>
     </button>
   );
 }
@@ -433,27 +710,33 @@ function ProviderFilterPills({
   onChange: (value: ProviderFilter) => void;
 }) {
   return (
-    <div className="-mx-1 flex flex-wrap gap-1 px-1">
-      <FilterPill
-        label={`All · ${totalCount}`}
-        isActive={activeProviderId === ALL_PROVIDERS_ID}
-        onClick={() => onChange(ALL_PROVIDERS_ID)}
-      />
-      {options.map(({ provider, liveCount }) => (
+    <div className="-mx-1">
+      <div className="flex items-center gap-1 px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        <LibraryIcon className="size-3" />
+        <span>Providers</span>
+      </div>
+      <div className="flex max-h-[84px] flex-wrap gap-1 overflow-y-auto px-1 pb-1">
         <FilterPill
-          key={provider.id}
-          label={`${provider.name} · ${liveCount}`}
-          isActive={activeProviderId === provider.id}
-          onClick={() => onChange(provider.id)}
+          label={`All · ${totalCount}`}
+          isActive={activeProviderId === ALL_PROVIDERS_ID}
+          onClick={() => onChange(ALL_PROVIDERS_ID)}
         />
-      ))}
-      {unassignedCount > 0 ? (
-        <FilterPill
-          label={`Unassigned · ${unassignedCount}`}
-          isActive={activeProviderId === UNASSIGNED_PROVIDER_ID}
-          onClick={() => onChange(UNASSIGNED_PROVIDER_ID)}
-        />
-      ) : null}
+        {options.map(({ provider, liveCount }) => (
+          <FilterPill
+            key={provider.id}
+            label={`${provider.name} · ${liveCount}`}
+            isActive={activeProviderId === provider.id}
+            onClick={() => onChange(provider.id)}
+          />
+        ))}
+        {unassignedCount > 0 ? (
+          <FilterPill
+            label={`Unassigned · ${unassignedCount}`}
+            isActive={activeProviderId === UNASSIGNED_PROVIDER_ID}
+            onClick={() => onChange(UNASSIGNED_PROVIDER_ID)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -462,20 +745,23 @@ function FilterPill({
   label,
   isActive,
   onClick,
+  dim,
 }: {
   label: string;
   isActive: boolean;
   onClick: () => void;
+  dim?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-[3px] text-[11px] font-medium transition-colors",
+        "inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 py-[3px] text-[11px] font-medium transition-colors",
         isActive
           ? "border-ink bg-ink text-snow-white"
           : "border-border bg-transparent text-ink-light hover:bg-secondary",
+        !isActive && dim && "opacity-60",
       )}
       aria-pressed={isActive}
     >
@@ -487,9 +773,11 @@ function FilterPill({
 function DatasetDetailBody({
   dataset,
   onOpenProvider,
+  onOpenTopic,
 }: {
   dataset: DatasetEntry;
   onOpenProvider: (provider: DatasetProviderSummary) => void;
+  onOpenTopic: (topic: DatasetTopicSummary) => void;
 }) {
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col">
@@ -504,6 +792,7 @@ function DatasetDetailBody({
             usedInPaperCount={dataset.usedInPaperCount}
             onOpenProvider={onOpenProvider}
           />
+          <DatasetTopics topics={dataset.topics} onOpenTopic={onOpenTopic} />
           <DatasetKeywords keywords={dataset.keywords} />
           <DatasetSourcePaperSection sourcePaper={dataset.sourcePaper} />
         </div>
@@ -614,6 +903,37 @@ function MetadataCell({
       </span>
       {children}
     </div>
+  );
+}
+
+function DatasetTopics({
+  topics,
+  onOpenTopic,
+}: {
+  topics: DatasetTopicSummary[];
+  onOpenTopic: (topic: DatasetTopicSummary) => void;
+}) {
+  if (topics.length === 0) return null;
+  return (
+    <section className="flex flex-col gap-2">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        Topics
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {topics.map((topic) => (
+          <button
+            key={topic.id}
+            type="button"
+            onClick={() => onOpenTopic(topic)}
+            className="inline-flex items-center gap-1 rounded-full bg-[#EEE6FB] px-2.5 py-[3px] text-[11px] font-medium text-[#6D4AA8] transition-colors hover:bg-[#d9c3ff] dark:bg-[#27173f] dark:text-[#b499e7] dark:hover:bg-[#3a2359]"
+            title={`Filter by ${topic.name} (${topic.area.replaceAll("_", " ").toLowerCase()})`}
+          >
+            <TagIcon className="size-3" />
+            {topic.name}
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -746,7 +1066,13 @@ function DatasetActionBar({ dataset }: { dataset: DatasetEntry }) {
   );
 }
 
-function ProviderDetailBody({ provider }: { provider: DatasetProvider }) {
+function ProviderDetailBody({
+  provider,
+  onOpenTopic,
+}: {
+  provider: DatasetProvider;
+  onOpenTopic: (topic: DatasetTopicSummary) => void;
+}) {
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex-1 overflow-y-auto">
@@ -754,6 +1080,7 @@ function ProviderDetailBody({ provider }: { provider: DatasetProvider }) {
           <ProviderHeader provider={provider} />
           <ProviderDescription description={provider.description} />
           <ProviderMetadataGrid provider={provider} />
+          <DatasetTopics topics={provider.topics} onOpenTopic={onOpenTopic} />
           <ProviderSearchRecipe provider={provider} />
         </div>
       </div>
@@ -954,6 +1281,58 @@ function ProviderActionBar({ provider }: { provider: DatasetProvider }) {
         </Button>
       </div>
     </footer>
+  );
+}
+
+function TopicDetailBody({ topic }: { topic: DatasetTopic }) {
+  const humanArea = topic.area
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return (
+    <section className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-8 py-8">
+          <header className="flex items-start gap-4">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#EEE6FB] text-[#6D4AA8] dark:bg-[#27173f] dark:text-[#b499e7]">
+              <TagIcon className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="font-display text-[1.5rem] leading-[1.2] text-ink sm:text-[1.625rem]">
+                {topic.name}
+              </h1>
+              <p className="mt-1 text-[0.8125rem] text-ink-light">
+                {humanArea} · {topic.providerCount}{" "}
+                {topic.providerCount === 1 ? "provider" : "providers"} ·{" "}
+                {topic.datasetCount} {topic.datasetCount === 1 ? "dataset" : "datasets"}
+              </p>
+            </div>
+          </header>
+          {topic.description ? (
+            <section className="flex flex-col gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+                About
+              </p>
+              <p className="whitespace-pre-wrap text-[0.9375rem] leading-relaxed text-ink">
+                {topic.description}
+              </p>
+            </section>
+          ) : null}
+          {topic.agentInstructions ? (
+            <section className="flex flex-col gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+                Instructions for agents
+              </p>
+              <div className="rounded-[12px] border border-rule bg-card p-4">
+                <p className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-ink">
+                  {topic.agentInstructions}
+                </p>
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
