@@ -1,11 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowLeftIcon,
   CopyIcon,
   DatabaseIcon,
   ExternalLinkIcon,
   FileTextIcon,
-  LayersIcon,
   LibraryIcon,
   SearchIcon,
   TagIcon,
@@ -142,6 +142,11 @@ export function DatasetsView() {
     () => countByArea(providers, datasets),
     [providers, datasets],
   );
+
+  const activeAreaMeta = useMemo(() => {
+    if (activeArea === ALL_AREAS_ID) return null;
+    return areasMeta.find((meta) => meta.key === activeArea) ?? null;
+  }, [areasMeta, activeArea]);
 
   const visibleTopics = useMemo(
     () => buildTopicOptionsForArea(topics, activeArea),
@@ -311,7 +316,7 @@ export function DatasetsView() {
         )}
 
         <div className="flex min-h-0 flex-1">
-          <DatasetListColumn
+          <DatasetSidebar
             datasets={filteredDatasets}
             totalCount={datasets.length}
             isLoading={isLoading}
@@ -321,6 +326,7 @@ export function DatasetsView() {
             areas={areasMeta}
             areaCounts={areaCounts}
             activeArea={activeArea}
+            activeAreaMeta={activeAreaMeta}
             onSelectArea={handleSelectArea}
             topicOptions={visibleTopics}
             activeTopicSlug={activeTopicSlug}
@@ -381,11 +387,11 @@ function DefaultEmptyState() {
           <DatabaseIcon className="size-5" />
         </div>
         <p className="mt-4 font-display text-[1.25rem] text-ink">
-          Pick an area, topic, or dataset
+          Pick a field or a dataset
         </p>
         <p className="mt-2 text-[0.8125rem] text-ink-light">
-          Narrow by field of science, zoom into a topic, or select a specific dataset
-          to see how to cite it from a new paper.
+          Browse the field you care about, then pick a dataset to see how to cite
+          it from a new paper.
         </p>
       </div>
     </section>
@@ -411,7 +417,7 @@ function UnassignedEmptyState({ count }: { count: number }) {
   );
 }
 
-interface DatasetListColumnProps {
+interface DatasetSidebarProps {
   datasets: DatasetEntry[];
   totalCount: number;
   isLoading: boolean;
@@ -424,6 +430,7 @@ interface DatasetListColumnProps {
     datasetByArea: Map<DatasetAreaKey, Set<string>>;
   };
   activeArea: AreaFilter;
+  activeAreaMeta: DatasetAreaMeta | null;
   onSelectArea: (next: AreaFilter) => void;
   topicOptions: DatasetTopic[];
   activeTopicSlug: TopicFilter;
@@ -436,7 +443,18 @@ interface DatasetListColumnProps {
   onSelectDataset: (id: string) => void;
 }
 
-function DatasetListColumn({
+/**
+ * Sidebar has two display modes driven by `activeArea`:
+ *   1. Overview — compact search + vertical list of 9 areas. No topic or
+ *      source chips, because showing them across every area produces the
+ *      "three filter layers at once" clutter we're explicitly designing
+ *      away from.
+ *   2. Drilldown — "All fields" back link, area title, topic + source
+ *      chip rows scoped to the area, then the dataset list.
+ *
+ * This is the progressive-disclosure structure the design mockups call for.
+ */
+function DatasetSidebar({
   datasets,
   totalCount,
   isLoading,
@@ -446,6 +464,7 @@ function DatasetListColumn({
   areas,
   areaCounts,
   activeArea,
+  activeAreaMeta,
   onSelectArea,
   topicOptions,
   activeTopicSlug,
@@ -456,11 +475,13 @@ function DatasetListColumn({
   onActiveProviderChange,
   selectedDatasetId,
   onSelectDataset,
-}: DatasetListColumnProps) {
+}: DatasetSidebarProps) {
+  const inOverview = activeArea === ALL_AREAS_ID;
   const displayCount = datasets.length;
+
   return (
     <aside className="flex h-full w-[340px] shrink-0 flex-col border-r border-border bg-card">
-      <div className="flex flex-col gap-3 border-b border-border px-4 py-4">
+      <div className="flex flex-col gap-4 border-b border-border px-4 py-4">
         <div className="flex items-baseline justify-between">
           <p className="font-display text-[1.0625rem] text-ink">Dataset registry</p>
           <span className="text-[11px] uppercase tracking-[0.16em] text-ink-faint">
@@ -472,32 +493,36 @@ function DatasetListColumn({
           <Input
             size="sm"
             type="search"
-            placeholder="Search datasets, providers, or topics"
+            placeholder={
+              inOverview
+                ? 'Search datasets e.g. "pediatric cancer"'
+                : `Search within ${activeAreaMeta?.name ?? "this field"}`
+            }
             value={searchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
             className="pl-8"
           />
         </div>
-        <AreaStrip
-          areas={areas}
-          areaCounts={areaCounts}
-          activeArea={activeArea}
-          onSelect={onSelectArea}
-        />
-        {topicOptions.length > 0 ? (
-          <TopicPillRow
-            topics={topicOptions}
-            activeTopicSlug={activeTopicSlug}
-            onSelect={onSelectTopic}
+
+        {inOverview ? (
+          <AreaList
+            areas={areas}
+            areaCounts={areaCounts}
+            onSelect={(key) => onSelectArea(key)}
           />
-        ) : null}
-        <ProviderFilterPills
-          options={providerOptions}
-          unassignedCount={unassignedCount}
-          totalCount={totalCount}
-          activeProviderId={activeProviderId}
-          onChange={onActiveProviderChange}
-        />
+        ) : (
+          <AreaDrilldownHeader
+            area={activeAreaMeta}
+            onClear={() => onSelectArea(ALL_AREAS_ID)}
+            topicOptions={topicOptions}
+            activeTopicSlug={activeTopicSlug}
+            onSelectTopic={onSelectTopic}
+            providerOptions={providerOptions}
+            unassignedCount={unassignedCount}
+            activeProviderId={activeProviderId}
+            onSelectProvider={onActiveProviderChange}
+          />
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -508,14 +533,32 @@ function DatasetListColumn({
             Loading datasets…
           </div>
         ) : datasets.length === 0 ? (
-          <EmptyListState totalCount={totalCount} hasQuery={searchQuery.trim().length > 0} />
+          <EmptyListState
+            totalCount={totalCount}
+            hasQuery={searchQuery.trim().length > 0}
+            activeAreaMeta={activeAreaMeta}
+            onClearArea={() => onSelectArea(ALL_AREAS_ID)}
+          />
         ) : (
           <ul>
+            {!inOverview ? (
+              <li>
+                <DatasetListHeading
+                  count={displayCount}
+                  areaName={activeAreaMeta?.name ?? null}
+                />
+              </li>
+            ) : (
+              <li>
+                <DatasetListHeading count={displayCount} areaName={null} />
+              </li>
+            )}
             {datasets.map((dataset) => (
               <li key={dataset.id}>
                 <DatasetListRow
                   dataset={dataset}
                   isActive={dataset.id === selectedDatasetId}
+                  mode={inOverview ? "overview" : "area"}
                   onSelect={onSelectDataset}
                 />
               </li>
@@ -527,10 +570,28 @@ function DatasetListColumn({
   );
 }
 
-function AreaStrip({
+function DatasetListHeading({
+  count,
+  areaName,
+}: {
+  count: number;
+  areaName: string | null;
+}) {
+  return (
+    <div className="flex items-baseline justify-between border-b border-border/60 px-4 py-2.5">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        {areaName ? "Datasets" : "Recent datasets"}
+      </span>
+      <span className="text-[11px] text-ink-faint tabular-nums">
+        {count} {count === 1 ? "dataset" : "datasets"}
+      </span>
+    </div>
+  );
+}
+
+function AreaList({
   areas,
   areaCounts,
-  activeArea,
   onSelect,
 }: {
   areas: DatasetAreaMeta[];
@@ -538,31 +599,41 @@ function AreaStrip({
     providerByArea: Map<DatasetAreaKey, Set<string>>;
     datasetByArea: Map<DatasetAreaKey, Set<string>>;
   };
-  activeArea: AreaFilter;
-  onSelect: (next: AreaFilter) => void;
+  onSelect: (key: DatasetAreaKey) => void;
 }) {
   return (
-    <div className="-mx-1">
-      <div className="flex items-center gap-1 px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
-        <LayersIcon className="size-3" />
-        <span>Fields of science</span>
+    <div className="flex flex-col">
+      <div className="flex items-baseline justify-between pb-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+          Browse by field
+        </span>
+        <span className="text-[11px] text-ink-faint">Pick one</span>
       </div>
-      <div className="flex gap-1 overflow-x-auto px-1 pb-1 scrollbar-none">
-        <FilterPill
-          label="All"
-          isActive={activeArea === ALL_AREAS_ID}
-          onClick={() => onSelect(ALL_AREAS_ID)}
-        />
+      <div className="flex flex-col divide-y divide-border/60 rounded-md border border-border/70 bg-background/60">
         {areas.map((area) => {
-          const providerCount = areaCounts.providerByArea.get(area.key)?.size ?? 0;
+          const providerCount =
+            areaCounts.providerByArea.get(area.key)?.size ?? 0;
+          const datasetCount = areaCounts.datasetByArea.get(area.key)?.size ?? 0;
+          const empty = providerCount === 0 && datasetCount === 0;
           return (
-            <FilterPill
+            <button
               key={area.key}
-              label={`${area.name} · ${providerCount}`}
-              isActive={activeArea === area.key}
-              dim={providerCount === 0}
+              type="button"
               onClick={() => onSelect(area.key)}
-            />
+              className={cn(
+                "flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-secondary/60",
+                empty && "opacity-55",
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+                {area.name}
+              </span>
+              <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">
+                {empty
+                  ? "Empty"
+                  : `${providerCount} ${providerCount === 1 ? "provider" : "providers"}`}
+              </span>
+            </button>
           );
         })}
       </div>
@@ -570,46 +641,184 @@ function AreaStrip({
   );
 }
 
-function TopicPillRow({
-  topics,
+function AreaDrilldownHeader({
+  area,
+  onClear,
+  topicOptions,
   activeTopicSlug,
-  onSelect,
+  onSelectTopic,
+  providerOptions,
+  unassignedCount,
+  activeProviderId,
+  onSelectProvider,
 }: {
-  topics: DatasetTopic[];
+  area: DatasetAreaMeta | null;
+  onClear: () => void;
+  topicOptions: DatasetTopic[];
   activeTopicSlug: TopicFilter;
-  onSelect: (next: TopicFilter) => void;
+  onSelectTopic: (slug: TopicFilter) => void;
+  providerOptions: ProviderOption[];
+  unassignedCount: number;
+  activeProviderId: ProviderFilter;
+  onSelectProvider: (value: ProviderFilter) => void;
 }) {
   return (
-    <div className="-mx-1">
-      <div className="flex items-center gap-1 px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
-        <TagIcon className="size-3" />
-        <span>Topics</span>
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        onClick={onClear}
+        className="inline-flex w-fit items-center gap-1 text-[11px] text-ink-light transition-colors hover:text-ink"
+      >
+        <ArrowLeftIcon className="size-3" />
+        <span>All fields</span>
+      </button>
+      <div>
+        <p className="font-display text-[1.0625rem] leading-tight text-ink">
+          {area?.name ?? ""}
+        </p>
+        {area?.description ? (
+          <p className="mt-0.5 text-[11px] leading-snug text-ink-light [text-wrap:pretty]">
+            {area.description}
+          </p>
+        ) : null}
       </div>
-      <div className="flex max-h-[84px] flex-wrap gap-1 overflow-y-auto px-1 pb-1">
-        <FilterPill
-          label="All topics"
-          isActive={activeTopicSlug === ALL_TOPICS_ID}
-          onClick={() => onSelect(ALL_TOPICS_ID)}
+      {topicOptions.length > 0 ? (
+        <FilterRow
+          label="Topic"
+          icon={<TagIcon className="size-3" />}
+          options={[
+            {
+              key: ALL_TOPICS_ID,
+              label: "All",
+              count: topicOptions.length,
+              active: activeTopicSlug === ALL_TOPICS_ID,
+              dim: false,
+              onClick: () => onSelectTopic(ALL_TOPICS_ID),
+            },
+            ...topicOptions.map((topic) => ({
+              key: topic.slug,
+              label: topic.name,
+              count: topic.datasetCount,
+              active: activeTopicSlug === topic.slug,
+              dim: topic.datasetCount === 0,
+              onClick: () => onSelectTopic(topic.slug),
+            })),
+          ]}
         />
-        {topics.map((topic) => (
-          <FilterPill
-            key={topic.id}
-            label={`${topic.name} · ${topic.providerCount}`}
-            isActive={activeTopicSlug === topic.slug}
-            onClick={() => onSelect(topic.slug)}
-          />
+      ) : null}
+      {providerOptions.length > 0 || unassignedCount > 0 ? (
+        <FilterRow
+          label="Source"
+          icon={<LibraryIcon className="size-3" />}
+          options={[
+            {
+              key: ALL_PROVIDERS_ID,
+              label: "All",
+              count: providerOptions.reduce(
+                (sum, option) => sum + option.liveCount,
+                0,
+              ),
+              active: activeProviderId === ALL_PROVIDERS_ID,
+              dim: false,
+              onClick: () => onSelectProvider(ALL_PROVIDERS_ID),
+            },
+            ...providerOptions.map(({ provider, liveCount }) => ({
+              key: provider.id,
+              label: provider.name,
+              count: liveCount,
+              active: activeProviderId === provider.id,
+              dim: liveCount === 0,
+              onClick: () => onSelectProvider(provider.id),
+            })),
+            ...(unassignedCount > 0
+              ? [
+                  {
+                    key: UNASSIGNED_PROVIDER_ID,
+                    label: "Unassigned",
+                    count: unassignedCount,
+                    active: activeProviderId === UNASSIGNED_PROVIDER_ID,
+                    dim: false,
+                    onClick: () => onSelectProvider(UNASSIGNED_PROVIDER_ID),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+interface FilterOption {
+  key: string;
+  label: string;
+  count: number;
+  active: boolean;
+  dim: boolean;
+  onClick: () => void;
+}
+
+function FilterRow({
+  label,
+  icon,
+  options,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  options: FilterOption[];
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <div className="-mx-1 flex max-h-[84px] flex-wrap gap-1 overflow-y-auto px-1 pb-0.5">
+        {options.map((option) => (
+          <FilterPill key={option.key} option={option} />
         ))}
       </div>
     </div>
   );
 }
 
+function FilterPill({ option }: { option: FilterOption }) {
+  return (
+    <button
+      type="button"
+      onClick={option.onClick}
+      aria-pressed={option.active}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-[3px] text-[11px] font-medium transition-colors",
+        option.active
+          ? "border-ink bg-ink text-snow-white"
+          : "border-border bg-transparent text-ink-light hover:bg-secondary",
+        !option.active && option.dim && "opacity-55",
+      )}
+    >
+      <span>{option.label}</span>
+      <span
+        className={cn(
+          "text-[10px] tabular-nums",
+          option.active ? "text-snow-white/70" : "text-ink-faint",
+        )}
+      >
+        {option.count}
+      </span>
+    </button>
+  );
+}
+
 function EmptyListState({
   totalCount,
   hasQuery,
+  activeAreaMeta,
+  onClearArea,
 }: {
   totalCount: number;
   hasQuery: boolean;
+  activeAreaMeta: DatasetAreaMeta | null;
+  onClearArea: () => void;
 }) {
   if (totalCount === 0) {
     return (
@@ -622,12 +831,31 @@ function EmptyListState({
       </div>
     );
   }
+  if (activeAreaMeta) {
+    return (
+      <div className="flex h-full flex-col items-start gap-3 px-4 py-6 text-[0.8125rem] text-ink-light">
+        <p className="font-medium text-ink">
+          {hasQuery
+            ? `Nothing in ${activeAreaMeta.name} matches that search yet.`
+            : `No datasets catalogued in ${activeAreaMeta.name} yet.`}
+        </p>
+        <button
+          type="button"
+          onClick={onClearArea}
+          className="inline-flex items-center gap-1 rounded-sm border border-border px-2.5 py-1 text-[11px] text-ink transition-colors hover:border-ink"
+        >
+          <ArrowLeftIcon className="size-3" />
+          Browse all fields
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="flex h-full flex-col items-start gap-2 px-4 py-6 text-[0.8125rem] text-ink-light">
       <p className="font-medium text-ink">No matches.</p>
       <p>
         {hasQuery
-          ? "Try broader search terms or clear the active area, topic, or provider filter."
+          ? "Try broader search terms or clear the active filter."
           : "No datasets match the active filters. Clear them to see everything."}
       </p>
     </div>
@@ -637,11 +865,23 @@ function EmptyListState({
 interface DatasetListRowProps {
   dataset: DatasetEntry;
   isActive: boolean;
+  mode: "overview" | "area";
   onSelect: (id: string) => void;
 }
 
-function DatasetListRow({ dataset, isActive, onSelect }: DatasetListRowProps) {
+function DatasetListRow({ dataset, isActive, mode, onSelect }: DatasetListRowProps) {
   const providerLabel = dataset.provider?.name ?? dataset.domain;
+  // In the overview view we lead with the broadest area tag so the field is
+  // visible at a glance. Inside an area the rows all share that area, so we
+  // surface the first topic instead (the next level of specificity).
+  const primaryTag =
+    mode === "overview"
+      ? dataset.topics[0]?.area.replaceAll("_", " ").toLowerCase() ?? null
+      : dataset.topics[0]?.name ?? null;
+  const formattedPrimaryTag = primaryTag
+    ? primaryTag.replace(/\b\w/g, (char) => char.toUpperCase())
+    : null;
+
   return (
     <button
       type="button"
@@ -677,95 +917,14 @@ function DatasetListRow({ dataset, isActive, onSelect }: DatasetListRowProps) {
           {dataset.description}
         </p>
       ) : null}
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        {providerLabel ? (
-          <span className="inline-flex items-center rounded-full bg-[#E1F5EE] px-2 py-[2px] text-[11px] font-medium text-[#085041] dark:bg-[#11332a] dark:text-[#7ddcbd]">
-            {providerLabel}
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-light">
+        {formattedPrimaryTag ? (
+          <span className="inline-flex items-center rounded-full border border-border/70 px-2 py-[1px] text-[10px] text-ink">
+            {formattedPrimaryTag}
           </span>
         ) : null}
-        {dataset.topics.slice(0, 2).map((topic) => (
-          <span
-            key={topic.id}
-            className="inline-flex items-center rounded-full bg-[#EEE6FB] px-2 py-[2px] text-[11px] font-medium text-[#6D4AA8] dark:bg-[#27173f] dark:text-[#b499e7]"
-          >
-            {topic.name}
-          </span>
-        ))}
+        {providerLabel ? <span>{providerLabel}</span> : null}
       </div>
-    </button>
-  );
-}
-
-function ProviderFilterPills({
-  options,
-  unassignedCount,
-  totalCount,
-  activeProviderId,
-  onChange,
-}: {
-  options: ProviderOption[];
-  unassignedCount: number;
-  totalCount: number;
-  activeProviderId: ProviderFilter;
-  onChange: (value: ProviderFilter) => void;
-}) {
-  return (
-    <div className="-mx-1">
-      <div className="flex items-center gap-1 px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
-        <LibraryIcon className="size-3" />
-        <span>Providers</span>
-      </div>
-      <div className="flex max-h-[84px] flex-wrap gap-1 overflow-y-auto px-1 pb-1">
-        <FilterPill
-          label={`All · ${totalCount}`}
-          isActive={activeProviderId === ALL_PROVIDERS_ID}
-          onClick={() => onChange(ALL_PROVIDERS_ID)}
-        />
-        {options.map(({ provider, liveCount }) => (
-          <FilterPill
-            key={provider.id}
-            label={`${provider.name} · ${liveCount}`}
-            isActive={activeProviderId === provider.id}
-            onClick={() => onChange(provider.id)}
-          />
-        ))}
-        {unassignedCount > 0 ? (
-          <FilterPill
-            label={`Unassigned · ${unassignedCount}`}
-            isActive={activeProviderId === UNASSIGNED_PROVIDER_ID}
-            onClick={() => onChange(UNASSIGNED_PROVIDER_ID)}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function FilterPill({
-  label,
-  isActive,
-  onClick,
-  dim,
-}: {
-  label: string;
-  isActive: boolean;
-  onClick: () => void;
-  dim?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2.5 py-[3px] text-[11px] font-medium transition-colors",
-        isActive
-          ? "border-ink bg-ink text-snow-white"
-          : "border-border bg-transparent text-ink-light hover:bg-secondary",
-        !isActive && dim && "opacity-60",
-      )}
-      aria-pressed={isActive}
-    >
-      {label}
     </button>
   );
 }
@@ -805,7 +964,7 @@ function DatasetDetailBody({
 function DatasetHeader({ dataset }: { dataset: DatasetEntry }) {
   return (
     <header className="flex items-start gap-4">
-      <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#E1F5EE] text-[#0F6E56] dark:bg-[#11332a] dark:text-[#7ddcbd]">
+      <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-ink-light">
         <DatabaseIcon className="size-5" />
       </div>
       <div className="min-w-0 flex-1">
@@ -868,7 +1027,7 @@ function DatasetMetadataGrid({
             onClick={() => onOpenProvider(provider)}
             className="inline-flex items-center gap-1.5 text-[0.875rem] text-ink hover:text-accent-color"
           >
-            <LibraryIcon className="size-3.5 text-[#6D4AA8] dark:text-[#b499e7]" />
+            <LibraryIcon className="size-3.5 text-ink-light" />
             <span className="underline decoration-dotted underline-offset-[3px]">
               {provider.name}
             </span>
@@ -925,7 +1084,7 @@ function DatasetTopics({
             key={topic.id}
             type="button"
             onClick={() => onOpenTopic(topic)}
-            className="inline-flex items-center gap-1 rounded-full bg-[#EEE6FB] px-2.5 py-[3px] text-[11px] font-medium text-[#6D4AA8] transition-colors hover:bg-[#d9c3ff] dark:bg-[#27173f] dark:text-[#b499e7] dark:hover:bg-[#3a2359]"
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-transparent px-2.5 py-[3px] text-[11px] font-medium text-ink-light transition-colors hover:border-ink hover:text-ink"
             title={`Filter by ${topic.name} (${topic.area.replaceAll("_", " ").toLowerCase()})`}
           >
             <TagIcon className="size-3" />
@@ -956,7 +1115,7 @@ function DatasetSourcePaperSection({
         }}
         className="flex items-start gap-3 rounded-[12px] border border-rule bg-card p-4 text-left transition-colors hover:bg-secondary/50"
       >
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-[#E6F1FB] text-[#185FA5]">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] border border-border bg-secondary text-ink-light">
           <FileTextIcon className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -1092,7 +1251,7 @@ function ProviderDetailBody({
 function ProviderHeader({ provider }: { provider: DatasetProvider }) {
   return (
     <header className="flex items-start gap-4">
-      <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#EEE6FB] text-[#6D4AA8] dark:bg-[#27173f] dark:text-[#b499e7]">
+      <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-ink-light">
         <LibraryIcon className="size-5" />
       </div>
       <div className="min-w-0 flex-1">
@@ -1114,7 +1273,7 @@ function ProviderHeader({ provider }: { provider: DatasetProvider }) {
             <ExternalLinkIcon className="size-3.5" />
           </a>
           {provider.searchKind ? (
-            <span className="inline-flex items-center rounded-full bg-[#EEE6FB] px-2 py-[2px] text-[11px] font-medium text-[#6D4AA8] dark:bg-[#27173f] dark:text-[#b499e7]">
+            <span className="inline-flex items-center rounded-full border border-border px-2 py-[2px] text-[11px] font-medium text-ink-light">
               Searchable via {provider.searchKind}
             </span>
           ) : null}
@@ -1294,7 +1453,7 @@ function TopicDetailBody({ topic }: { topic: DatasetTopic }) {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-8 py-8">
           <header className="flex items-start gap-4">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[#EEE6FB] text-[#6D4AA8] dark:bg-[#27173f] dark:text-[#b499e7]">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-ink-light">
               <TagIcon className="size-5" />
             </div>
             <div className="min-w-0 flex-1">
