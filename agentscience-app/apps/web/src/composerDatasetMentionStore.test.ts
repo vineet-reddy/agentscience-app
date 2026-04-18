@@ -105,6 +105,7 @@ describe("datasetEntryToMention / datasetProviderToMention", () => {
         name: "OpenNeuro",
         domain: "openneuro.org",
       },
+      topics: [],
     };
     const mention = datasetEntryToMention(dataset);
     expect(mention.kind).toBe("dataset");
@@ -127,6 +128,7 @@ describe("datasetEntryToMention / datasetProviderToMention", () => {
       agentInstructions: "Use GraphQL.",
       datasetCount: 42,
       createdAt: new Date(0).toISOString(),
+      topics: [],
     };
     const mention = datasetProviderToMention(provider);
     expect(mention.kind).toBe("provider");

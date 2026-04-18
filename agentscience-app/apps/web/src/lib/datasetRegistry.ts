@@ -2,9 +2,49 @@ import { resolveServerUrl } from "./utils";
 
 const DATASET_REGISTRY_PROXY_PATH = "/api/datasets/registry";
 const DATASET_PROVIDERS_PROXY_PATH = "/api/datasets/registry/providers";
+const DATASET_TOPICS_PROXY_PATH = "/api/datasets/registry/topics";
 const DEFAULT_AGENTSCIENCE_BASE_URL = "https://agentscience.vercel.app";
 
 export type DatasetProviderSearchKind = "GRAPHQL" | "REST" | "HTML";
+
+/** Closed vocabulary — mirrors the DatasetArea enum in the web Prisma schema. */
+export const DATASET_AREA_KEYS = [
+  "LIFE_SCIENCES",
+  "MEDICINE_HEALTH",
+  "SOCIAL_SCIENCES",
+  "PHYSICAL_SCIENCES",
+  "EARTH_ENVIRONMENT",
+  "COMPUTING_ENGINEERING",
+  "MATH_STATISTICS",
+  "HUMANITIES",
+  "OTHER",
+] as const;
+
+export type DatasetAreaKey = (typeof DATASET_AREA_KEYS)[number];
+
+export interface DatasetAreaMeta {
+  key: DatasetAreaKey;
+  name: string;
+  description: string;
+}
+
+export type DatasetTopicStatus = "ACTIVE" | "PENDING";
+
+export interface DatasetTopicSummary {
+  id: string;
+  slug: string;
+  name: string;
+  area: DatasetAreaKey;
+}
+
+export interface DatasetTopic extends DatasetTopicSummary {
+  description: string | null;
+  agentInstructions: string | null;
+  status: DatasetTopicStatus;
+  providerCount: number;
+  datasetCount: number;
+  createdAt: string;
+}
 
 export interface DatasetSourcePaper {
   slug: string;
@@ -36,6 +76,7 @@ export interface DatasetProvider {
   agentInstructions: string | null;
   datasetCount: number;
   createdAt: string;
+  topics: DatasetTopicSummary[];
 }
 
 export interface DatasetEntry {
@@ -53,6 +94,7 @@ export interface DatasetEntry {
   sourcePaper: DatasetSourcePaper | null;
   usedInPaperCount: number;
   provider: DatasetProviderSummary | null;
+  topics: DatasetTopicSummary[];
 }
 
 export interface DatasetRegistryResponse {
@@ -61,6 +103,11 @@ export interface DatasetRegistryResponse {
 
 export interface DatasetProvidersResponse {
   providers: unknown[];
+}
+
+export interface DatasetTopicsResponse {
+  areas: unknown[];
+  topics: unknown[];
 }
 
 export function resolveRegistryBaseUrl(): string {
@@ -108,6 +155,18 @@ function resolveDatasetProvidersRequestUrl(): string {
   return new URL("/api/v1/registry/providers", resolveRegistryBaseUrl()).toString();
 }
 
+function resolveDatasetTopicsRequestUrl(): string {
+  if (shouldUseEmbeddedRegistryProxy()) {
+    return resolveServerUrl({
+      protocol: "http",
+      pathname: DATASET_TOPICS_PROXY_PATH,
+      searchParams: {},
+    });
+  }
+
+  return new URL("/api/v1/registry/topics", resolveRegistryBaseUrl()).toString();
+}
+
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -125,6 +184,29 @@ function normalizeProviderSummary(value: unknown): DatasetProviderSummary | null
   const domain = typeof record.domain === "string" ? record.domain : null;
   if (!id || !slug || !name || !domain) return null;
   return { id, slug, name, domain };
+}
+
+function isDatasetAreaKey(value: unknown): value is DatasetAreaKey {
+  return typeof value === "string" && (DATASET_AREA_KEYS as readonly string[]).includes(value);
+}
+
+function normalizeTopicSummary(value: unknown): DatasetTopicSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : null;
+  const slug = typeof record.slug === "string" ? record.slug : null;
+  const name = typeof record.name === "string" ? record.name : null;
+  const area = isDatasetAreaKey(record.area) ? record.area : null;
+  if (!id || !slug || !name || !area) return null;
+  return { id, slug, name, area };
+}
+
+function normalizeTopicSummaries(value: unknown): DatasetTopicSummary[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const topic = normalizeTopicSummary(entry);
+    return topic ? [topic] : [];
+  });
 }
 
 function normalizeDatasetEntry(
@@ -163,6 +245,7 @@ function normalizeDatasetEntry(
           ? 1
           : 0,
     provider: normalizeProviderSummary(dataset.provider),
+    topics: normalizeTopicSummaries((dataset as { topics?: unknown }).topics),
   };
 }
 
@@ -200,7 +283,46 @@ function normalizeDatasetProvider(value: unknown): DatasetProvider | null {
       typeof record.agentInstructions === "string" ? record.agentInstructions : null,
     datasetCount: typeof record.datasetCount === "number" ? record.datasetCount : 0,
     createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date(0).toISOString(),
+    topics: normalizeTopicSummaries(record.topics),
   };
+}
+
+function normalizeTopicStatus(value: unknown): DatasetTopicStatus {
+  return value === "PENDING" ? "PENDING" : "ACTIVE";
+}
+
+function normalizeDatasetTopic(value: unknown): DatasetTopic | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : null;
+  const slug = typeof record.slug === "string" ? record.slug : null;
+  const name = typeof record.name === "string" ? record.name : null;
+  const area = isDatasetAreaKey(record.area) ? record.area : null;
+  if (!id || !slug || !name || !area) return null;
+  return {
+    id,
+    slug,
+    name,
+    area,
+    description: typeof record.description === "string" ? record.description : null,
+    agentInstructions:
+      typeof record.agentInstructions === "string" ? record.agentInstructions : null,
+    status: normalizeTopicStatus(record.status),
+    providerCount: typeof record.providerCount === "number" ? record.providerCount : 0,
+    datasetCount: typeof record.datasetCount === "number" ? record.datasetCount : 0,
+    createdAt:
+      typeof record.createdAt === "string" ? record.createdAt : new Date(0).toISOString(),
+  };
+}
+
+function normalizeDatasetAreaMeta(value: unknown): DatasetAreaMeta | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const key = isDatasetAreaKey(record.key) ? record.key : null;
+  const name = typeof record.name === "string" ? record.name : null;
+  const description = typeof record.description === "string" ? record.description : null;
+  if (!key || !name) return null;
+  return { key, name, description: description ?? "" };
 }
 
 export function truncateDatasetChipLabel(dataset: Pick<DatasetEntry, "name" | "shortName">): string {
@@ -218,11 +340,19 @@ export function truncateDatasetChipLabel(dataset: Pick<DatasetEntry, "name" | "s
 export async function fetchDatasetRegistry(options?: {
   query?: string;
   limit?: number;
+  area?: DatasetAreaKey;
+  topicSlug?: string;
   signal?: AbortSignal;
 }): Promise<DatasetEntry[]> {
   const url = new URL(resolveDatasetRegistryRequestUrl());
   if (options?.query && options.query.trim().length > 0) {
     url.searchParams.set("q", options.query.trim());
+  }
+  if (options?.area) {
+    url.searchParams.set("area", options.area);
+  }
+  if (options?.topicSlug) {
+    url.searchParams.set("topic", options.topicSlug);
   }
   url.searchParams.set("limit", String(options?.limit ?? 500));
 
@@ -257,11 +387,19 @@ export async function fetchDatasetRegistry(options?: {
 export async function fetchDatasetProviders(options?: {
   query?: string;
   limit?: number;
+  area?: DatasetAreaKey;
+  topicSlug?: string;
   signal?: AbortSignal;
 }): Promise<DatasetProvider[]> {
   const url = new URL(resolveDatasetProvidersRequestUrl());
   if (options?.query && options.query.trim().length > 0) {
     url.searchParams.set("q", options.query.trim());
+  }
+  if (options?.area) {
+    url.searchParams.set("area", options.area);
+  }
+  if (options?.topicSlug) {
+    url.searchParams.set("topic", options.topicSlug);
   }
   url.searchParams.set("limit", String(options?.limit ?? 100));
 
@@ -308,6 +446,64 @@ export function truncateProviderChipLabel(provider: Pick<DatasetProvider, "name"
   const name = provider.name ?? "";
   if (name.length <= 35) return name;
   return `${name.slice(0, 32)}...`;
+}
+
+export interface FetchDatasetTopicsResult {
+  areas: DatasetAreaMeta[];
+  topics: DatasetTopic[];
+}
+
+/**
+ * Fetch the registry taxonomy: the closed set of Areas plus ACTIVE Topics
+ * (optionally scoped to an Area). The response also drives the registration
+ * flow — callers know which slugs are valid before POSTing a dataset.
+ */
+export async function fetchDatasetTopics(options?: {
+  area?: DatasetAreaKey;
+  query?: string;
+  limit?: number;
+  includePending?: boolean;
+  signal?: AbortSignal;
+}): Promise<FetchDatasetTopicsResult> {
+  const url = new URL(resolveDatasetTopicsRequestUrl());
+  if (options?.area) {
+    url.searchParams.set("area", options.area);
+  }
+  if (options?.query && options.query.trim().length > 0) {
+    url.searchParams.set("q", options.query.trim());
+  }
+  if (options?.includePending) {
+    url.searchParams.set("includePending", "true");
+  }
+  url.searchParams.set("limit", String(options?.limit ?? 200));
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal: options?.signal ?? null,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Dataset topics request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const payload = (await response.json()) as DatasetTopicsResponse;
+  const areas = Array.isArray(payload.areas)
+    ? payload.areas.flatMap((area) => {
+        const normalized = normalizeDatasetAreaMeta(area);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+  const topics = Array.isArray(payload.topics)
+    ? payload.topics.flatMap((topic) => {
+        const normalized = normalizeDatasetTopic(topic);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+
+  return { areas, topics };
 }
 
 export function resolveSourcePaperUrl(
