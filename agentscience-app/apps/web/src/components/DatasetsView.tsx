@@ -55,7 +55,14 @@ import {
 } from "./DatasetsView.logic";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "./ui/resizable";
 import { SidebarInset, SidebarTrigger } from "./ui/sidebar";
+import { MacTitlebarDragRow } from "./MacTitlebarDragRow";
+import { SidebarReopenTrigger } from "./SidebarReopenTrigger";
 import { toastManager } from "./ui/toast";
 
 const DATASET_REGISTRY_QUERY_KEY = ["dataset-registry"] as const;
@@ -310,40 +317,58 @@ export function DatasetsView() {
         )}
 
         {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-6">
-            <span className="font-display text-[1.0625rem] text-ink">Datasets</span>
-          </div>
+          <>
+            <MacTitlebarDragRow />
+            <div className="drag-region flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-6">
+              <SidebarReopenTrigger />
+              <span className="font-display text-[1.0625rem] text-ink">Datasets</span>
+            </div>
+          </>
         )}
 
-        <div className="flex min-h-0 flex-1">
-          <DatasetSidebar
-            datasets={filteredDatasets}
-            totalCount={datasets.length}
-            isLoading={isLoading}
-            errorMessage={errorMessage}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-            areas={areasMeta}
-            areaCounts={areaCounts}
-            activeArea={activeArea}
-            activeAreaMeta={activeAreaMeta}
-            onSelectArea={handleSelectArea}
-            topicOptions={visibleTopics}
-            activeTopicSlug={activeTopicSlug}
-            onSelectTopic={handleSelectTopic}
-            providerOptions={providerOptions}
-            unassignedCount={datasetCountsByProviderId.unassigned}
-            activeProviderId={activeProviderId}
-            onActiveProviderChange={handleSelectProvider}
-            selectedDatasetId={selectedDatasetId}
-            onSelectDataset={setSelectedDatasetId}
-          />
-          <RightPane
-            state={rightPaneState}
-            onOpenProvider={handleOpenProviderForDataset}
-            onOpenTopic={handleOpenTopicFromChip}
-          />
-        </div>
+        <ResizablePanelGroup
+          direction="horizontal"
+          autoSaveId="datasets-view-layout"
+          className="flex min-h-0 flex-1"
+        >
+          <ResizablePanel
+            defaultSize={34}
+            minSize={22}
+            maxSize={55}
+            className="bg-card"
+          >
+            <DatasetSidebar
+              datasets={filteredDatasets}
+              totalCount={datasets.length}
+              isLoading={isLoading}
+              errorMessage={errorMessage}
+              searchQuery={searchQuery}
+              onSearchQueryChange={setSearchQuery}
+              areas={areasMeta}
+              areaCounts={areaCounts}
+              activeArea={activeArea}
+              activeAreaMeta={activeAreaMeta}
+              onSelectArea={handleSelectArea}
+              topicOptions={visibleTopics}
+              activeTopicSlug={activeTopicSlug}
+              onSelectTopic={handleSelectTopic}
+              providerOptions={providerOptions}
+              unassignedCount={datasetCountsByProviderId.unassigned}
+              activeProviderId={activeProviderId}
+              onActiveProviderChange={handleSelectProvider}
+              selectedDatasetId={selectedDatasetId}
+              onSelectDataset={setSelectedDatasetId}
+            />
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel defaultSize={66} minSize={35}>
+            <RightPane
+              state={rightPaneState}
+              onOpenProvider={handleOpenProviderForDataset}
+              onOpenTopic={handleOpenTopicFromChip}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </SidebarInset>
   );
@@ -480,7 +505,7 @@ function DatasetSidebar({
   const displayCount = datasets.length;
 
   return (
-    <aside className="flex h-full w-[340px] shrink-0 flex-col border-r border-border bg-card">
+    <aside className="flex h-full w-full min-w-0 flex-1 flex-col">
       <div className="flex flex-col gap-4 border-b border-border px-4 py-4">
         <div className="flex items-baseline justify-between">
           <p className="font-display text-[1.0625rem] text-ink">Dataset registry</p>
@@ -611,10 +636,12 @@ function AreaList({
       </div>
       <div className="flex flex-col divide-y divide-border/60 rounded-md border border-border/70 bg-background/60">
         {areas.map((area) => {
-          const providerCount =
-            areaCounts.providerByArea.get(area.key)?.size ?? 0;
+          // Headline the count by DATASETS the user can actually browse —
+          // not providers. Seeded providers without datasets used to read
+          // as "4 providers" and then click into an empty list, which was
+          // confusing. Empty areas are dimmed so the signal is obvious.
           const datasetCount = areaCounts.datasetByArea.get(area.key)?.size ?? 0;
-          const empty = providerCount === 0 && datasetCount === 0;
+          const empty = datasetCount === 0;
           return (
             <button
               key={area.key}
@@ -631,7 +658,7 @@ function AreaList({
               <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">
                 {empty
                   ? "Empty"
-                  : `${providerCount} ${providerCount === 1 ? "provider" : "providers"}`}
+                  : `${datasetCount} ${datasetCount === 1 ? "dataset" : "datasets"}`}
               </span>
             </button>
           );
