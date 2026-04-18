@@ -328,6 +328,15 @@ function clampSidebarWidth(width: number, options: SidebarResolvedResizableOptio
   return Math.max(options.minWidth, Math.min(width, options.maxWidth));
 }
 
+/**
+ * When the user drags the sidebar rail past the resizable `minWidth`,
+ * we don't just clamp at the minimum — past this fraction of the minimum
+ * we treat the gesture as "close". Mirrors the native macOS Finder /
+ * Mail sidebar behavior where you can dismiss the column by shoving it
+ * into the window edge.
+ */
+const SIDEBAR_PUSH_TO_CLOSE_RATIO = 0.72;
+
 function SidebarRail({
   className,
   onClick,
@@ -337,7 +346,7 @@ function SidebarRail({
   onPointerUp,
   ...props
 }: React.ComponentProps<"button">) {
-  const { open, toggleSidebar } = useSidebar();
+  const { open, setOpen, toggleSidebar } = useSidebar();
   const sidebarInstance = React.useContext(SidebarInstanceContext);
   const railRef = React.useRef<HTMLButtonElement | null>(null);
   const suppressClickRef = React.useRef(false);
@@ -345,6 +354,10 @@ function SidebarRail({
     moved: boolean;
     pointerId: number;
     pendingWidth: number;
+    // Raw (pre-clamp) proposed width. Used to detect the push-to-close
+    // gesture so the rail can collapse when the user keeps dragging past
+    // `minWidth` instead of just bouncing at the minimum.
+    pendingRawWidth: number;
     rail: HTMLButtonElement;
     rafId: number | null;
     sidebarRoot: HTMLElement;
@@ -358,10 +371,12 @@ function SidebarRail({
   const resolvedResizable = sidebarInstance?.resizable ?? null;
   const canResize = resolvedResizable !== null && open;
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
-  const railTitle = canResize ? "Drag to resize sidebar" : "Toggle Sidebar";
+  const railTitle = canResize
+    ? "Drag to resize · push past the edge to close"
+    : "Toggle Sidebar";
 
   const stopResize = React.useCallback(
-    (pointerId: number) => {
+    (pointerId: number, options?: { persistWidth?: boolean }) => {
       const resizeState = resizeStateRef.current;
       if (!resizeState) {
         return;
@@ -372,7 +387,15 @@ function SidebarRail({
       resizeState.transitionTargets.forEach((element) => {
         element.style.removeProperty("transition-duration");
       });
-      if (resolvedResizable?.storageKey && typeof window !== "undefined") {
+      // Default is to persist the final width so it's restored across
+      // sessions. When closing via the push-to-close gesture we skip
+      // persisting: we want the *pre-drag* width remembered so the
+      // sidebar reopens at a useful size, not collapsed to minWidth.
+      if (
+        (options?.persistWidth ?? true) &&
+        resolvedResizable?.storageKey &&
+        typeof window !== "undefined"
+      ) {
         setLocalStorageItem(resolvedResizable.storageKey, resizeState.width, Schema.Finite);
       }
       resolvedResizable?.onResize?.(resizeState.width);
@@ -421,6 +444,7 @@ function SidebarRail({
         moved: false,
         pointerId: event.pointerId,
         pendingWidth: initialWidth,
+        pendingRawWidth: initialWidth,
         rail: event.currentTarget,
         rafId: null,
         sidebarRoot,
@@ -454,10 +478,9 @@ function SidebarRail({
       if (Math.abs(delta) > 2) {
         resizeState.moved = true;
       }
-      resizeState.pendingWidth = clampSidebarWidth(
-        resizeState.startWidth + delta,
-        resolvedResizable,
-      );
+      const rawWidth = resizeState.startWidth + delta;
+      resizeState.pendingRawWidth = rawWidth;
+      resizeState.pendingWidth = clampSidebarWidth(rawWidth, resolvedResizable);
       if (resizeState.rafId !== null) {
         return;
       }
@@ -467,6 +490,36 @@ function SidebarRail({
         if (!activeResizeState || !resolvedResizable) return;
 
         activeResizeState.rafId = null;
+
+        // Push-to-close: if the user keeps dragging past the minimum
+        // (toward the edge of the window) by a meaningful margin, snap
+        // the sidebar closed mid-drag. We intentionally check the raw,
+        // pre-clamp width because `pendingWidth` is already pinned at
+        // `minWidth` after clamping.
+        const closeThreshold = resolvedResizable.minWidth * SIDEBAR_PUSH_TO_CLOSE_RATIO;
+        if (activeResizeState.pendingRawWidth < closeThreshold) {
+          // Let the normal collapse transition play rather than the
+          // no-transition override we set at drag start.
+          activeResizeState.transitionTargets.forEach((element) => {
+            element.style.removeProperty("transition-duration");
+          });
+          // Remember the pre-drag width, not the collapsed one, so the
+          // sidebar reopens at the user's preferred size next time.
+          activeResizeState.width = activeResizeState.startWidth;
+          activeResizeState.wrapper.style.setProperty(
+            "--sidebar-width",
+            `${activeResizeState.startWidth}px`,
+          );
+          // Mark as "moved" so the synthesized click that fires after a
+          // drag is suppressed (otherwise toggleSidebar() could re-open
+          // it immediately on pointerup).
+          activeResizeState.moved = true;
+          suppressClickRef.current = true;
+          void setOpen(false);
+          stopResize(activeResizeState.pointerId, { persistWidth: false });
+          return;
+        }
+
         const nextWidth = activeResizeState.pendingWidth;
         const accepted =
           resolvedResizable.shouldAcceptWidth?.({
@@ -485,7 +538,7 @@ function SidebarRail({
         activeResizeState.width = nextWidth;
       });
     },
-    [onPointerMove, resolvedResizable],
+    [onPointerMove, resolvedResizable, setOpen, stopResize],
   );
 
   const endResizeInteraction = React.useCallback(
