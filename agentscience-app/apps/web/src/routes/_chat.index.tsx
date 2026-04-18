@@ -3,6 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "../components/ui/button";
 import { isElectron } from "../env";
 import { SidebarTrigger } from "../components/ui/sidebar";
+import { MacTitlebarDragRow } from "../components/MacTitlebarDragRow";
+import { SidebarReopenTrigger } from "../components/SidebarReopenTrigger";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 
 function ChatIndexRouteView() {
@@ -20,9 +22,13 @@ function ChatIndexRouteView() {
       )}
 
       {isElectron && (
-        <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-6">
-          <span className="text-[13px] text-ink-faint">No active paper</span>
-        </div>
+        <>
+          <MacTitlebarDragRow />
+          <div className="drag-region flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-6">
+            <SidebarReopenTrigger />
+            <span className="text-[13px] text-ink-faint">No active paper</span>
+          </div>
+        </>
       )}
 
       <div className="flex flex-1 items-center justify-center px-6">

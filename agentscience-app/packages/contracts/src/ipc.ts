@@ -123,6 +123,13 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  /**
+   * Returns the current window's native fullscreen state synchronously. Used
+   * to decide whether to reserve titlebar inset space for macOS traffic
+   * lights. Returns `false` when called from a non-desktop environment.
+   */
+  isFullScreen: () => boolean;
+  onFullScreenChange: (listener: (isFullScreen: boolean) => void) => () => void;
 }
 
 export interface NativeApi {

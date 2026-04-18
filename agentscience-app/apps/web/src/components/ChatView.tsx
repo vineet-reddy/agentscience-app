@@ -109,6 +109,8 @@ import { toastManager } from "./ui/toast";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import { nextProjectScriptId } from "~/projectScripts";
 import { SidebarTrigger } from "./ui/sidebar";
+import { MacTitlebarDragRow } from "./MacTitlebarDragRow";
+import { SidebarReopenTrigger } from "./SidebarReopenTrigger";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
@@ -4034,9 +4036,13 @@ export default function ChatView({
           </header>
         )}
         {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-5">
-            <span className="text-xs text-muted-foreground/50">No active paper</span>
-          </div>
+          <>
+            <MacTitlebarDragRow />
+            <div className="drag-region flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-5">
+              <SidebarReopenTrigger />
+              <span className="text-xs text-muted-foreground/50">No active paper</span>
+            </div>
+          </>
         )}
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
@@ -4050,6 +4056,7 @@ export default function ChatView({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
       {/* Top bar */}
+      <MacTitlebarDragRow />
       <header
         className={cn(
           "border-b border-border px-3 sm:px-5",

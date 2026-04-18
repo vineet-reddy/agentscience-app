@@ -25,7 +25,7 @@ export function BrandMark({
   showWordmark = true,
 }: BrandMarkProps) {
   return (
-    <span className={cn("inline-flex items-center gap-2", className)}>
+    <span className={cn("inline-flex items-center gap-1.5", className)}>
       <svg
         viewBox="240 200 544 544"
         width={size}

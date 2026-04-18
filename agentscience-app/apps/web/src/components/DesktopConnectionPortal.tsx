@@ -2,6 +2,7 @@ import type { ServerProvider } from "@agentscience/contracts";
 
 import { BrandMark } from "./BrandMark";
 import { isMacPlatform } from "../lib/utils";
+import { useDesktopFullScreen } from "../hooks/useDesktopFullScreen";
 import { CodexAuthControls } from "./settings/CodexAuthControls";
 import { isElectron } from "../env";
 
@@ -14,21 +15,27 @@ export function DesktopConnectionPortal({
   provider,
   onOpenAdvanced,
 }: DesktopConnectionPortalProps) {
-  const useMacTitlebarInset = isElectron && isMacPlatform(navigator.platform);
+  const isMacElectron = isElectron && isMacPlatform(navigator.platform);
+  const isFullScreen = useDesktopFullScreen();
+  const showTitlebarInset = isMacElectron && !isFullScreen;
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
+      {showTitlebarInset ? (
+        <div className="drag-region h-9 shrink-0" />
+      ) : null}
       <div
         className={[
-          "drag-region flex h-[52px] shrink-0 items-center border-b border-rule pr-6",
-          useMacTitlebarInset ? "pl-[104px]" : "pl-6",
-        ].join(" ")}
+          "flex h-[52px] shrink-0 items-center border-b border-rule px-6",
+          isElectron ? "drag-region" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
         <BrandMark
-          size={24}
+          size={28}
           className="text-ink"
-          iconClassName="size-6"
-          wordmarkClassName="text-[1.125rem] text-ink"
+          wordmarkClassName="text-lg text-ink"
         />
       </div>
 

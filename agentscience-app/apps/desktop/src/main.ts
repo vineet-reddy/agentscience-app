@@ -66,6 +66,8 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+const IS_FULL_SCREEN_CHANNEL = "desktop:is-full-screen";
+const FULL_SCREEN_CHANGED_CHANNEL = "desktop:full-screen-changed";
 const BASE_DIR = process.env.AGENTSCIENCE_HOME?.trim() || Path.join(OS.homedir(), ".agentscience");
 const DESKTOP_SCHEME = "agentscience";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
@@ -1285,6 +1287,15 @@ function registerIpcHandlers(): void {
     event.returnValue = backendWsUrl;
   });
 
+  ipcMain.removeAllListeners(IS_FULL_SCREEN_CHANNEL);
+  ipcMain.on(IS_FULL_SCREEN_CHANNEL, (event) => {
+    const owner =
+      BrowserWindow.fromWebContents(event.sender) ??
+      BrowserWindow.getFocusedWindow() ??
+      mainWindow;
+    event.returnValue = owner?.isFullScreen() ?? false;
+  });
+
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
@@ -1510,6 +1521,13 @@ function createWindow(): BrowserWindow {
     event.preventDefault();
     window.setTitle(APP_DISPLAY_NAME);
   });
+
+  const sendFullScreenState = (isFullScreen: boolean) => {
+    if (window.isDestroyed()) return;
+    window.webContents.send(FULL_SCREEN_CHANGED_CHANNEL, isFullScreen);
+  };
+  window.on("enter-full-screen", () => sendFullScreenState(true));
+  window.on("leave-full-screen", () => sendFullScreenState(false));
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();

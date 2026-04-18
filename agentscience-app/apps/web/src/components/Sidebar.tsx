@@ -23,6 +23,7 @@ import {
 import { BrandMark } from "./BrandMark";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
+import { useDesktopFullScreen } from "../hooks/useDesktopFullScreen";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -58,12 +59,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  SidebarTrigger,
 } from "./ui/sidebar";
 
 type SidebarThreadEntry = SidebarThreadEntryRecord<ThreadId, ProjectId | null>;
-
-const MAC_COMPACT_LOGO_URL = new URL("../../../../assets/logo-compact-v3.svg", import.meta.url)
-  .href;
 
 interface EditingState {
   kind: "project" | "thread";
@@ -475,28 +474,40 @@ export default function Sidebar() {
   const contextThread = contextMenu
     ? visibleThreadsById.get(contextMenu.threadId)
     : undefined;
-  const useCompactMacBranding = isElectron && isMacPlatform(navigator.platform);
+  const isMacElectron = isElectron && isMacPlatform(navigator.platform);
+  const isFullScreen = useDesktopFullScreen();
+  // Traffic-light inset is only shown when the window has its native chrome
+  // (windowed Mac Electron). In fullscreen macOS hides the traffic lights so
+  // we collapse the inset and let the logo row sit at the top.
+  const showTitlebarInset = isMacElectron && !isFullScreen;
 
   return (
     <>
-      <SidebarHeader
-        className={cn(
-          "border-b border-sidebar-border px-4",
-          isElectron ? "drag-region h-[52px] py-0" : "h-[52px] py-0",
-          useCompactMacBranding && "pl-[74px]",
-        )}
-      >
-        <div className="flex h-full min-w-0 w-full items-center gap-2 text-sidebar-foreground">
-          {useCompactMacBranding ? (
-            <img
-              src={MAC_COMPACT_LOGO_URL}
-              alt="AgentScience"
-              className="pointer-events-none h-[26px] w-auto shrink-0 select-none"
-              draggable={false}
-            />
-          ) : (
-            <BrandMark size={22} wordmarkClassName="text-[1rem]" />
+      <SidebarHeader className="flex shrink-0 flex-col gap-0 p-0">
+        {showTitlebarInset ? (
+          // Empty drag strip that reserves vertical space for the traffic
+          // lights on macOS. No button lives here — the sidebar toggle sits
+          // in the logo row below for a stable, balanced anchor.
+          <div className="drag-region h-9 shrink-0" />
+        ) : null}
+        {/*
+          Border lives on THIS row (not the wrapper) so it renders at the
+          exact same pixel y-position as the page header's own h-[52px]
+          `border-b` row (see DatasetsView / ChatView / PapersView). Keeping
+          both borders flush across the sidebar seam is surprisingly finicky
+          with a wrapper-owned border.
+        */}
+        <div
+          className={cn(
+            "flex h-[52px] shrink-0 items-center gap-2 border-b border-sidebar-border pl-4 pr-2 text-sidebar-foreground",
+            isElectron && "drag-region",
           )}
+        >
+          <BrandMark size={28} wordmarkClassName="text-lg" />
+          <SidebarTrigger
+            className="ml-auto size-7 shrink-0 text-sidebar-foreground/60 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+            aria-label="Collapse sidebar"
+          />
         </div>
       </SidebarHeader>
 
@@ -913,9 +924,15 @@ export default function Sidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              disabled
-              className="gap-2 px-2 py-2 text-muted-foreground"
-              title="My Papers arrives in Phase 4."
+              isActive={
+                location.pathname === "/papers" ||
+                location.pathname.startsWith("/papers/")
+              }
+              className="gap-2 px-2 py-2"
+              onClick={() => {
+                void navigate({ to: "/papers" });
+              }}
+              title="Papers"
             >
               <FileTextIcon className="size-4" />
               <span>Papers</span>

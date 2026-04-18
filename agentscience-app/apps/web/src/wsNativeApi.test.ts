@@ -152,6 +152,8 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       throw new Error("installUpdate not implemented in test");
     },
     onUpdateState: () => () => undefined,
+    isFullScreen: () => false,
+    onFullScreenChange: () => () => undefined,
     ...overrides,
   };
 }
