@@ -29,10 +29,13 @@ const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" vi
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const DATASET_REGISTRY_PROXY_PATH = "/api/datasets/registry";
 const DATASET_REGISTRY_PROVIDERS_PROXY_PATH = "/api/datasets/registry/providers";
+const DATASET_REGISTRY_TOPICS_PROXY_PATH = "/api/datasets/registry/topics";
 const DATASET_REGISTRY_DEFAULT_LIMIT = 500;
 const DATASET_REGISTRY_MAX_LIMIT = 500;
 const DATASET_PROVIDERS_DEFAULT_LIMIT = 100;
 const DATASET_PROVIDERS_MAX_LIMIT = 200;
+const DATASET_TOPICS_DEFAULT_LIMIT = 200;
+const DATASET_TOPICS_MAX_LIMIT = 500;
 
 class DecodeOtlpTraceRecordsError extends Data.TaggedError("DecodeOtlpTraceRecordsError")<{
   readonly cause: unknown;
@@ -45,6 +48,11 @@ class DatasetRegistryProxyError extends Data.TaggedError("DatasetRegistryProxyEr
 }> {}
 
 class DatasetProvidersProxyError extends Data.TaggedError("DatasetProvidersProxyError")<{
+  readonly cause: unknown;
+  readonly upstreamUrl: string;
+}> {}
+
+class DatasetTopicsProxyError extends Data.TaggedError("DatasetTopicsProxyError")<{
   readonly cause: unknown;
   readonly upstreamUrl: string;
 }> {}
@@ -224,10 +232,18 @@ async function loadDatasetRegistryPayload(input: {
   baseUrl: string;
   query: string | undefined;
   limit: number;
+  area: string | undefined;
+  topic: string | undefined;
 }): Promise<unknown> {
   const registryUrl = new URL("/api/v1/registry", input.baseUrl);
   if (input.query) {
     registryUrl.searchParams.set("q", input.query);
+  }
+  if (input.area) {
+    registryUrl.searchParams.set("area", input.area);
+  }
+  if (input.topic) {
+    registryUrl.searchParams.set("topic", input.topic);
   }
   registryUrl.searchParams.set("limit", String(input.limit));
 
@@ -263,10 +279,18 @@ async function loadDatasetProvidersPayload(input: {
   baseUrl: string;
   query: string | undefined;
   limit: number;
+  area: string | undefined;
+  topic: string | undefined;
 }): Promise<unknown> {
   const providersUrl = new URL("/api/v1/registry/providers", input.baseUrl);
   if (input.query) {
     providersUrl.searchParams.set("q", input.query);
+  }
+  if (input.area) {
+    providersUrl.searchParams.set("area", input.area);
+  }
+  if (input.topic) {
+    providersUrl.searchParams.set("topic", input.topic);
   }
   providersUrl.searchParams.set("limit", String(input.limit));
 
@@ -278,6 +302,39 @@ async function loadDatasetProvidersPayload(input: {
   if (!response.ok) {
     throw new Error(
       `Dataset providers request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  return response.json();
+}
+
+async function loadDatasetTopicsPayload(input: {
+  baseUrl: string;
+  query: string | undefined;
+  limit: number;
+  area: string | undefined;
+  includePending: boolean;
+}): Promise<unknown> {
+  const topicsUrl = new URL("/api/v1/registry/topics", input.baseUrl);
+  if (input.query) {
+    topicsUrl.searchParams.set("q", input.query);
+  }
+  if (input.area) {
+    topicsUrl.searchParams.set("area", input.area);
+  }
+  if (input.includePending) {
+    topicsUrl.searchParams.set("includePending", "true");
+  }
+  topicsUrl.searchParams.set("limit", String(input.limit));
+
+  const response = await fetch(topicsUrl.toString(), {
+    headers: {
+      accept: "application/json",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Dataset topics request failed: ${response.status} ${response.statusText}`,
     );
   }
 
@@ -448,6 +505,8 @@ export const datasetProvidersRouteLayer = HttpRouter.add(
     const config = yield* ServerConfig;
     const upstreamUrl = new URL("/api/v1/registry/providers", config.agentScienceBaseUrl);
     const query = url.value.searchParams.get("q")?.trim();
+    const area = url.value.searchParams.get("area")?.trim();
+    const topic = url.value.searchParams.get("topic")?.trim();
     const limit = parsePositiveInt(
       url.value.searchParams.get("limit"),
       DATASET_PROVIDERS_DEFAULT_LIMIT,
@@ -457,6 +516,12 @@ export const datasetProvidersRouteLayer = HttpRouter.add(
     if (query) {
       upstreamUrl.searchParams.set("q", query);
     }
+    if (area) {
+      upstreamUrl.searchParams.set("area", area);
+    }
+    if (topic) {
+      upstreamUrl.searchParams.set("topic", topic);
+    }
     upstreamUrl.searchParams.set("limit", String(limit));
 
     return yield* Effect.tryPromise({
@@ -465,6 +530,8 @@ export const datasetProvidersRouteLayer = HttpRouter.add(
           baseUrl: config.agentScienceBaseUrl,
           query: query || undefined,
           limit,
+          area: area || undefined,
+          topic: topic || undefined,
         }),
       catch: (cause) =>
         new DatasetProvidersProxyError({
@@ -501,6 +568,82 @@ export const datasetProvidersRouteLayer = HttpRouter.add(
   }),
 );
 
+export const datasetTopicsRouteLayer = HttpRouter.add(
+  "GET",
+  DATASET_REGISTRY_TOPICS_PROXY_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const config = yield* ServerConfig;
+    const upstreamUrl = new URL("/api/v1/registry/topics", config.agentScienceBaseUrl);
+    const query = url.value.searchParams.get("q")?.trim();
+    const area = url.value.searchParams.get("area")?.trim();
+    const includePending = url.value.searchParams.get("includePending") === "true";
+    const limit = parsePositiveInt(
+      url.value.searchParams.get("limit"),
+      DATASET_TOPICS_DEFAULT_LIMIT,
+      DATASET_TOPICS_MAX_LIMIT,
+    );
+
+    if (query) {
+      upstreamUrl.searchParams.set("q", query);
+    }
+    if (area) {
+      upstreamUrl.searchParams.set("area", area);
+    }
+    if (includePending) {
+      upstreamUrl.searchParams.set("includePending", "true");
+    }
+    upstreamUrl.searchParams.set("limit", String(limit));
+
+    return yield* Effect.tryPromise({
+      try: () =>
+        loadDatasetTopicsPayload({
+          baseUrl: config.agentScienceBaseUrl,
+          query: query || undefined,
+          limit,
+          area: area || undefined,
+          includePending,
+        }),
+      catch: (cause) =>
+        new DatasetTopicsProxyError({
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+    }).pipe(
+      Effect.flatMap((payload) =>
+        HttpServerResponse.json(payload, {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }),
+      ),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Failed to load dataset topics from AgentScience", {
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+      ),
+      Effect.catchTag("DatasetTopicsProxyError", () =>
+        Effect.succeed(
+          HttpServerResponse.text("Dataset topics unavailable.", {
+            status: 502,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+          }),
+        ),
+      ),
+    );
+  }),
+);
+
 export const datasetRegistryRouteLayer = HttpRouter.add(
   "GET",
   DATASET_REGISTRY_PROXY_PATH,
@@ -514,6 +657,8 @@ export const datasetRegistryRouteLayer = HttpRouter.add(
     const config = yield* ServerConfig;
     const upstreamUrl = new URL("/api/v1/registry", config.agentScienceBaseUrl);
     const query = url.value.searchParams.get("q")?.trim();
+    const area = url.value.searchParams.get("area")?.trim();
+    const topic = url.value.searchParams.get("topic")?.trim();
     const limit = parsePositiveInt(
       url.value.searchParams.get("limit"),
       DATASET_REGISTRY_DEFAULT_LIMIT,
@@ -521,6 +666,12 @@ export const datasetRegistryRouteLayer = HttpRouter.add(
 
     if (query) {
       upstreamUrl.searchParams.set("q", query);
+    }
+    if (area) {
+      upstreamUrl.searchParams.set("area", area);
+    }
+    if (topic) {
+      upstreamUrl.searchParams.set("topic", topic);
     }
     upstreamUrl.searchParams.set("limit", String(limit));
 
@@ -530,6 +681,8 @@ export const datasetRegistryRouteLayer = HttpRouter.add(
           baseUrl: config.agentScienceBaseUrl,
           query: query || undefined,
           limit,
+          area: area || undefined,
+          topic: topic || undefined,
         }),
       catch: (cause) =>
         new DatasetRegistryProxyError({

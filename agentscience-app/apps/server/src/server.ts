@@ -6,6 +6,7 @@ import {
   attachmentsRouteLayer,
   datasetProvidersRouteLayer,
   datasetRegistryRouteLayer,
+  datasetTopicsRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewCompileRouteLayer,
   paperReviewSnapshotRouteLayer,
@@ -259,9 +260,10 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
 
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
-  // Providers must be registered before the registry layer so the longer path
-  // wins exact-match routing on /api/datasets/registry/providers.
+  // Longer paths must be registered before shorter ones so exact-match routing
+  // picks the more specific handler (e.g. /providers wins over /registry).
   datasetProvidersRouteLayer,
+  datasetTopicsRouteLayer,
   datasetRegistryRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewSnapshotRouteLayer,
