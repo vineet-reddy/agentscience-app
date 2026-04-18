@@ -311,7 +311,8 @@ export const CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS = `<agentscience
 When you create or update a manuscript that should be reviewed in the desktop app, explicitly present it to the client instead of pasting the whole paper inline.
 
 - If the paper used real datasets worth contributing back to AgentScience, write an \`agentscience.publish.json\` file in the manuscript workspace root before you present the manuscript.
-- The publish manifest must be valid JSON with \`version: 1\` and a \`datasets\` array. Each dataset entry must include \`name\`, \`url\`, \`description\`, and optional \`keywords\`.
+- The publish manifest must be valid JSON with \`version: 1\` and a \`datasets\` array. Each dataset entry must include \`name\`, \`url\`, \`description\`, and optional \`keywords\`, \`providerSlug\`, and \`topicSlugs\`.
+- Prefer setting \`topicSlugs\` explicitly when you know what the dataset is, instead of leaving classification to downstream fallback logic.
 - Append a \`<present_manuscript>\` block to the assistant message once the files already exist.
 - Inside the block, emit valid JSON with:
   - \`workspaceRoot\`: the manuscript directory to review
