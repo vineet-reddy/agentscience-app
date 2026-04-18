@@ -118,6 +118,10 @@ import {
   PaperReviewService,
   type PaperReviewServiceShape,
 } from "./paperReview.ts";
+import {
+  LocalPapersService,
+  type LocalPapersServiceShape,
+} from "./localPapers.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -356,6 +360,7 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     agentScienceRuntimeStatus?: Partial<AgentScienceRuntimeStatusShape>;
     paperReview?: Partial<PaperReviewServiceShape>;
+    localPapers?: Partial<LocalPapersServiceShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -538,12 +543,19 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(PaperReviewService)({
-          getSnapshot: () => Effect.succeed(makeDefaultPaperReviewSnapshot()),
-          compile: () => Effect.succeed(makeDefaultPaperReviewSnapshot()),
-          resolveFilePath: () => Effect.succeed(null),
-          ...options?.layers?.paperReview,
-        }),
+        Layer.mergeAll(
+          Layer.mock(PaperReviewService)({
+            getSnapshot: () => Effect.succeed(makeDefaultPaperReviewSnapshot()),
+            compile: () => Effect.succeed(makeDefaultPaperReviewSnapshot()),
+            resolveFilePath: () => Effect.succeed(null),
+            ...options?.layers?.paperReview,
+          }),
+          Layer.mock(LocalPapersService)({
+            list: () => Effect.succeed([]),
+            resolveFilePath: () => Effect.succeed(null),
+            ...options?.layers?.localPapers,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ServerRuntimeStartup)({

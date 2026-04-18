@@ -20,7 +20,13 @@ import { resolveAttachmentPathById } from "./attachmentStore.ts";
 import { ServerConfig } from "./config.ts";
 import { decodeOtlpTraceRecords } from "./observability/TraceRecord.ts";
 import { BrowserTraceCollector } from "./observability/Services/BrowserTraceCollector.ts";
-import { PAPER_REVIEW_ROUTE_PREFIX, ThreadId } from "@agentscience/contracts";
+import {
+  LOCAL_PAPERS_ROUTE_PREFIX,
+  PAPER_REVIEW_ROUTE_PREFIX,
+  ThreadId,
+  type LocalPapersListResponse,
+} from "@agentscience/contracts";
+import { LocalPapersService } from "./localPapers.ts";
 import { PaperReviewService } from "./paperReview.ts";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver.ts";
 
@@ -788,6 +794,71 @@ export const paperReviewCompileRouteLayer = HttpRouter.add(
       const paperReview = yield* PaperReviewService;
       const snapshot = yield* paperReview.compile(ThreadId.makeUnsafe(threadIdSegment));
       return yield* HttpServerResponse.json(snapshot);
+    }
+
+    return HttpServerResponse.text("Not Found", { status: 404 });
+  }),
+);
+
+function decodeLocalPapersSegments(rawPathname: string): string[] {
+  return rawPathname
+    .slice(LOCAL_PAPERS_ROUTE_PREFIX.length)
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => decodeURIComponent(segment));
+}
+
+/**
+ * Single GET handler for the entire `/api/papers` subtree. We intentionally
+ * register this as one `/*` catch-all (matching `paperReviewSnapshotRouteLayer`
+ * above) because find-my-way-ts treats `/api/papers/*` and `/api/papers`
+ * as the same route key, so registering them separately errors at startup
+ * with "Method 'GET' already declared".
+ *
+ * Shape:
+ *   GET /api/papers                         — list all local papers
+ *   GET /api/papers/:paperId/files/<path>   — serve a file from a paper folder
+ */
+export const localPapersRouteLayer = HttpRouter.add(
+  "GET",
+  `${LOCAL_PAPERS_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const segments = decodeLocalPapersSegments(url.value.pathname);
+    const localPapers = yield* LocalPapersService;
+
+    if (segments.length === 0) {
+      const papers = yield* localPapers.list();
+      const body: LocalPapersListResponse = { papers };
+      return yield* HttpServerResponse.json(body);
+    }
+
+    // GET /api/papers/:id/files/<path>
+    if (segments.length >= 3 && segments[1] === "files") {
+      const paperIdSegment = segments[0];
+      if (!paperIdSegment) {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
+      const relativePath = segments.slice(2).join("/");
+      const filePath = yield* localPapers.resolveFilePath(paperIdSegment, relativePath);
+      if (!filePath) {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
+      return yield* HttpServerResponse.file(filePath, {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }).pipe(
+        Effect.catch(() =>
+          Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+        ),
+      );
     }
 
     return HttpServerResponse.text("Not Found", { status: 404 });

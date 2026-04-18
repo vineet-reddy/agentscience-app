@@ -10,16 +10,24 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PapersRouteImport } from './routes/papers'
 import { Route as DatasetsRouteImport } from './routes/datasets'
 import { Route as ChatRouteImport } from './routes/_chat'
+import { Route as PapersIndexRouteImport } from './routes/papers.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
+import { Route as PapersPaperIdRouteImport } from './routes/papers.$paperId'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PapersRoute = PapersRouteImport.update({
+  id: '/papers',
+  path: '/papers',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DatasetsRoute = DatasetsRouteImport.update({
@@ -30,6 +38,11 @@ const DatasetsRoute = DatasetsRouteImport.update({
 const ChatRoute = ChatRouteImport.update({
   id: '/_chat',
   getParentRoute: () => rootRouteImport,
+} as any)
+const PapersIndexRoute = PapersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PapersRoute,
 } as any)
 const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
@@ -46,6 +59,11 @@ const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
   path: '/archived',
   getParentRoute: () => SettingsRoute,
 } as any)
+const PapersPaperIdRoute = PapersPaperIdRouteImport.update({
+  id: '/$paperId',
+  path: '/$paperId',
+  getParentRoute: () => PapersRoute,
+} as any)
 const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   id: '/$threadId',
   path: '/$threadId',
@@ -55,60 +73,77 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
   '/datasets': typeof DatasetsRoute
+  '/papers': typeof PapersRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/$threadId': typeof ChatThreadIdRoute
+  '/papers/$paperId': typeof PapersPaperIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/papers/': typeof PapersIndexRoute
 }
 export interface FileRoutesByTo {
   '/datasets': typeof DatasetsRoute
   '/settings': typeof SettingsRouteWithChildren
   '/$threadId': typeof ChatThreadIdRoute
+  '/papers/$paperId': typeof PapersPaperIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/': typeof ChatIndexRoute
+  '/papers': typeof PapersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
   '/datasets': typeof DatasetsRoute
+  '/papers': typeof PapersRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/_chat/$threadId': typeof ChatThreadIdRoute
+  '/papers/$paperId': typeof PapersPaperIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/_chat/': typeof ChatIndexRoute
+  '/papers/': typeof PapersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/datasets'
+    | '/papers'
     | '/settings'
     | '/$threadId'
+    | '/papers/$paperId'
     | '/settings/archived'
     | '/settings/general'
+    | '/papers/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/datasets'
     | '/settings'
     | '/$threadId'
+    | '/papers/$paperId'
     | '/settings/archived'
     | '/settings/general'
     | '/'
+    | '/papers'
   id:
     | '__root__'
     | '/_chat'
     | '/datasets'
+    | '/papers'
     | '/settings'
     | '/_chat/$threadId'
+    | '/papers/$paperId'
     | '/settings/archived'
     | '/settings/general'
     | '/_chat/'
+    | '/papers/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
   DatasetsRoute: typeof DatasetsRoute
+  PapersRoute: typeof PapersRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
 }
 
@@ -119,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/papers': {
+      id: '/papers'
+      path: '/papers'
+      fullPath: '/papers'
+      preLoaderRoute: typeof PapersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/datasets': {
@@ -134,6 +176,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/papers/': {
+      id: '/papers/'
+      path: '/'
+      fullPath: '/papers/'
+      preLoaderRoute: typeof PapersIndexRouteImport
+      parentRoute: typeof PapersRoute
     }
     '/_chat/': {
       id: '/_chat/'
@@ -155,6 +204,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/archived'
       preLoaderRoute: typeof SettingsArchivedRouteImport
       parentRoute: typeof SettingsRoute
+    }
+    '/papers/$paperId': {
+      id: '/papers/$paperId'
+      path: '/$paperId'
+      fullPath: '/papers/$paperId'
+      preLoaderRoute: typeof PapersPaperIdRouteImport
+      parentRoute: typeof PapersRoute
     }
     '/_chat/$threadId': {
       id: '/_chat/$threadId'
@@ -178,6 +234,19 @@ const ChatRouteChildren: ChatRouteChildren = {
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
+interface PapersRouteChildren {
+  PapersPaperIdRoute: typeof PapersPaperIdRoute
+  PapersIndexRoute: typeof PapersIndexRoute
+}
+
+const PapersRouteChildren: PapersRouteChildren = {
+  PapersPaperIdRoute: PapersPaperIdRoute,
+  PapersIndexRoute: PapersIndexRoute,
+}
+
+const PapersRouteWithChildren =
+  PapersRoute._addFileChildren(PapersRouteChildren)
+
 interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
@@ -195,6 +264,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
   DatasetsRoute: DatasetsRoute,
+  PapersRoute: PapersRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport

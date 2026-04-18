@@ -7,6 +7,7 @@ import {
   datasetProvidersRouteLayer,
   datasetRegistryRouteLayer,
   datasetTopicsRouteLayer,
+  localPapersRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewCompileRouteLayer,
   paperReviewSnapshotRouteLayer,
@@ -59,6 +60,7 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
 import { AgentScienceRuntimeStatusLive } from "./agentScienceRuntimeStatus";
+import { LocalPapersServiceLive } from "./localPapers";
 import { PaperReviewServiceLive } from "./paperReview";
 
 const PtyAdapterLive = Layer.unwrap(
@@ -149,6 +151,10 @@ const OrchestrationLayerLive = Layer.mergeAll(
 );
 
 const PaperReviewLayerLive = PaperReviewServiceLive.pipe(
+  Layer.provide(OrchestrationLayerLive),
+);
+
+const LocalPapersLayerLive = LocalPapersServiceLive.pipe(
   Layer.provide(OrchestrationLayerLive),
 );
 
@@ -250,6 +256,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ServerLifecycleEventsLive),
   Layer.provideMerge(AgentScienceRuntimeStatusLive),
   Layer.provideMerge(PaperReviewLayerLive),
+  Layer.provideMerge(LocalPapersLayerLive),
 );
 
 const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
@@ -268,6 +275,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   otlpTracesProxyRouteLayer,
   paperReviewSnapshotRouteLayer,
   paperReviewCompileRouteLayer,
+  localPapersRouteLayer,
   projectFaviconRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,

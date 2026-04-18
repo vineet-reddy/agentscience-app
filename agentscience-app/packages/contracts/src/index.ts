@@ -11,4 +11,5 @@ export * from "./orchestration";
 export * from "./editor";
 export * from "./project";
 export * from "./paperReview";
+export * from "./localPapers";
 export * from "./rpc";
