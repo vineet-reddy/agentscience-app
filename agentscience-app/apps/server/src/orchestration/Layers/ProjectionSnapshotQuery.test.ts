@@ -533,4 +533,158 @@ describe("ProjectionSnapshotQuery", () => {
       expect(result.context.value.resolvedWorkspacePath).toBeNull();
     }
   });
+
+  it("caps hydrated thread collections to the same bounds as the live projector", async () => {
+    const MAX_MESSAGES = 2_000;
+    const MAX_PROPOSED_PLANS = 200;
+    const MAX_ACTIVITIES = 500;
+    const MAX_CHECKPOINTS = 500;
+    const isoAt = (offsetSeconds: number) =>
+      new Date(Date.UTC(2026, 2, 1, 0, 0, 0, 0) + offsetSeconds * 1_000).toISOString();
+
+    const snapshot = await Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id, title, folder_slug, default_model_selection_json, scripts_json, created_at, updated_at, deleted_at
+        ) VALUES (
+          'project-capped', 'Capped Project', 'capped-project', NULL, '[]',
+          '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:01.000Z', NULL
+        )
+      `;
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id, project_id, folder_slug, title, branch, worktree_path, runtime_mode, interaction_mode,
+          model_selection_json, latest_turn_id, created_at, updated_at, archived_at, deleted_at
+        ) VALUES (
+          'thread-capped', 'project-capped', 'thread-capped', 'Capped Thread', 'main', NULL,
+          'full-access', 'default', '{"provider":"codex","model":"gpt-5.4"}', 'turn-505',
+          '2026-03-01T00:00:02.000Z', '2026-03-01T00:08:30.000Z', NULL, NULL
+        )
+      `;
+
+      for (let index = 1; index <= MAX_MESSAGES + 5; index += 1) {
+        const createdAt = isoAt(index);
+        yield* sql`
+          INSERT INTO projection_thread_messages (
+            message_id, thread_id, turn_id, role, text, attachments_json, is_streaming, created_at, updated_at
+          ) VALUES (
+            ${`message-${index}`},
+            'thread-capped',
+            ${`turn-${index}`},
+            ${index % 2 === 0 ? "assistant" : "user"},
+            ${`message ${index}`},
+            NULL,
+            0,
+            ${createdAt},
+            ${createdAt}
+          )
+        `;
+      }
+
+      for (let index = 1; index <= MAX_PROPOSED_PLANS + 5; index += 1) {
+        const createdAt = isoAt(10_000 + index);
+        yield* sql`
+          INSERT INTO projection_thread_proposed_plans (
+            plan_id, thread_id, turn_id, plan_markdown, implemented_at, implementation_thread_id, created_at, updated_at
+          ) VALUES (
+            ${`plan-${index}`},
+            'thread-capped',
+            ${`turn-${index}`},
+            ${`Plan ${index}`},
+            NULL,
+            NULL,
+            ${createdAt},
+            ${createdAt}
+          )
+        `;
+      }
+
+      for (let index = 1; index <= MAX_ACTIVITIES + 5; index += 1) {
+        const createdAt = isoAt(20_000 + index);
+        yield* sql`
+          INSERT INTO projection_thread_activities (
+            activity_id, thread_id, turn_id, tone, kind, summary, payload_json, created_at, sequence
+          ) VALUES (
+            ${`activity-${index}`},
+            'thread-capped',
+            ${`turn-${index}`},
+            'info',
+            'context-window.updated',
+            ${`Activity ${index}`},
+            ${JSON.stringify({ usedTokens: 100 + index })},
+            ${createdAt},
+            ${index}
+          )
+        `;
+      }
+
+      for (let index = 1; index <= MAX_CHECKPOINTS + 5; index += 1) {
+        const requestedAt = isoAt(30_000 + index);
+        const completedAt = isoAt(30_500 + index);
+        yield* sql`
+          INSERT INTO projection_turns (
+            thread_id, turn_id, pending_message_id, source_proposed_plan_thread_id, source_proposed_plan_id,
+            assistant_message_id, state, requested_at, started_at, completed_at,
+            checkpoint_turn_count, checkpoint_ref, checkpoint_status, checkpoint_files_json
+          ) VALUES (
+            'thread-capped',
+            ${`turn-${index}`},
+            ${`message-${index}`},
+            NULL,
+            NULL,
+            ${`message-${index}`},
+            'completed',
+            ${requestedAt},
+            ${requestedAt},
+            ${completedAt},
+            ${index},
+            ${`checkpoint-${index}`},
+            'ready',
+            ${JSON.stringify([
+              {
+                path: `src/file-${index}.ts`,
+                kind: "modified",
+                additions: index,
+                deletions: 0,
+              },
+            ])}
+          )
+        `;
+      }
+
+      yield* sql`
+        INSERT INTO projection_state (projector, last_applied_sequence, updated_at) VALUES
+        ('projection.projects', 505, '2026-03-01T00:08:30.000Z'),
+        ('projection.threads', 505, '2026-03-01T00:08:30.000Z'),
+        ('projection.thread-messages', 505, '2026-03-01T00:08:30.000Z')
+      `;
+
+      return yield* snapshotQuery.getSnapshot();
+    }).pipe(Effect.provide(testLayer), Effect.runPromise);
+
+    const thread = snapshot.threads[0];
+    expect(thread).toBeDefined();
+    if (!thread) {
+      return;
+    }
+
+    expect(thread.messages).toHaveLength(MAX_MESSAGES);
+    expect(thread.messages[0]?.id).toEqual(MessageId.makeUnsafe("message-6"));
+    expect(thread.messages.at(-1)?.id).toEqual(MessageId.makeUnsafe("message-2005"));
+
+    expect(thread.proposedPlans).toHaveLength(MAX_PROPOSED_PLANS);
+    expect(thread.proposedPlans[0]?.id).toBe("plan-6");
+    expect(thread.proposedPlans.at(-1)?.id).toBe("plan-205");
+
+    expect(thread.activities).toHaveLength(MAX_ACTIVITIES);
+    expect(thread.activities[0]?.id).toEqual(EventId.makeUnsafe("activity-6"));
+    expect(thread.activities.at(-1)?.id).toEqual(EventId.makeUnsafe("activity-505"));
+
+    expect(thread.checkpoints).toHaveLength(MAX_CHECKPOINTS);
+    expect(thread.checkpoints[0]?.turnId).toEqual(TurnId.makeUnsafe("turn-6"));
+    expect(thread.checkpoints.at(-1)?.turnId).toEqual(TurnId.makeUnsafe("turn-505"));
+  });
 });

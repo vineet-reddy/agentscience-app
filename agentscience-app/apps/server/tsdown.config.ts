@@ -1,5 +1,8 @@
 import { defineConfig } from "tsdown";
 
+const sourcemapEnv = process.env.AGENTSCIENCE_SERVER_SOURCEMAP?.trim().toLowerCase();
+const shouldEmitSourcemaps = !(sourcemapEnv === "0" || sourcemapEnv === "false");
+
 export default defineConfig({
   entry: ["src/bin.ts"],
   format: ["esm", "cjs"],
@@ -7,7 +10,7 @@ export default defineConfig({
     legacyCjs: false,
   },
   outDir: "dist",
-  sourcemap: true,
+  sourcemap: shouldEmitSourcemaps,
   clean: true,
   noExternal: (id) => id.startsWith("@agentscience/"),
   inlineOnly: false,

@@ -21,7 +21,7 @@ import {
 import { normalizeModelSlug } from "@agentscience/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@agentscience/shared/projectScripts";
 import { truncate } from "@agentscience/shared/String";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -87,8 +87,6 @@ import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import BranchToolbar from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
-import PlanSidebar from "./PlanSidebar";
-import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -157,7 +155,6 @@ import {
 } from "./composerFooterLayout";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
-import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
@@ -201,6 +198,14 @@ import {
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useServerAvailableEditors, useServerConfig } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
+
+const PlanSidebar = lazy(() => import("./PlanSidebar"));
+const ThreadTerminalDrawer = lazy(() => import("./ThreadTerminalDrawer"));
+const PullRequestThreadDialog = lazy(() =>
+  import("./PullRequestThreadDialog").then((module) => ({
+    default: module.PullRequestThreadDialog,
+  })),
+);
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -573,28 +578,39 @@ function PersistentThreadTerminalDrawer({
 
   return (
     <div className={visible ? undefined : "hidden"}>
-      <ThreadTerminalDrawer
-        threadId={threadId}
-        cwd={cwd}
-        worktreePath={effectiveWorktreePath}
-        runtimeEnv={runtimeEnv}
-        visible={visible}
-        height={terminalState.terminalHeight}
-        terminalIds={terminalState.terminalIds}
-        activeTerminalId={terminalState.activeTerminalId}
-        terminalGroups={terminalState.terminalGroups}
-        activeTerminalGroupId={terminalState.activeTerminalGroupId}
-        focusRequestId={focusRequestId + localFocusRequestId + (visible ? 1 : 0)}
-        onSplitTerminal={splitTerminal}
-        onNewTerminal={createNewTerminal}
-        splitShortcutLabel={visible ? splitShortcutLabel : undefined}
-        newShortcutLabel={visible ? newShortcutLabel : undefined}
-        closeShortcutLabel={visible ? closeShortcutLabel : undefined}
-        onActiveTerminalChange={activateTerminal}
-        onCloseTerminal={closeTerminal}
-        onHeightChange={setTerminalHeight}
-        onAddTerminalContext={handleAddTerminalContext}
-      />
+      <Suspense
+        fallback={
+          visible ? (
+            <div
+              className="border-t border-border bg-card/80"
+              style={{ height: terminalState.terminalHeight }}
+            />
+          ) : null
+        }
+      >
+        <ThreadTerminalDrawer
+          threadId={threadId}
+          cwd={cwd}
+          worktreePath={effectiveWorktreePath}
+          runtimeEnv={runtimeEnv}
+          visible={visible}
+          height={terminalState.terminalHeight}
+          terminalIds={terminalState.terminalIds}
+          activeTerminalId={terminalState.activeTerminalId}
+          terminalGroups={terminalState.terminalGroups}
+          activeTerminalGroupId={terminalState.activeTerminalGroupId}
+          focusRequestId={focusRequestId + localFocusRequestId + (visible ? 1 : 0)}
+          onSplitTerminal={splitTerminal}
+          onNewTerminal={createNewTerminal}
+          splitShortcutLabel={visible ? splitShortcutLabel : undefined}
+          newShortcutLabel={visible ? newShortcutLabel : undefined}
+          closeShortcutLabel={visible ? closeShortcutLabel : undefined}
+          onActiveTerminalChange={activateTerminal}
+          onCloseTerminal={closeTerminal}
+          onHeightChange={setTerminalHeight}
+          onAddTerminalContext={handleAddTerminalContext}
+        />
+      </Suspense>
     </div>
   );
 }
@@ -4564,40 +4580,44 @@ export default function ChatView({
             />
           )}
           {pullRequestDialogState ? (
-            <PullRequestThreadDialog
-              key={pullRequestDialogState.key}
-              open
-              threadId={activeThread.id}
-              cwd={activeProject?.cwd ?? null}
-              initialReference={pullRequestDialogState.initialReference}
-              onOpenChange={(open) => {
-                if (!open) {
-                  closePullRequestDialog();
-                }
-              }}
-              onPrepared={handlePreparedPullRequestThread}
-            />
+            <Suspense fallback={null}>
+              <PullRequestThreadDialog
+                key={pullRequestDialogState.key}
+                open
+                threadId={activeThread.id}
+                cwd={activeProject?.cwd ?? null}
+                initialReference={pullRequestDialogState.initialReference}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closePullRequestDialog();
+                  }
+                }}
+                onPrepared={handlePreparedPullRequestThread}
+              />
+            </Suspense>
           ) : null}
         </div>
         {/* end chat column */}
 
         {/* Plan sidebar */}
         {planSidebarOpen ? (
-          <PlanSidebar
-            activePlan={activePlan}
-            activeProposedPlan={sidebarProposedPlan}
-            markdownCwd={gitCwd ?? undefined}
-            workspaceRoot={activeWorkspaceRoot}
-            timestampFormat={timestampFormat}
-            onClose={() => {
-              setPlanSidebarOpen(false);
-              // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
-              const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
-              if (turnKey) {
-                planSidebarDismissedForTurnRef.current = turnKey;
-              }
-            }}
-          />
+          <Suspense fallback={null}>
+            <PlanSidebar
+              activePlan={activePlan}
+              activeProposedPlan={sidebarProposedPlan}
+              markdownCwd={gitCwd ?? undefined}
+              workspaceRoot={activeWorkspaceRoot}
+              timestampFormat={timestampFormat}
+              onClose={() => {
+                setPlanSidebarOpen(false);
+                // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
+                const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
+                if (turnKey) {
+                  planSidebarDismissedForTurnRef.current = turnKey;
+                }
+              }}
+            />
+          </Suspense>
         ) : null}
       </div>
       {/* end horizontal flex container */}

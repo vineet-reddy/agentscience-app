@@ -293,6 +293,32 @@ const commandOutputOptions = (verbose: boolean) =>
 const AFTER_PACK_HOOK_FILE = "electron-builder-after-pack.mjs";
 const MAC_APP_ICON_PNG_FILE = "app-icon.png";
 const MAC_APP_ICON_ICNS_FILE = "app-icon.icns";
+const SOURCE_MAP_SUFFIXES = [
+  ".js.map",
+  ".cjs.map",
+  ".mjs.map",
+  ".css.map",
+  ".d.ts.map",
+  ".d.mts.map",
+  ".d.cts.map",
+] as const;
+const TYPE_DECLARATION_SUFFIXES = [".d.ts", ".d.mts", ".d.cts"] as const;
+const DEBUG_SYMBOL_SUFFIXES = [".pdb"] as const;
+const NODE_PTY_BUILD_ONLY_ENTRIES = [
+  "binding.gyp",
+  "deps",
+  "scripts",
+  "src",
+  "third_party",
+  "typings",
+] as const;
+const KNOWN_RUNTIME_DIST_ONLY_SOURCE_TREES = [
+  ["node_modules", "effect", "src"],
+  ["node_modules", "@effect", "platform-node", "src"],
+  ["node_modules", "@effect", "platform-bun", "src"],
+  ["node_modules", "@effect", "platform-node-shared", "src"],
+  ["node_modules", "@effect", "sql-sqlite-bun", "src"],
+] as const;
 
 const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.Command) {
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -440,6 +466,81 @@ function validateBundledClientAssets(clientDir: string) {
     }
   });
 }
+
+function pathHasAnySuffix(pathname: string, suffixes: ReadonlyArray<string>): boolean {
+  return suffixes.some((suffix) => pathname.endsWith(suffix));
+}
+
+const removeFilesBySuffixes = Effect.fn("removeFilesBySuffixes")(function* (
+  rootDir: string,
+  suffixes: ReadonlyArray<string>,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  if (!(yield* fs.exists(rootDir))) {
+    return;
+  }
+
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    if (!currentDir) {
+      continue;
+    }
+
+    const entries = yield* fs
+      .readDirectory(currentDir, { recursive: false })
+      .pipe(Effect.catch(() => Effect.succeed([] as Array<string>)));
+
+    for (const entry of entries) {
+      const entryPath = path.join(currentDir, entry);
+      const stat = yield* fs.stat(entryPath).pipe(Effect.catch(() => Effect.succeed(null)));
+      if (!stat) {
+        continue;
+      }
+
+      if (stat.type === "Directory") {
+        stack.push(entryPath);
+        continue;
+      }
+
+      if (pathHasAnySuffix(entryPath, suffixes)) {
+        yield* fs.remove(entryPath, { force: true });
+      }
+    }
+  }
+});
+
+const prunePackagedSourceMaps = Effect.fn("prunePackagedSourceMaps")(function* (stageAppDir: string) {
+  yield* removeFilesBySuffixes(stageAppDir, SOURCE_MAP_SUFFIXES);
+});
+
+const prunePackagedTypeDeclarations = Effect.fn("prunePackagedTypeDeclarations")(function* (
+  stageAppDir: string,
+) {
+  yield* removeFilesBySuffixes(stageAppDir, TYPE_DECLARATION_SUFFIXES);
+});
+
+const prunePackagedDebugSymbols = Effect.fn("prunePackagedDebugSymbols")(function* (
+  stageAppDir: string,
+) {
+  yield* removeFilesBySuffixes(stageAppDir, DEBUG_SYMBOL_SUFFIXES);
+});
+
+const pruneKnownPackageSourceTrees = Effect.fn("pruneKnownPackageSourceTrees")(function* (
+  stageAppDir: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  for (const relativeSegments of KNOWN_RUNTIME_DIST_ONLY_SOURCE_TREES) {
+    yield* fs.remove(path.join(stageAppDir, ...relativeSegments), {
+      recursive: true,
+      force: true,
+    }).pipe(Effect.ignore);
+  }
+});
 
 function resolveDesktopRuntimeDependencies(
   dependencies: Record<string, unknown> | undefined,
@@ -678,6 +779,82 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   return buildConfig;
 });
 
+const pruneManagedCodexInstallArtifacts = Effect.fn("pruneManagedCodexInstallArtifacts")(function* (
+  stageAppDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  for (const target of resolveManagedCodexTargets(platform, arch)) {
+    const installedVendorDir = path.join(
+      stageAppDir,
+      "node_modules",
+      ...target.packageName.split("/"),
+      "vendor",
+    );
+    yield* fs.remove(installedVendorDir, { recursive: true, force: true }).pipe(Effect.ignore);
+  }
+});
+
+function resolveNodePtyPrebuildTargets(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): ReadonlyArray<string> {
+  if (platform === "mac") {
+    if (arch === "arm64") return ["darwin-arm64"];
+    if (arch === "x64") return ["darwin-x64"];
+    return ["darwin-arm64", "darwin-x64"];
+  }
+
+  if (platform === "linux") {
+    return arch === "arm64" ? ["linux-arm64"] : ["linux-x64"];
+  }
+
+  return arch === "arm64" ? ["win32-arm64"] : ["win32-x64"];
+}
+
+const pruneNodePtyInstallArtifacts = Effect.fn("pruneNodePtyInstallArtifacts")(function* (
+  stageAppDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const nodePtyRoot = path.join(stageAppDir, "node_modules", "node-pty");
+  if (!(yield* fs.exists(nodePtyRoot))) {
+    return;
+  }
+
+  const prebuildsDir = path.join(nodePtyRoot, "prebuilds");
+  if (yield* fs.exists(prebuildsDir)) {
+    const allowedPrebuildTargets = new Set(resolveNodePtyPrebuildTargets(platform, arch));
+    const prebuildDirs = yield* fs
+      .readDirectory(prebuildsDir, { recursive: false })
+      .pipe(Effect.catch(() => Effect.succeed([] as Array<string>)));
+
+    for (const entry of prebuildDirs) {
+      if (allowedPrebuildTargets.has(entry)) {
+        continue;
+      }
+      yield* fs.remove(path.join(prebuildsDir, entry), {
+        recursive: true,
+        force: true,
+      }).pipe(Effect.ignore);
+    }
+
+    yield* removeFilesBySuffixes(prebuildsDir, DEBUG_SYMBOL_SUFFIXES);
+  }
+
+  for (const entry of NODE_PTY_BUILD_ONLY_ENTRIES) {
+    yield* fs.remove(path.join(nodePtyRoot, entry), {
+      recursive: true,
+      force: true,
+    }).pipe(Effect.ignore);
+  }
+});
+
 const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(function* (
   platform: typeof BuildPlatform.Type,
   stageResourcesDir: string,
@@ -769,10 +946,16 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* runCommand(
       ChildProcess.make({
         cwd: repoRoot,
+        env: {
+          ...process.env,
+          AGENTSCIENCE_DESKTOP_SOURCEMAP: "0",
+          AGENTSCIENCE_SERVER_SOURCEMAP: "0",
+          AGENTSCIENCE_WEB_SOURCEMAP: "0",
+        },
         ...commandOutputOptions(options.verbose),
         // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
         shell: process.platform === "win32",
-      })`bun run build:desktop`,
+      })`bun run build:desktop -- --force`,
     );
   }
 
@@ -852,12 +1035,26 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     })`bun install --production --os ${bunInstallTargetOs} --cpu ${bunInstallTargetCpu}`,
   );
 
+  yield* Effect.log("[desktop-artifact] Pruning packaged source maps...");
+  yield* prunePackagedSourceMaps(stageAppDir);
+  yield* Effect.log("[desktop-artifact] Pruning packaged type declarations...");
+  yield* prunePackagedTypeDeclarations(stageAppDir);
+  yield* Effect.log("[desktop-artifact] Pruning packaged source-only dependency trees...");
+  yield* pruneKnownPackageSourceTrees(stageAppDir);
+  yield* Effect.log("[desktop-artifact] Pruning packaged debug symbols...");
+  yield* prunePackagedDebugSymbols(stageAppDir);
+
   yield* bundleManagedCodexRuntime(
     stageAppDir,
     stageManagedResourcesDir,
     options.platform,
     options.arch,
   );
+
+  yield* Effect.log("[desktop-artifact] Removing duplicated managed Codex install payloads...");
+  yield* pruneManagedCodexInstallArtifacts(stageAppDir, options.platform, options.arch);
+  yield* Effect.log("[desktop-artifact] Trimming node-pty install payload...");
+  yield* pruneNodePtyInstallArtifacts(stageAppDir, options.platform, options.arch);
 
   const buildEnv: NodeJS.ProcessEnv = {
     ...process.env,

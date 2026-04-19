@@ -30,11 +30,11 @@ import {
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { fetchPaperReviewSnapshot } from "../lib/paperReview";
 import { useStore } from "../store";
-import PaperReviewPanel from "../components/PaperReviewPanel";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
+const PaperReviewPanel = lazy(() => import("../components/PaperReviewPanel"));
 const DIFF_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
@@ -85,6 +85,14 @@ const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
         <DiffPanel mode={props.mode} />
       </Suspense>
     </DiffWorkerPoolProvider>
+  );
+};
+
+const PaperReviewLoadingFallback = () => {
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      Loading paper review...
+    </div>
   );
 };
 
@@ -212,7 +220,11 @@ const PaperReviewInlineSidebar = (props: {
           storageKey: PAPER_REVIEW_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
-        {renderReviewContent ? <PaperReviewPanel key={threadId} threadId={threadId} /> : null}
+        {renderReviewContent ? (
+          <Suspense fallback={<PaperReviewLoadingFallback />}>
+            <PaperReviewPanel key={threadId} threadId={threadId} />
+          </Suspense>
+        ) : null}
         <SidebarRail />
       </Sidebar>
     </SidebarProvider>
@@ -248,12 +260,10 @@ function ChatThreadRouteView() {
   }, [thread]);
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
-  const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
+  const [openedDiffByThreadId, setOpenedDiffByThreadId] = useState<Record<string, true>>({});
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [hasOpenedReview, setHasOpenedReview] = useState(false);
-  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>(
-    {},
-  );
+  const [openedReviewByThreadId, setOpenedReviewByThreadId] = useState<Record<string, true>>({});
+  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>({});
   const lastHandledPaperPresentationByThreadIdRef = useRef<Record<string, string>>({});
   const lastObservedThreadUpdatedAtByThreadIdRef = useRef<Record<string, string | null>>({});
   const paperReviewQuery = useQuery({
@@ -292,7 +302,14 @@ function ChatThreadRouteView() {
   }, [threadId]);
   const openReview = useCallback(() => {
     setReviewOpen(true);
-    setHasOpenedReview(true);
+    setOpenedReviewByThreadId((current) =>
+      current[threadId]
+        ? current
+        : {
+            ...current,
+            [threadId]: true,
+          },
+    );
     setDismissedReviewByThreadId((current) => {
       if (!current[threadId]) {
         return current;
@@ -342,16 +359,30 @@ function ChatThreadRouteView() {
 
   useEffect(() => {
     if (diffOpen) {
-      setHasOpenedDiff(true);
+      setOpenedDiffByThreadId((current) =>
+        current[threadId]
+          ? current
+          : {
+              ...current,
+              [threadId]: true,
+            },
+      );
     }
-  }, [diffOpen]);
+  }, [diffOpen, threadId]);
 
   useEffect(() => {
     if (!paperReviewAvailable) {
       setReviewOpen(false);
       return;
     }
-    setHasOpenedReview(true);
+    setOpenedReviewByThreadId((current) =>
+      current[threadId]
+        ? current
+        : {
+            ...current,
+            [threadId]: true,
+          },
+    );
     if (dismissedReviewByThreadId[threadId]) {
       return;
     }
@@ -373,8 +404,8 @@ function ChatThreadRouteView() {
     return null;
   }
 
-  const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
-  const shouldRenderReviewContent = reviewOpen || hasOpenedReview;
+  const shouldRenderDiffContent = diffOpen || Boolean(openedDiffByThreadId[threadId]);
+  const shouldRenderReviewContent = reviewOpen || Boolean(openedReviewByThreadId[threadId]);
 
   return (
     <>
