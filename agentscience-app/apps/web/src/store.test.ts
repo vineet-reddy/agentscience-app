@@ -49,6 +49,19 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
 }
 
 function makeState(thread: Thread): AppState {
+  const projects: AppState["projects"] = [
+    {
+      id: ProjectId.makeUnsafe("project-1"),
+      name: "Project",
+      folderSlug: "project",
+      cwd: null,
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      scripts: [],
+    },
+  ];
   const threadIdsByProjectId: AppState["threadIdsByProjectId"] =
     thread.projectId === null
       ? {}
@@ -56,20 +69,16 @@ function makeState(thread: Thread): AppState {
           [thread.projectId]: [thread.id],
         };
   return {
-    projects: [
-      {
-        id: ProjectId.makeUnsafe("project-1"),
-        name: "Project",
-        folderSlug: "project",
-        cwd: null,
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        scripts: [],
-      },
-    ],
+    projects,
+    projectsById: Object.fromEntries(projects.map((project) => [project.id, project])),
+    projectIndexById: Object.fromEntries(projects.map((project, index) => [project.id, index])),
     threads: [thread],
+    threadsById: {
+      [thread.id]: thread,
+    },
+    threadIndexById: {
+      [thread.id]: 0,
+    },
     sidebarThreadsById: {},
     threadIdsByProjectId,
     bootstrapComplete: true,
@@ -244,7 +253,37 @@ describe("store read model sync", () => {
           scripts: [],
         },
       ],
+      projectsById: {
+        [project1]: {
+          id: project1,
+          name: "Project 1",
+          folderSlug: "project-1",
+          cwd: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          scripts: [],
+        },
+        [project2]: {
+          id: project2,
+          name: "Project 2",
+          folderSlug: "project-2",
+          cwd: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          scripts: [],
+        },
+      },
+      projectIndexById: {
+        [project2]: 0,
+        [project1]: 1,
+      },
       threads: [],
+      threadsById: {},
+      threadIndexById: {},
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
@@ -337,7 +376,25 @@ describe("incremental orchestration updates", () => {
           scripts: [],
         },
       ],
+      projectsById: {
+        [originalProjectId]: {
+          id: originalProjectId,
+          name: "Project",
+          folderSlug: "project-1",
+          cwd: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          scripts: [],
+        },
+      },
+      projectIndexById: {
+        [originalProjectId]: 0,
+      },
       threads: [],
+      threadsById: {},
+      threadIndexById: {},
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
@@ -398,7 +455,41 @@ describe("incremental orchestration updates", () => {
           scripts: [],
         },
       ],
+      projectsById: {
+        [originalProjectId]: {
+          id: originalProjectId,
+          name: "Project 1",
+          folderSlug: "project-1",
+          cwd: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          scripts: [],
+        },
+        [recreatedProjectId]: {
+          id: recreatedProjectId,
+          name: "Project 2",
+          folderSlug: "project-2",
+          cwd: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          scripts: [],
+        },
+      },
+      projectIndexById: {
+        [originalProjectId]: 0,
+        [recreatedProjectId]: 1,
+      },
       threads: [thread],
+      threadsById: {
+        [thread.id]: thread,
+      },
+      threadIndexById: {
+        [thread.id]: 0,
+      },
       sidebarThreadsById: {},
       threadIdsByProjectId: {
         [originalProjectId]: [threadId],
@@ -451,6 +542,14 @@ describe("incremental orchestration updates", () => {
     const state: AppState = {
       ...makeState(thread1),
       threads: [thread1, thread2],
+      threadsById: {
+        [thread1.id]: thread1,
+        [thread2.id]: thread2,
+      },
+      threadIndexById: {
+        [thread1.id]: 0,
+        [thread2.id]: 1,
+      },
     };
 
     const next = applyOrchestrationEvent(
@@ -470,6 +569,50 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.messages[0]?.text).toBe("hello world");
     expect(next.threads[0]?.latestTurn?.state).toBe("running");
     expect(next.threads[1]).toBe(thread2);
+  });
+
+  it("preserves earlier message objects when updating the trailing streamed message", () => {
+    const thread = makeThread({
+      messages: [
+        {
+          id: MessageId.makeUnsafe("user-1"),
+          role: "user",
+          text: "question",
+          turnId: TurnId.makeUnsafe("turn-1"),
+          createdAt: "2026-02-27T00:00:00.000Z",
+          completedAt: "2026-02-27T00:00:00.000Z",
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("assistant-1"),
+          role: "assistant",
+          text: "partial",
+          turnId: TurnId.makeUnsafe("turn-1"),
+          createdAt: "2026-02-27T00:00:01.000Z",
+          completedAt: "2026-02-27T00:00:01.000Z",
+          streaming: false,
+        },
+      ],
+    });
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId: thread.id,
+        messageId: MessageId.makeUnsafe("assistant-1"),
+        role: "assistant",
+        text: " answer",
+        turnId: TurnId.makeUnsafe("turn-1"),
+        streaming: true,
+        createdAt: "2026-02-27T00:00:02.000Z",
+        updatedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.messages[0]).toBe(thread.messages[0]);
+    expect(next.threads[0]?.messages[1]?.text).toBe("partial answer");
+    expect(next.threads[0]?.messages[1]).not.toBe(thread.messages[1]);
   });
 
   it("applies replay batches in sequence and updates session state", () => {

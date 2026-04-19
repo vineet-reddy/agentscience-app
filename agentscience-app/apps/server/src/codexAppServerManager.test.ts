@@ -4,6 +4,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ApprovalRequestId, ThreadId } from "@agentscience/contracts";
+import type { CodexAccountSnapshot } from "./provider/codexAccount";
 
 import {
   buildCodexAppServerEnv,
@@ -39,7 +40,7 @@ function createSendTurnHarness() {
       type: "unknown",
       planType: null,
       sparkEnabled: true,
-    },
+    } as CodexAccountSnapshot,
     collabReceiverTurns: new Map(),
   };
 
@@ -161,7 +162,7 @@ function createCollabNotificationHarness() {
       type: "unknown",
       planType: null,
       sparkEnabled: true,
-    },
+    } as CodexAccountSnapshot,
     pending: new Map(),
     pendingApprovals: new Map(),
     pendingUserInputs: new Map(),
@@ -280,6 +281,8 @@ describe("buildCodexModeDeveloperInstructions", () => {
   it("tells desktop turns not to rerun the startup runtime check or repeat the intro", () => {
     for (const mode of ["default", "plan"] as const) {
       const instructions = buildCodexModeDeveloperInstructions(mode);
+      expect(instructions).toContain("outbound network access is available");
+      expect(instructions).toContain("AGENTSCIENCE_MANAGED_PYTHON_PATH");
       expect(instructions).toContain(
         "AgentScience desktop already performs the runtime/update health check at app startup.",
       );
@@ -589,7 +592,7 @@ describe("sendTurn", () => {
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
-        networkAccess: false,
+        networkAccess: true,
         excludeSlashTmp: true,
         excludeTmpdirEnvVar: true,
       },
@@ -627,7 +630,59 @@ describe("sendTurn", () => {
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
-        networkAccess: false,
+        networkAccess: true,
+        excludeSlashTmp: true,
+        excludeTmpdirEnvVar: true,
+      },
+    });
+  });
+
+  it("refreshes account metadata before sending spark turns when support is unknown", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.account = {
+      type: "unknown",
+      planType: null,
+      sparkEnabled: true,
+    };
+
+    const refreshSessionAccount = vi
+      .spyOn(
+        manager as unknown as {
+          refreshSessionAccount: (sessionContext: typeof context) => Promise<unknown>;
+        },
+        "refreshSessionAccount",
+      )
+      .mockImplementation(async (sessionContext) => {
+        sessionContext.account = {
+          type: "chatgpt",
+          planType: "plus",
+          sparkEnabled: false,
+        };
+        return sessionContext.account;
+      });
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Use spark if available",
+      model: "gpt-5.3-codex-spark",
+    });
+
+    expect(refreshSessionAccount).toHaveBeenCalledWith(context);
+    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
+      threadId: "thread_1",
+      input: [
+        {
+          type: "text",
+          text: "Use spark if available",
+          text_elements: [],
+        },
+      ],
+      cwd: "/tmp/workspace",
+      model: "gpt-5.3-codex",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/tmp/workspace"],
+        networkAccess: true,
         excludeSlashTmp: true,
         excludeTmpdirEnvVar: true,
       },
@@ -657,7 +712,7 @@ describe("sendTurn", () => {
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
-        networkAccess: false,
+        networkAccess: true,
         excludeSlashTmp: true,
         excludeTmpdirEnvVar: true,
       },
@@ -695,7 +750,7 @@ describe("sendTurn", () => {
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
-        networkAccess: false,
+        networkAccess: true,
         excludeSlashTmp: true,
         excludeTmpdirEnvVar: true,
       },
@@ -792,7 +847,7 @@ describe("sendTurn", () => {
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
-        networkAccess: false,
+        networkAccess: true,
         excludeSlashTmp: true,
         excludeTmpdirEnvVar: true,
       },

@@ -187,6 +187,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           env: buildCodexSpawnEnv({
             binaryPath,
             ...(codexSettings?.homePath ? { homePath: codexSettings.homePath } : {}),
+            cwd,
           }),
           cwd,
           shell: process.platform === "win32",

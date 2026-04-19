@@ -113,10 +113,7 @@ import { MacTitlebarDragRow } from "./MacTitlebarDragRow";
 import { SidebarReopenTrigger } from "./SidebarReopenTrigger";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import {
-  getProviderModels,
-  resolveSelectableProvider,
-} from "../providerModels";
+import { getProviderModels, resolveSelectableProvider } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -202,10 +199,7 @@ import {
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import {
-  useServerAvailableEditors,
-  useServerConfig,
-} from "~/rpc/serverState";
+import { useServerAvailableEditors, useServerConfig } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
@@ -270,10 +264,10 @@ function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalog
     let previousThreads: Array<Thread | undefined> | null = null;
     let previousEntries: ThreadPlanCatalogEntry[] = [];
 
-    return (state: { threads: Thread[] }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = threadIds.map((threadId) =>
-        state.threads.find((thread) => thread.id === threadId),
-      );
+    return (state: {
+      threadsById: Record<string, Thread | undefined>;
+    }): ThreadPlanCatalogEntry[] => {
+      const nextThreads = threadIds.map((threadId) => state.threadsById[threadId]);
       const cachedThreads = previousThreads;
       if (
         cachedThreads &&
@@ -290,6 +284,27 @@ function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalog
       return previousEntries;
     };
   }, [threadIds]);
+
+  return useStore(selector);
+}
+
+function useAllServerThreadIds(): ThreadId[] {
+  const selector = useMemo(() => {
+    let previousThreadIds: ThreadId[] = [];
+
+    return (state: { threads: Thread[] }): ThreadId[] => {
+      const nextThreads = state.threads;
+      if (
+        nextThreads.length === previousThreadIds.length &&
+        nextThreads.every((thread, index) => thread.id === previousThreadIds[index])
+      ) {
+        return previousThreadIds;
+      }
+
+      previousThreadIds = nextThreads.map((thread) => thread.id);
+      return previousThreadIds;
+    };
+  }, []);
 
   return useStore(selector);
 }
@@ -778,18 +793,18 @@ export default function ChatView({
   const storeClearTerminalLaunchContext = useTerminalStateStore(
     (s) => s.clearTerminalLaunchContext,
   );
-  const threads = useStore((state) => state.threads);
-  const serverThreadIds = useMemo(() => threads.map((thread) => thread.id), [threads]);
+  const serverThreadIds = useAllServerThreadIds();
   const nextThreadFolderSlug = useCallback(
     (projectId: ProjectId | null, title: string) =>
       nextWorkspaceSlug(
         title,
-        threads
-          .filter((thread) => thread.projectId === projectId)
+        useStore
+          .getState()
+          .threads.filter((thread) => thread.projectId === projectId)
           .map((thread) => thread.folderSlug),
         "paper",
       ),
-    [threads],
+    [],
   );
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const draftThreadIds = useMemo(
@@ -1583,13 +1598,7 @@ export default function ChatView({
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [
-    composerTrigger,
-    datasetEntries,
-    datasetProviders,
-    searchableModelOptions,
-    workspaceEntries,
-  ]);
+  }, [composerTrigger, datasetEntries, datasetProviders, searchableModelOptions, workspaceEntries]);
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem = useMemo(
     () =>
@@ -1636,10 +1645,7 @@ export default function ChatView({
     }),
     [terminalState.terminalOpen],
   );
-  const terminalToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand("terminal.toggle"),
-    [],
-  );
+  const terminalToggleShortcutLabel = useMemo(() => shortcutLabelForCommand("terminal.toggle"), []);
   const splitTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand("terminal.split", terminalShortcutLabelOptions),
     [terminalShortcutLabelOptions],

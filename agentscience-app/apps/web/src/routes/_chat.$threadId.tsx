@@ -8,6 +8,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -226,17 +227,14 @@ function ChatThreadRouteView() {
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
-  const threadExists = useStore((store) => store.threads.some((thread) => thread.id === threadId));
+  const thread = useStore((store) => store.threadsById[threadId]);
   const draftThreadExists = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
-  const routeThreadExists = threadExists || draftThreadExists;
+  const routeThreadExists = thread !== undefined || draftThreadExists;
   const diffOpen = search.diff === "1";
-  const threadUpdatedAt = useStore(
-    (store) => store.threads.find((entry) => entry.id === threadId)?.updatedAt ?? null,
-  );
-  const latestPaperPresentedActivityId = useStore((store) => {
-    const thread = store.threads.find((entry) => entry.id === threadId);
+  const threadUpdatedAt = thread?.updatedAt ?? null;
+  const latestPaperPresentedActivityId = useMemo(() => {
     if (!thread) {
       return null;
     }
@@ -247,13 +245,15 @@ function ChatThreadRouteView() {
       }
     }
     return null;
-  });
+  }, [thread]);
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
   const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [hasOpenedReview, setHasOpenedReview] = useState(false);
-  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>({});
+  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>(
+    {},
+  );
   const lastHandledPaperPresentationByThreadIdRef = useRef<Record<string, string>>({});
   const lastObservedThreadUpdatedAtByThreadIdRef = useRef<Record<string, string | null>>({});
   const paperReviewQuery = useQuery({
@@ -307,7 +307,9 @@ function ChatThreadRouteView() {
     if (!latestPaperPresentedActivityId) {
       return;
     }
-    if (lastHandledPaperPresentationByThreadIdRef.current[threadId] === latestPaperPresentedActivityId) {
+    if (
+      lastHandledPaperPresentationByThreadIdRef.current[threadId] === latestPaperPresentedActivityId
+    ) {
       return;
     }
     lastHandledPaperPresentationByThreadIdRef.current[threadId] = latestPaperPresentedActivityId;

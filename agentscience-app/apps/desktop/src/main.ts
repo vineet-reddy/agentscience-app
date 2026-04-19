@@ -31,6 +31,7 @@ import { RotatingFileSink } from "@agentscience/shared/logging";
 import { parsePersistedServerObservabilitySettings } from "@agentscience/shared/serverSettings";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveManagedCodexRuntime } from "./codexManagedRuntime";
+import { buildManagedDesktopServerEnv } from "./managedDesktopTooling";
 import {
   resolveDefaultDesktopCodexHomePath,
   resolveDesktopServerSettingsPath,
@@ -1124,6 +1125,12 @@ function startBackend(): void {
     platform: process.platform,
     arch: process.arch,
   });
+  const managedDesktopServerEnv = buildManagedDesktopServerEnv({
+    resourcesPath: process.resourcesPath,
+    repoRoot: ROOT_DIR,
+    platform: process.platform,
+    arch: process.arch,
+  });
   const child = ChildProcess.spawn(process.execPath, [backendEntry, "--bootstrap-fd", "3"], {
     cwd: resolveBackendCwd(),
     // In Electron main, process.execPath points to the Electron binary.
@@ -1137,6 +1144,7 @@ function startBackend(): void {
             AGENTSCIENCE_MANAGED_CODEX_PATH_DIR: managedCodexRuntime.pathDir,
           }
         : {}),
+      ...managedDesktopServerEnv,
     },
     stdio: captureBackendLogs
       ? ["ignore", "pipe", "pipe", "pipe"]

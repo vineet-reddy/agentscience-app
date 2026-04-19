@@ -34,15 +34,15 @@ export default function BranchToolbar({
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
-  const threads = useStore((store) => store.threads);
-  const projects = useStore((store) => store.projects);
+  const serverThread = useStore((store) => store.threadsById[threadId]);
   const setThreadBranchAction = useStore((store) => store.setThreadBranch);
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
 
-  const serverThread = threads.find((thread) => thread.id === threadId);
   const activeProjectId = serverThread?.projectId ?? draftThread?.projectId ?? null;
-  const activeProject = projects.find((project) => project.id === activeProjectId);
+  const activeProject = useStore((store) =>
+    activeProjectId ? store.projectsById[activeProjectId] : undefined,
+  );
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
   const activeThreadBranch = serverThread?.branch ?? draftThread?.branch ?? null;
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;

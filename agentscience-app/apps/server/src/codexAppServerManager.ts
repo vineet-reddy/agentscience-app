@@ -31,6 +31,7 @@ import {
 import {
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
+  CODEX_SPARK_MODEL,
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
 import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
@@ -141,6 +142,7 @@ export interface CodexThreadSnapshot {
 }
 
 const CODEX_VERSION_CHECK_TIMEOUT_MS = 4_000;
+const CODEX_VERSION_CHECK_CACHE = new Map<string, string | null>();
 
 const ANSI_ESCAPE_CHAR = String.fromCharCode(27);
 const ANSI_ESCAPE_REGEX = new RegExp(`${ANSI_ESCAPE_CHAR}\\[[0-9;]*m`, "g");
@@ -293,12 +295,23 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 </collaboration_mode>`;
 
 export const CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS = `<python_environment>
+If \`AGENTSCIENCE_MANAGED_PYTHON_PATH\` is set, AgentScience has already provided a managed Python runtime. Reuse that interpreter and its preinstalled packages before asking for host-machine Python installs or downgrading the analysis.
+
 If you need Python dependencies, create or reuse a worktree-local virtual environment at \`./.venv\` under the current cwd before installing anything.
 
 Run Python and pip through that environment, for example \`./.venv/bin/python -m pip install ...\` (or the Windows equivalent).
 
 Never run \`pip install\`, \`python -m pip install\`, or \`pip install --user\` against the host interpreter, and never install Python packages globally.
 </python_environment>`;
+
+export const CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS = `<agentscience_sandbox>
+AgentScience keeps command execution inside the current repo/worktree, but outbound network access is available for legitimate research work.
+
+- It is okay to search the web, call APIs, and download datasets when the task requires it.
+- Keep downloads, caches, and temporary files inside the current workspace.
+- If \`pdflatex\`, \`latexmk\`, or \`bibtex\` are already on PATH, prefer them over asking the user to install TeX.
+- Only ask for host-level installs when the bundled/runtime-local option is unavailable and there is no high-quality in-workspace fallback.
+</agentscience_sandbox>`;
 
 export const CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS = `<agentscience_desktop_app>
 AgentScience desktop already performs the runtime/update health check at app startup.
@@ -331,13 +344,13 @@ const AGENTSCIENCE_PERSONALITY = loadPersonality();
 export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version;
 export const AGENTSCIENCE_PERSONALITY_CONTENT_HASH = AGENTSCIENCE_PERSONALITY.contentHash;
 
-export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): string {
-  const collaborationModeInstructions =
-    mode === "plan"
-      ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-      : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS;
+const CODEX_MODE_DEVELOPER_INSTRUCTIONS = {
+  default: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "default" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS}`,
+  plan: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "plan" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS}`,
+} as const satisfies Record<"default" | "plan", string>;
 
-  return `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${collaborationModeInstructions}`;
+export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): string {
+  return CODEX_MODE_DEVELOPER_INSTRUCTIONS[mode];
 }
 
 export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
@@ -361,14 +374,17 @@ export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
 function buildCodexWorkspaceWriteSandboxPolicy(cwd: string): {
   readonly type: "workspaceWrite";
   readonly writableRoots: readonly [string];
-  readonly networkAccess: false;
+  readonly networkAccess: true;
   readonly excludeSlashTmp: true;
   readonly excludeTmpdirEnvVar: true;
 } {
   return {
     type: "workspaceWrite",
     writableRoots: [cwd],
-    networkAccess: false,
+    // Keep filesystem writes pinned to the active workspace, but allow the
+    // agent to fetch web pages, APIs, and datasets without falling back to
+    // brittle non-shell workarounds.
+    networkAccess: true,
     excludeSlashTmp: true,
     excludeTmpdirEnvVar: true,
   };
@@ -378,7 +394,7 @@ function buildCodexWorkspaceWriteConfig(cwd: string): {
   readonly sandbox_mode: "workspace-write";
   readonly sandbox_workspace_write: {
     readonly writable_roots: readonly [string];
-    readonly network_access: false;
+    readonly network_access: true;
     readonly exclude_slash_tmp: true;
     readonly exclude_tmpdir_env_var: true;
   };
@@ -387,7 +403,7 @@ function buildCodexWorkspaceWriteConfig(cwd: string): {
     sandbox_mode: "workspace-write",
     sandbox_workspace_write: {
       writable_roots: [cwd],
-      network_access: false,
+      network_access: true,
       exclude_slash_tmp: true,
       exclude_tmpdir_env_var: true,
     },
@@ -424,6 +440,7 @@ export function buildCodexAppServerLaunchSpec(
       binaryPath: input.binaryPath,
       ...(input.homePath ? { homePath: input.homePath } : {}),
       processEnv: envBase,
+      cwd: resolvedCwd,
     }),
     shell: platform === "win32",
   };
@@ -551,6 +568,7 @@ export interface CodexAppServerManagerEvents {
 
 export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEvents> {
   private readonly sessions = new Map<ThreadId, CodexSessionContext>();
+  private readonly sessionAccountRefreshes = new Map<ThreadId, Promise<CodexAccountSnapshot>>();
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
   constructor(services?: ServiceMap.ServiceMap<never>) {
@@ -625,29 +643,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       await this.sendRequest(context, "initialize", buildCodexInitializeParams());
 
       this.writeMessage(context, { method: "initialized" });
-      try {
-        const modelListResponse = await this.sendRequest(context, "model/list", {});
-        console.log("codex model/list response", modelListResponse);
-      } catch (error) {
-        console.log("codex model/list failed", error);
-      }
-      try {
-        const accountReadResponse = await this.sendRequest(context, "account/read", {});
-        console.log("codex account/read response", accountReadResponse);
-        context.account = readCodexAccountSnapshot(accountReadResponse);
-        console.log("codex subscription status", {
-          type: context.account.type,
-          planType: context.account.planType,
-          sparkEnabled: context.account.sparkEnabled,
-        });
-      } catch (error) {
-        console.log("codex account/read failed", error);
+      const requestedModel = normalizeCodexModelSlug(input.model);
+      if (requestedModel === CODEX_SPARK_MODEL) {
+        await this.refreshSessionAccount(context);
       }
 
-      const normalizedModel = resolveCodexModelForAccount(
-        normalizeCodexModelSlug(input.model),
-        context.account,
-      );
+      const normalizedModel = resolveCodexModelForAccount(requestedModel, context.account);
       const sessionOverrides = {
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
@@ -748,6 +749,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         resolvedThreadId: providerThreadId,
         requestedRuntimeMode: input.runtimeMode,
       }).pipe(this.runPromise);
+      if (requestedModel !== CODEX_SPARK_MODEL) {
+        this.prefetchSessionMetadata(context);
+      }
       this.emitLifecycleEvent(context, "session/ready", `Connected to thread ${providerThreadId}`);
       return { ...context.session };
     } catch (error) {
@@ -820,7 +824,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       sandboxPolicy?: {
         readonly type: "workspaceWrite";
         readonly writableRoots: readonly [string];
-        readonly networkAccess: false;
+        readonly networkAccess: true;
         readonly excludeSlashTmp: true;
         readonly excludeTmpdirEnvVar: true;
       };
@@ -840,10 +844,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       turnStartParams.cwd = context.session.cwd;
       turnStartParams.sandboxPolicy = buildCodexWorkspaceWriteSandboxPolicy(context.session.cwd);
     }
-    const normalizedModel = resolveCodexModelForAccount(
-      normalizeCodexModelSlug(input.model ?? context.session.model),
-      context.account,
-    );
+    const requestedModel = normalizeCodexModelSlug(input.model ?? context.session.model);
+    if (requestedModel === CODEX_SPARK_MODEL && context.account.type === "unknown") {
+      await this.refreshSessionAccount(context);
+    }
+    const normalizedModel = resolveCodexModelForAccount(requestedModel, context.account);
     if (normalizedModel) {
       turnStartParams.model = normalizedModel;
     }
@@ -1043,6 +1048,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.pending.clear();
     context.pendingApprovals.clear();
     context.pendingUserInputs.clear();
+    this.sessionAccountRefreshes.delete(threadId);
 
     context.output.close();
 
@@ -1437,6 +1443,35 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     assertSupportedCodexCliVersion(input);
   }
 
+  private refreshSessionAccount(context: CodexSessionContext): Promise<CodexAccountSnapshot> {
+    const threadId = context.session.threadId;
+    const existing = this.sessionAccountRefreshes.get(threadId);
+    if (existing) {
+      return existing;
+    }
+
+    const refresh = this.sendRequest(context, "account/read", {})
+      .then((response) => {
+        const account = readCodexAccountSnapshot(response);
+        context.account = account;
+        return account;
+      })
+      .finally(() => {
+        this.sessionAccountRefreshes.delete(threadId);
+      });
+
+    this.sessionAccountRefreshes.set(threadId, refresh);
+    return refresh;
+  }
+
+  private prefetchSessionMetadata(context: CodexSessionContext): void {
+    if (context.account.type !== "unknown") {
+      return;
+    }
+
+    void this.refreshSessionAccount(context).catch(() => undefined);
+  }
+
   private updateSession(context: CodexSessionContext, updates: Partial<ProviderSession>): void {
     context.session = {
       ...context.session,
@@ -1666,6 +1701,11 @@ function assertSupportedCodexCliVersion(input: {
   readonly cwd: string;
   readonly homePath?: string;
 }): void {
+  const cacheKey = `${input.binaryPath}\u0000${input.homePath ?? ""}`;
+  if (CODEX_VERSION_CHECK_CACHE.has(cacheKey)) {
+    return;
+  }
+
   const result = spawnSync(input.binaryPath, ["--version"], {
     cwd: input.cwd,
     env: buildCodexSpawnEnv(input),
@@ -1704,6 +1744,8 @@ function assertSupportedCodexCliVersion(input: {
   if (parsedVersion && !isCodexCliVersionSupported(parsedVersion)) {
     throw new Error(formatCodexCliUpgradeMessage(parsedVersion));
   }
+
+  CODEX_VERSION_CHECK_CACHE.set(cacheKey, parsedVersion ?? null);
 }
 
 function readResumeCursorThreadId(resumeCursor: unknown): string | undefined {

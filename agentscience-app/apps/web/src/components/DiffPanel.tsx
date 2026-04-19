@@ -182,11 +182,11 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const diffOpen = diffSearch.diff === "1";
   const activeThreadId = routeThreadId;
   const activeThread = useStore((store) =>
-    activeThreadId ? store.threads.find((thread) => thread.id === activeThreadId) : undefined,
+    activeThreadId ? store.threadsById[activeThreadId] : undefined,
   );
   const activeProjectId = activeThread?.projectId ?? null;
   const activeProject = useStore((store) =>
-    activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
+    activeProjectId ? store.projectsById[activeProjectId] : undefined,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
   const gitStatusQuery = useGitStatus(activeCwd ?? null);
