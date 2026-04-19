@@ -234,6 +234,10 @@ jobs:
           if [[ "${{ matrix.platform }}" == "linux" ]]; then
             shopt -s nullglob
             appimage_files=(release-publish/Agent-Science-*-${{ matrix.arch }}.AppImage)
+            # electron-builder names Linux AppImages with x86_64 even when the matrix arch is x64.
+            if (( ${#appimage_files[@]} == 0 )); then
+              appimage_files=(release-publish/Agent-Science-*.AppImage)
+            fi
             if (( ${#appimage_files[@]} > 0 )); then
               cp "${appimage_files[0]}" release-publish/Agent-Science-linux-x64.AppImage
             fi
