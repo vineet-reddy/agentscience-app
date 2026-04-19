@@ -207,13 +207,26 @@ const makeThread = (input?: {
   activities: [],
 });
 
+function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>): void {
+  useStore.setState((state) => ({
+    ...state,
+    threads: [...threads],
+    threadsById: Object.fromEntries(threads.map((thread) => [thread.id, thread])),
+    threadIndexById: Object.fromEntries(threads.map((thread, index) => [thread.id, index])),
+  }));
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   useStore.setState((state) => ({
     ...state,
     projects: [],
+    projectsById: {},
+    projectIndexById: {},
     threads: [],
+    threadsById: {},
+    threadIndexById: {},
     bootstrapComplete: true,
   }));
 });
@@ -221,80 +234,65 @@ afterEach(() => {
 describe("waitForStartedServerThread", () => {
   it("resolves immediately when the thread is already started", async () => {
     const threadId = ThreadId.makeUnsafe("thread-started");
-    useStore.setState((state) => ({
-      ...state,
-      threads: [
-        makeThread({
-          id: threadId,
-          latestTurn: {
-            turnId: TurnId.makeUnsafe("turn-started"),
-            state: "running",
-            requestedAt: "2026-03-29T00:00:01.000Z",
-            startedAt: "2026-03-29T00:00:01.000Z",
-            completedAt: null,
-          },
-        }),
-      ],
-    }));
+    setStoreThreads([
+      makeThread({
+        id: threadId,
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-started"),
+          state: "running",
+          requestedAt: "2026-03-29T00:00:01.000Z",
+          startedAt: "2026-03-29T00:00:01.000Z",
+          completedAt: null,
+        },
+      }),
+    ]);
 
     await expect(waitForStartedServerThread(threadId)).resolves.toBe(true);
   });
 
   it("waits for the thread to start via subscription updates", async () => {
     const threadId = ThreadId.makeUnsafe("thread-wait");
-    useStore.setState((state) => ({
-      ...state,
-      threads: [makeThread({ id: threadId })],
-    }));
+    setStoreThreads([makeThread({ id: threadId })]);
 
     const promise = waitForStartedServerThread(threadId, 500);
 
-    useStore.setState((state) => ({
-      ...state,
-      threads: [
-        makeThread({
-          id: threadId,
-          latestTurn: {
-            turnId: TurnId.makeUnsafe("turn-started"),
-            state: "running",
-            requestedAt: "2026-03-29T00:00:01.000Z",
-            startedAt: "2026-03-29T00:00:01.000Z",
-            completedAt: null,
-          },
-        }),
-      ],
-    }));
+    setStoreThreads([
+      makeThread({
+        id: threadId,
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-started"),
+          state: "running",
+          requestedAt: "2026-03-29T00:00:01.000Z",
+          startedAt: "2026-03-29T00:00:01.000Z",
+          completedAt: null,
+        },
+      }),
+    ]);
 
     await expect(promise).resolves.toBe(true);
   });
 
   it("handles the thread starting between the initial read and subscription setup", async () => {
     const threadId = ThreadId.makeUnsafe("thread-race");
-    useStore.setState((state) => ({
-      ...state,
-      threads: [makeThread({ id: threadId })],
-    }));
+    setStoreThreads([makeThread({ id: threadId })]);
 
     const originalSubscribe = useStore.subscribe.bind(useStore);
     let raced = false;
     vi.spyOn(useStore, "subscribe").mockImplementation((listener) => {
       if (!raced) {
         raced = true;
-        useStore.setState((state) => ({
-          ...state,
-          threads: [
-            makeThread({
-              id: threadId,
-              latestTurn: {
-                turnId: TurnId.makeUnsafe("turn-race"),
-                state: "running",
-                requestedAt: "2026-03-29T00:00:01.000Z",
-                startedAt: "2026-03-29T00:00:01.000Z",
-                completedAt: null,
-              },
-            }),
-          ],
-        }));
+        setStoreThreads([
+          makeThread({
+            id: threadId,
+            latestTurn: {
+              turnId: TurnId.makeUnsafe("turn-race"),
+              state: "running",
+              requestedAt: "2026-03-29T00:00:01.000Z",
+              startedAt: "2026-03-29T00:00:01.000Z",
+              completedAt: null,
+            },
+          }),
+        ]);
       }
       return originalSubscribe(listener);
     });
@@ -306,10 +304,7 @@ describe("waitForStartedServerThread", () => {
     vi.useFakeTimers();
 
     const threadId = ThreadId.makeUnsafe("thread-timeout");
-    useStore.setState((state) => ({
-      ...state,
-      threads: [makeThread({ id: threadId })],
-    }));
+    setStoreThreads([makeThread({ id: threadId })]);
     const promise = waitForStartedServerThread(threadId, 500);
 
     await vi.advanceTimersByTimeAsync(500);
