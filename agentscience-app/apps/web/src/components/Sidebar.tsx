@@ -58,7 +58,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
   SidebarTrigger,
 } from "./ui/sidebar";
 
@@ -918,8 +917,7 @@ export default function Sidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarSeparator />
-      <SidebarFooter className="p-2">
+      <SidebarFooter className="border-t border-sidebar-border px-2 py-1">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

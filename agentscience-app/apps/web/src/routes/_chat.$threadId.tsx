@@ -211,7 +211,7 @@ const PaperReviewInlineSidebar = (props: {
           storageKey: PAPER_REVIEW_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
-        {renderReviewContent ? <PaperReviewPanel threadId={threadId} /> : null}
+        {renderReviewContent ? <PaperReviewPanel key={threadId} threadId={threadId} /> : null}
         <SidebarRail />
       </Sidebar>
     </SidebarProvider>
