@@ -32,6 +32,7 @@ import type {
   ServerProviderUpdatedPayload,
   ServerRuntimeAgentScience,
 } from "./server";
+import type { AgentScienceAuthState } from "./agentScienceAuth";
 import type {
   TerminalClearInput,
   TerminalCloseInput,
@@ -196,6 +197,10 @@ export interface NativeApi {
     ) => Promise<CodexAuthState>;
     logoutCodex: () => Promise<CodexAuthState>;
     applyAgentScienceRuntimeUpdates: () => Promise<ServerRuntimeAgentScience>;
+    getAgentScienceAuthState: () => Promise<AgentScienceAuthState>;
+    startAgentScienceLogin: () => Promise<AgentScienceAuthState>;
+    cancelAgentScienceLogin: () => Promise<AgentScienceAuthState>;
+    signOutAgentScience: () => Promise<AgentScienceAuthState>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

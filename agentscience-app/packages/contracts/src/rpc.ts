@@ -74,6 +74,7 @@ import {
   ServerProviderUpdatedPayload,
   ServerRuntimeAgentScience,
 } from "./server";
+import { AgentScienceAuthError, AgentScienceAuthState } from "./agentScienceAuth";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
 
 export const WS_METHODS = {
@@ -119,6 +120,10 @@ export const WS_METHODS = {
   serverCancelCodexChatgptLogin: "server.cancelCodexChatgptLogin",
   serverLogoutCodex: "server.logoutCodex",
   serverApplyAgentScienceRuntimeUpdates: "server.applyAgentScienceRuntimeUpdates",
+  serverGetAgentScienceAuthState: "server.getAgentScienceAuthState",
+  serverStartAgentScienceLogin: "server.startAgentScienceLogin",
+  serverCancelAgentScienceLogin: "server.cancelAgentScienceLogin",
+  serverSignOutAgentScience: "server.signOutAgentScience",
 
   // Streaming subscriptions
   subscribeGitStatus: "subscribeGitStatus",
@@ -198,6 +203,39 @@ export const WsServerApplyAgentScienceRuntimeUpdatesRpc = Rpc.make(
     error: AgentScienceRuntimeActionError,
   },
 );
+
+export const WsServerGetAgentScienceAuthStateRpc = Rpc.make(
+  WS_METHODS.serverGetAgentScienceAuthState,
+  {
+    payload: Schema.Struct({}),
+    success: AgentScienceAuthState,
+    error: AgentScienceAuthError,
+  },
+);
+
+export const WsServerStartAgentScienceLoginRpc = Rpc.make(
+  WS_METHODS.serverStartAgentScienceLogin,
+  {
+    payload: Schema.Struct({}),
+    success: AgentScienceAuthState,
+    error: AgentScienceAuthError,
+  },
+);
+
+export const WsServerCancelAgentScienceLoginRpc = Rpc.make(
+  WS_METHODS.serverCancelAgentScienceLogin,
+  {
+    payload: Schema.Struct({}),
+    success: AgentScienceAuthState,
+    error: AgentScienceAuthError,
+  },
+);
+
+export const WsServerSignOutAgentScienceRpc = Rpc.make(WS_METHODS.serverSignOutAgentScience, {
+  payload: Schema.Struct({}),
+  success: AgentScienceAuthState,
+  error: AgentScienceAuthError,
+});
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
@@ -395,6 +433,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerCancelCodexChatgptLoginRpc,
   WsServerLogoutCodexRpc,
   WsServerApplyAgentScienceRuntimeUpdatesRpc,
+  WsServerGetAgentScienceAuthStateRpc,
+  WsServerStartAgentScienceLoginRpc,
+  WsServerCancelAgentScienceLoginRpc,
+  WsServerSignOutAgentScienceRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
