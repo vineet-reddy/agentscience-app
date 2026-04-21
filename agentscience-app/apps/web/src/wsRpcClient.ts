@@ -109,6 +109,18 @@ export interface WsRpcClient {
     readonly applyAgentScienceRuntimeUpdates: RpcUnaryNoArgMethod<
       typeof WS_METHODS.serverApplyAgentScienceRuntimeUpdates
     >;
+    readonly getAgentScienceAuthState: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverGetAgentScienceAuthState
+    >;
+    readonly startAgentScienceLogin: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverStartAgentScienceLogin
+    >;
+    readonly cancelAgentScienceLogin: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverCancelAgentScienceLogin
+    >;
+    readonly signOutAgentScience: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverSignOutAgentScience
+    >;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
   };
@@ -238,6 +250,14 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[WS_METHODS.serverLogoutCodex]({})),
       applyAgentScienceRuntimeUpdates: () =>
         transport.request((client) => client[WS_METHODS.serverApplyAgentScienceRuntimeUpdates]({})),
+      getAgentScienceAuthState: () =>
+        transport.request((client) => client[WS_METHODS.serverGetAgentScienceAuthState]({})),
+      startAgentScienceLogin: () =>
+        transport.request((client) => client[WS_METHODS.serverStartAgentScienceLogin]({})),
+      cancelAgentScienceLogin: () =>
+        transport.request((client) => client[WS_METHODS.serverCancelAgentScienceLogin]({})),
+      signOutAgentScience: () =>
+        transport.request((client) => client[WS_METHODS.serverSignOutAgentScience]({})),
       subscribeConfig: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeServerConfig]({}),

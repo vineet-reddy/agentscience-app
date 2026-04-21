@@ -32,6 +32,7 @@ import {
   resolveDesktopUpdateButtonAction,
   shouldOfferReleaseDownload,
 } from "../desktopUpdate.logic";
+import { AgentScienceAccountPanel } from "./AgentScienceAccountPanel";
 import { CodexAuthControls } from "./CodexAuthControls";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
@@ -928,6 +929,10 @@ export function GeneralSettingsPanel() {
   const agentScienceRuntimeDescriptor = describeAgentScienceRuntimeStatus(agentScienceRuntime);
   return (
     <SettingsPageContainer>
+      <SettingsSection title="AgentScience account">
+        <AgentScienceAccountPanel />
+      </SettingsSection>
+
       <SettingsSection title="General">
         <SettingsRow
           title="Theme"
