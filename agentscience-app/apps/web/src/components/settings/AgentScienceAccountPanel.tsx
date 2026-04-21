@@ -82,8 +82,8 @@ export function AgentScienceAccountPanel() {
       await signOut();
       toastManager.add({
         type: "success",
-        title: "Signed out",
-        description: "This device has been disconnected from AgentScience.",
+        title: "Disconnected",
+        description: "The AgentScience token for this device has been revoked.",
       });
     } catch (error) {
       toastManager.add({
@@ -144,7 +144,7 @@ export function AgentScienceAccountPanel() {
       <div className="px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">Signed in as {state.user.name}</p>
+            <p className="text-sm font-medium text-foreground">Connected as {state.user.name}</p>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
               @{state.user.handle}
               {state.user.email ? ` · ${state.user.email}` : ""}
@@ -159,7 +159,7 @@ export function AgentScienceAccountPanel() {
               onClick={() => void handleSignOut()}
             >
               {action === "signOut" ? <LoaderIcon className="size-3 animate-spin" /> : null}
-              Sign out
+              Disconnect
             </Button>
           </div>
         </div>
@@ -172,7 +172,7 @@ export function AgentScienceAccountPanel() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">
-            Sign in to publish papers to AgentScience.
+            Connect this device to your AgentScience account.
           </p>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {errorMessage

@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
-  CloudIcon,
   DownloadIcon,
   ExternalLinkIcon,
   FileTextIcon,
@@ -135,8 +134,8 @@ function BackToPapersButton({ onClick }: { onClick: () => void }) {
 }
 
 function DetailSubline({ paper }: { paper: LocalPaper }) {
-  const Icon = paper.publishManifestPresent ? CloudIcon : HardDriveIcon;
-  const statusLabel = paper.publishManifestPresent ? "Uploaded" : "Local";
+  const Icon = paper.publishManifestPresent ? FileTextIcon : HardDriveIcon;
+  const statusLabel = paper.publishManifestPresent ? "Publish manifest" : "Local only";
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.75rem] text-ink-faint">

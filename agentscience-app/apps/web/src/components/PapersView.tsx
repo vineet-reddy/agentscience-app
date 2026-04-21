@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ChevronDownIcon,
-  CloudIcon,
   FileTextIcon,
   HardDriveIcon,
   Loader2Icon,
@@ -91,8 +90,8 @@ function PapersLoadingState() {
 }
 
 function PapersListLayout({ papers }: { papers: ReadonlyArray<LocalPaper> }) {
-  const uploadedCount = papers.filter((paper) => paper.publishManifestPresent).length;
-  const localCount = papers.length - uploadedCount;
+  const manifestCount = papers.filter((paper) => paper.publishManifestPresent).length;
+  const localCount = papers.length - manifestCount;
 
   return (
     <div className="flex flex-col gap-8">
@@ -100,8 +99,8 @@ function PapersListLayout({ papers }: { papers: ReadonlyArray<LocalPaper> }) {
         <h1 className="font-display text-[1.875rem] leading-tight text-ink">Papers</h1>
         <p className="text-[0.8125rem] text-ink-faint">
           {papers.length} {papers.length === 1 ? "paper" : "papers"} on this computer
-          {uploadedCount > 0 ? <> · {uploadedCount} uploaded</> : null}
-          {localCount > 0 && uploadedCount > 0 ? <> · {localCount} local</> : null}
+          {manifestCount > 0 ? <> · {manifestCount} with publish manifest</> : null}
+          {localCount > 0 && manifestCount > 0 ? <> · {localCount} local only</> : null}
         </p>
       </header>
 
@@ -151,7 +150,7 @@ function PaperRow({ paper }: { paper: LocalPaper }) {
           </h2>
         </button>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.75rem] text-ink-faint">
-          <UploadStatusBadge uploaded={paper.publishManifestPresent} />
+          <PaperStatusBadge hasPublishManifest={paper.publishManifestPresent} />
           <span aria-hidden className="text-ink-faint/70">
             ·
           </span>
@@ -193,11 +192,11 @@ function PaperRow({ paper }: { paper: LocalPaper }) {
   );
 }
 
-function UploadStatusBadge({ uploaded }: { uploaded: boolean }) {
-  const Icon = uploaded ? CloudIcon : HardDriveIcon;
-  const label = uploaded ? "Uploaded" : "Local";
-  const hint = uploaded
-    ? "A publish manifest is present in this paper's workspace."
+function PaperStatusBadge({ hasPublishManifest }: { hasPublishManifest: boolean }) {
+  const Icon = hasPublishManifest ? FileTextIcon : HardDriveIcon;
+  const label = hasPublishManifest ? "Publish manifest" : "Local only";
+  const hint = hasPublishManifest
+    ? "This workspace includes agentscience.publish.json. The app has not uploaded this paper."
     : "This paper lives only on this computer.";
   return (
     <span
@@ -228,8 +227,8 @@ function PapersEmptyState(): ReactNode {
         <h1 className="font-display text-[1.875rem] leading-tight text-ink">No papers yet</h1>
         <p className="max-w-[420px] text-[0.9375rem] leading-relaxed text-ink-light">
           {hasAnyThreads
-            ? "Ask an agent to draft a paper and it will appear here. Papers live on this computer and stay private unless you choose to upload them."
-            : "Every manuscript you draft with an agent will appear here. Papers live on this computer and stay private unless you choose to upload them."}
+            ? "Ask an agent to draft a paper and it will appear here. Papers live on this computer unless you export or share them yourself."
+            : "Every manuscript you draft with an agent will appear here. Papers live on this computer unless you export or share them yourself."}
         </p>
         {hasAnyThreads ? (
           <p className="max-w-[420px] text-[0.8125rem] leading-relaxed text-ink-faint">

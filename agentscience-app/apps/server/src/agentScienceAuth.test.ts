@@ -7,7 +7,8 @@
  *   - A `complete` poll response flips the service to `signed-in`, persists
  *     the bearer token to disk, and exposes it via `getBearerToken`.
  *   - An `expired` poll response flips the service to `failed`.
- *   - `signOut` from `signed-in` clears state and removes the token file.
+ *   - `signOut` from `signed-in` revokes the server token, clears state, and
+ *     removes the token file.
  *   - A previously persisted token is hydrated on startup.
  */
 import fs from "node:fs/promises";
@@ -46,11 +47,26 @@ function makeStubFetch(
     pathname: string;
     respond: () => { status: number; body?: unknown; text?: string };
   }>,
-): { fetch: HttpFetch; calls: Array<{ method: string; url: string }> } {
-  const calls: Array<{ method: string; url: string }> = [];
+): {
+  fetch: HttpFetch;
+  calls: Array<{
+    method: string;
+    url: string;
+    headers: Record<string, string> | undefined;
+  }>;
+} {
+  const calls: Array<{
+    method: string;
+    url: string;
+    headers: Record<string, string> | undefined;
+  }> = [];
   const fetch: HttpFetch = async (input, init) => {
     const method = (init?.method ?? "GET").toUpperCase();
-    calls.push({ method, url: input });
+    const headers =
+      init?.headers && !Array.isArray(init.headers)
+        ? { ...init.headers }
+        : undefined;
+    calls.push({ method, url: input, headers });
     const url = new URL(input);
     const match = responders.find(
       (responder) =>
@@ -112,7 +128,7 @@ it.effect(
       );
       const tokenFilePath = path.join(tempDir, "agentscience-auth.json");
 
-      const { fetch } = makeStubFetch([
+      const { fetch, calls } = makeStubFetch([
         {
           method: "POST",
           pathname: "/api/v1/auth/device",
@@ -160,7 +176,7 @@ it.live(
       const tokenFilePath = path.join(tempDir, "agentscience-auth.json");
 
       let pollCount = 0;
-      const { fetch } = makeStubFetch([
+      const { fetch, calls } = makeStubFetch([
         {
           method: "POST",
           pathname: "/api/v1/auth/device",
@@ -189,6 +205,11 @@ it.live(
           method: "GET",
           pathname: "/api/v1/me",
           respond: () => ({ status: 200, body: PROFILE }),
+        },
+        {
+          method: "POST",
+          pathname: "/api/v1/auth/revoke",
+          respond: () => ({ status: 200, body: { ok: true, revoked: true } }),
         },
       ]);
 
@@ -229,6 +250,16 @@ it.live(
       assert.equal(afterSignOut.status, "signed-out");
       const afterSignOutBearer = yield* service.getBearerToken;
       assert.equal(afterSignOutBearer, undefined);
+      assert.deepEqual(
+        calls.find((call) => call.method === "POST" && call.url.endsWith("/api/v1/auth/revoke")),
+        {
+          method: "POST",
+          url: `${BASE_URL}/api/v1/auth/revoke`,
+          headers: {
+            Authorization: `Bearer ${TOKEN}`,
+          },
+        },
+      );
 
       const exists = yield* Effect.promise(() =>
         fs

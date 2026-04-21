@@ -9,8 +9,7 @@
  *   - `GET /api/v1/me` resolves the profile attached to the token.
  *
  * The service keeps the authenticated token in memory so other server
- * services (paper publishing, etc.) can attach it to outbound requests via
- * `getBearerToken`.
+ * services can attach it to outbound requests via `getBearerToken`.
  *
  * @module agentScienceAuth
  */
@@ -324,6 +323,37 @@ export const makeAgentScienceAuthService = Effect.fn(function* (
       Effect.map((profile) => (profile ? toUser(profile) : undefined)),
     );
 
+  const revokeToken = (token: string) =>
+    withHttpTimeout(
+      Effect.tryPromise({
+        try: async () => {
+          const response = await fetch(joinUrl(baseUrl, "/api/v1/auth/revoke"), {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (response.status === 401) {
+            return;
+          }
+
+          if (response.ok) {
+            return;
+          }
+
+          const body = await response.text().catch(() => "");
+          throw new Error(
+            body.length > 0
+              ? `Failed to revoke AgentScience token (${response.status}): ${body.slice(0, 200)}`
+              : `Failed to revoke AgentScience token (${response.status}).`,
+          );
+        },
+        catch: (cause) => toAuthError(cause, "Failed to revoke AgentScience token."),
+      }),
+      "AgentScience sign-out request timed out.",
+    );
+
   const hydrateFromStoredToken = Effect.gen(function* () {
     const token = yield* readStoredToken;
     if (!token) return;
@@ -467,6 +497,9 @@ export const makeAgentScienceAuthService = Effect.fn(function* (
     const runtime = yield* Ref.get(runtimeRef);
     if (runtime.pollFiber) {
       yield* Fiber.interrupt(runtime.pollFiber).pipe(Effect.ignore);
+    }
+    if (runtime.token) {
+      yield* revokeToken(runtime.token);
     }
     yield* removeTokenFile;
     yield* setRuntime({
