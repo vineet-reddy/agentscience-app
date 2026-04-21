@@ -37,6 +37,7 @@ import {
   observeRpcStream,
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation";
+import { AgentScienceAuthService } from "./agentScienceAuth";
 import { CodexAuth } from "./provider/Services/CodexAuth";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
@@ -60,6 +61,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
     const codexAuth = yield* CodexAuth;
+    const agentScienceAuth = yield* AgentScienceAuthService;
     const config = yield* ServerConfig;
     const lifecycleEvents = yield* ServerLifecycleEvents;
     const serverSettings = yield* ServerSettingsService;
@@ -561,6 +563,30 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.serverLogoutCodex, codexAuth.logout, {
           "rpc.aggregate": "server",
         }),
+      [WS_METHODS.serverGetAgentScienceAuthState]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverGetAgentScienceAuthState,
+          agentScienceAuth.getState,
+          { "rpc.aggregate": "server" },
+        ),
+      [WS_METHODS.serverStartAgentScienceLogin]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverStartAgentScienceLogin,
+          agentScienceAuth.startLogin,
+          { "rpc.aggregate": "server" },
+        ),
+      [WS_METHODS.serverCancelAgentScienceLogin]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverCancelAgentScienceLogin,
+          agentScienceAuth.cancelLogin,
+          { "rpc.aggregate": "server" },
+        ),
+      [WS_METHODS.serverSignOutAgentScience]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverSignOutAgentScience,
+          agentScienceAuth.signOut,
+          { "rpc.aggregate": "server" },
+        ),
       [WS_METHODS.serverApplyAgentScienceRuntimeUpdates]: (_input) =>
         observeRpcEffect(
           WS_METHODS.serverApplyAgentScienceRuntimeUpdates,

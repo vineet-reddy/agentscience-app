@@ -77,6 +77,10 @@ import {
   type CodexAuthShape,
 } from "./provider/Services/CodexAuth.ts";
 import {
+  AgentScienceAuthService,
+  type AgentScienceAuthShape,
+} from "./agentScienceAuth.ts";
+import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
@@ -346,6 +350,7 @@ const buildAppUnderTest = (options?: {
   layers?: {
     providerRegistry?: Partial<ProviderRegistryShape>;
     codexAuth?: Partial<CodexAuthShape>;
+    agentScienceAuth?: Partial<AgentScienceAuthShape>;
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
@@ -418,36 +423,62 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(CodexAuth)({
-          getState: Effect.succeed({
-            status: "idle" as const,
-            updatedAt: new Date().toISOString(),
-            defaultHomePath: "/tmp/agentscience/codex",
-          }),
-          startChatgptLogin: Effect.succeed({
-            status: "idle" as const,
-            updatedAt: new Date().toISOString(),
-            defaultHomePath: "/tmp/agentscience/codex",
-          }),
-          loginWithApiKey: () =>
-            Effect.succeed({
+        Layer.mergeAll(
+          Layer.mock(CodexAuth)({
+            getState: Effect.succeed({
               status: "idle" as const,
               updatedAt: new Date().toISOString(),
               defaultHomePath: "/tmp/agentscience/codex",
             }),
-          cancelChatgptLogin: () =>
-            Effect.succeed({
+            startChatgptLogin: Effect.succeed({
               status: "idle" as const,
               updatedAt: new Date().toISOString(),
               defaultHomePath: "/tmp/agentscience/codex",
             }),
-          logout: Effect.succeed({
-            status: "idle" as const,
-            updatedAt: new Date().toISOString(),
-            defaultHomePath: "/tmp/agentscience/codex",
+            loginWithApiKey: () =>
+              Effect.succeed({
+                status: "idle" as const,
+                updatedAt: new Date().toISOString(),
+                defaultHomePath: "/tmp/agentscience/codex",
+              }),
+            cancelChatgptLogin: () =>
+              Effect.succeed({
+                status: "idle" as const,
+                updatedAt: new Date().toISOString(),
+                defaultHomePath: "/tmp/agentscience/codex",
+              }),
+            logout: Effect.succeed({
+              status: "idle" as const,
+              updatedAt: new Date().toISOString(),
+              defaultHomePath: "/tmp/agentscience/codex",
+            }),
+            ...options?.layers?.codexAuth,
           }),
-          ...options?.layers?.codexAuth,
-        }),
+          Layer.mock(AgentScienceAuthService)({
+            getState: Effect.succeed({
+              status: "signed-out" as const,
+              updatedAt: new Date().toISOString(),
+              baseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
+            }),
+            startLogin: Effect.succeed({
+              status: "signed-out" as const,
+              updatedAt: new Date().toISOString(),
+              baseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
+            }),
+            cancelLogin: Effect.succeed({
+              status: "signed-out" as const,
+              updatedAt: new Date().toISOString(),
+              baseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
+            }),
+            signOut: Effect.succeed({
+              status: "signed-out" as const,
+              updatedAt: new Date().toISOString(),
+              baseUrl: DEFAULT_AGENTSCIENCE_BASE_URL,
+            }),
+            getBearerToken: Effect.succeed(undefined),
+            ...options?.layers?.agentScienceAuth,
+          }),
+        ),
       ),
       Layer.provide(
         Layer.mock(ServerSettingsService)({

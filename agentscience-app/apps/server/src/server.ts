@@ -48,6 +48,7 @@ import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus"
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
+import { AgentScienceAuthLive } from "./agentScienceAuth";
 import { CodexAuthLive } from "./provider/Layers/CodexAuth";
 import { CodexProviderLive } from "./provider/Layers/CodexProvider";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
@@ -247,6 +248,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(TerminalLayerLive),
   Layer.provideMerge(ProviderRegistryLive),
   Layer.provideMerge(CodexAuthLive.pipe(Layer.provide(CodexProviderLive))),
+  Layer.provideMerge(AgentScienceAuthLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
 
