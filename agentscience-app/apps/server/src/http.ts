@@ -25,6 +25,7 @@ import {
   PAPER_REVIEW_ROUTE_PREFIX,
   ThreadId,
   type LocalPapersListResponse,
+  type LocalPaperPublishResponse,
 } from "@agentscience/contracts";
 import { LocalPapersService } from "./localPapers.ts";
 import { PaperReviewService } from "./paperReview.ts";
@@ -818,6 +819,7 @@ function decodeLocalPapersSegments(rawPathname: string): string[] {
  * Shape:
  *   GET /api/papers                         — list all local papers
  *   GET /api/papers/:paperId/files/<path>   — serve a file from a paper folder
+ *   POST /api/papers/:paperId/publish       — publish or update a local paper on AgentScience
  */
 export const localPapersRouteLayer = HttpRouter.add(
   "GET",
@@ -862,6 +864,53 @@ export const localPapersRouteLayer = HttpRouter.add(
     }
 
     return HttpServerResponse.text("Not Found", { status: 404 });
+  }),
+);
+
+export const localPapersPublishRouteLayer = HttpRouter.add(
+  "POST",
+  `${LOCAL_PAPERS_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const segments = decodeLocalPapersSegments(url.value.pathname);
+    if (segments.length !== 2 || segments[1] !== "publish") {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    const paperIdSegment = segments[0];
+    if (!paperIdSegment) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    const localPapers = yield* LocalPapersService;
+    return yield* localPapers.publish(paperIdSegment).pipe(
+      Effect.matchEffect({
+        onFailure: (error) => {
+          const status = error.status;
+          const message =
+            error.message.trim().length > 0
+              ? error.message
+              : "Failed to publish the paper.";
+          return HttpServerResponse.json(
+            {
+              error: message,
+            },
+            { status },
+          );
+        },
+        onSuccess: (published) => {
+          const body: LocalPaperPublishResponse = {
+            paper: published,
+          };
+          return HttpServerResponse.json(body);
+        },
+      }),
+    );
   }),
 );
 

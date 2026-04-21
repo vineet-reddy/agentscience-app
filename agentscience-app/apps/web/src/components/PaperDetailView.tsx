@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
@@ -12,7 +12,14 @@ import {
 import { useState } from "react";
 
 import { isElectron } from "../env";
-import { fetchLocalPaper, localPaperQueryKey, type LocalPaper } from "../lib/papers";
+import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
+import {
+  fetchLocalPaper,
+  localPaperQueryKey,
+  localPapersQueryKey,
+  publishLocalPaper,
+  type LocalPaper,
+} from "../lib/papers";
 import { cn } from "../lib/utils";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { MacTitlebarDragRow } from "./MacTitlebarDragRow";
@@ -107,6 +114,8 @@ function DetailHeader({
             </div>
             <div className="no-drag-region ms-auto flex items-center gap-2">
               {paper?.threadId ? <OpenInChatButton threadId={paper.threadId} /> : null}
+              {paper ? <OpenPublishedPaperButton paper={paper} /> : null}
+              {paper ? <PublishPaperButton paper={paper} /> : null}
               {paper?.pdf ? <DownloadButton paper={paper} /> : null}
             </div>
           </div>
@@ -134,8 +143,13 @@ function BackToPapersButton({ onClick }: { onClick: () => void }) {
 }
 
 function DetailSubline({ paper }: { paper: LocalPaper }) {
-  const Icon = paper.publishManifestPresent ? FileTextIcon : HardDriveIcon;
-  const statusLabel = paper.publishManifestPresent ? "Publish manifest" : "Local only";
+  const Icon =
+    paper.publication || paper.publishManifestPresent ? FileTextIcon : HardDriveIcon;
+  const statusLabel = paper.publication
+    ? "Published"
+    : paper.publishManifestPresent
+      ? "Publish manifest"
+      : "Local only";
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.75rem] text-ink-faint">
@@ -173,6 +187,86 @@ function OpenInChatButton({ threadId }: { threadId: string }) {
       <MessageSquareTextIcon className="size-3.5" aria-hidden />
       <span>Open chat</span>
     </Link>
+  );
+}
+
+function OpenPublishedPaperButton({ paper }: { paper: LocalPaper }) {
+  if (!paper.publication) {
+    return null;
+  }
+
+  return (
+    <a
+      href={paper.publication.url}
+      target="_blank"
+      rel="noreferrer"
+      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+    >
+      <ExternalLinkIcon className="size-3.5" aria-hidden />
+      <span>Open published</span>
+    </a>
+  );
+}
+
+function PublishPaperButton({ paper }: { paper: LocalPaper }) {
+  const queryClient = useQueryClient();
+  const { state: authState } = useAgentScienceAccount();
+  const publishMutation = useMutation({
+    mutationFn: () => publishLocalPaper(paper.id),
+    onSuccess: async (published) => {
+      queryClient.setQueryData(localPaperQueryKey(paper.id), published);
+      await queryClient.invalidateQueries({ queryKey: localPapersQueryKey });
+      toastManager.add({
+        type: "success",
+        title: paper.publication ? "Published paper updated" : "Paper published",
+        description: "AgentScience now has the latest version of this paper.",
+      });
+    },
+    onError: (error) => {
+      toastManager.add({
+        type: "error",
+        title: "Publish failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The paper could not be published to AgentScience.",
+      });
+    },
+  });
+
+  const isSignedIn = authState?.status === "signed-in";
+  const hasLatexSource = !!paper.source && paper.source.relativePath.endsWith(".tex");
+  const isPublishable = !!paper.pdf && hasLatexSource;
+  const disabled = publishMutation.isPending || !isSignedIn || !isPublishable;
+  const title = !isSignedIn
+    ? "Connect this device to AgentScience before publishing."
+    : !paper.source
+      ? "This paper needs a source file before it can be published."
+      : !hasLatexSource
+        ? "This paper needs a LaTeX source file before it can be published."
+        : !paper.pdf
+          ? "This paper needs a compiled PDF before it can be published."
+          : paper.publication
+            ? "Update the published AgentScience paper."
+            : "Publish this paper to AgentScience.";
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant={paper.publication ? "outline" : "default"}
+      disabled={disabled}
+      title={title}
+      onClick={() => void publishMutation.mutateAsync()}
+      className="gap-1.5"
+    >
+      {publishMutation.isPending ? (
+        <Loader2Icon className="size-3.5 animate-spin" aria-hidden />
+      ) : (
+        <ExternalLinkIcon className="size-3.5" aria-hidden />
+      )}
+      <span>{publishMutation.isPending ? "Publishing" : paper.publication ? "Update" : "Publish"}</span>
+    </Button>
   );
 }
 

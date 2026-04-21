@@ -1,8 +1,10 @@
 import {
   type LocalPaperSummary,
   type LocalPapersListResponse,
+  type LocalPaperPublishResponse,
   LOCAL_PAPERS_ROUTE_PREFIX,
   localPaperFileRoutePath,
+  localPaperPublishRoutePath,
   localPapersListRoutePath,
 } from "@agentscience/contracts";
 
@@ -12,8 +14,8 @@ import { resolveServerUrl } from "./utils";
  * Client-side helpers for the local-papers HTTP API. The list is sourced
  * from a filesystem scan of the managed workspace root (so papers appear
  * whether or not the agent ever emitted a `paper.presented` activity), and
- * paper artifacts are served from the same embedded server. No remote
- * network calls.
+ * paper artifacts and publish actions are served through the same embedded
+ * server.
  */
 
 export type LocalPaper = LocalPaperSummary;
@@ -68,6 +70,34 @@ export async function fetchLocalPaper(
 ): Promise<LocalPaper | null> {
   const papers = await fetchLocalPapers(signal);
   return papers.find((paper) => paper.id === paperId) ?? null;
+}
+
+export async function publishLocalPaper(
+  paperId: string,
+  signal?: AbortSignal,
+): Promise<LocalPaper> {
+  const init: RequestInit = {
+    method: "POST",
+    credentials: "same-origin",
+  };
+  if (signal) init.signal = signal;
+
+  const response = await fetch(absolutize(localPaperPublishRoutePath(paperId)), init);
+  if (!response.ok) {
+    let message = `Failed to publish paper (${response.status})`;
+    try {
+      const body = (await response.json()) as { error?: string };
+      if (typeof body.error === "string" && body.error.trim().length > 0) {
+        message = body.error;
+      }
+    } catch {
+      // Fall back to the generic status-based message above.
+    }
+    throw new Error(message);
+  }
+
+  const body = (await response.json()) as LocalPaperPublishResponse;
+  return withAbsoluteUrls(body.paper);
 }
 
 /** Query key helpers used with `@tanstack/react-query`. */

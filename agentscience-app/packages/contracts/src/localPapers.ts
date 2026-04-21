@@ -9,9 +9,9 @@ import {
 } from "./baseSchemas";
 
 /**
- * Routes for the local-papers API. These are fully local (backed by a
- * filesystem scan of the managed workspace root on this machine); nothing
- * on this surface ever reaches out to a remote service.
+ * Routes for the local-papers API. Listing and file access are backed by a
+ * filesystem scan of the managed workspace root on this machine. Publishing
+ * uses the same local paper identity but forwards the bundle to AgentScience.
  */
 export const LOCAL_PAPERS_ROUTE_PREFIX = "/api/papers";
 
@@ -29,6 +29,10 @@ export function localPapersListRoutePath(): string {
 
 export function localPaperFileRoutePath(paperId: string, relativePath: string): string {
   return `${LOCAL_PAPERS_ROUTE_PREFIX}/${encodeURIComponent(paperId)}/files/${encodeRelativePath(relativePath)}`;
+}
+
+export function localPaperPublishRoutePath(paperId: string): string {
+  return `${LOCAL_PAPERS_ROUTE_PREFIX}/${encodeURIComponent(paperId)}/publish`;
 }
 
 /**
@@ -50,6 +54,14 @@ export type LocalPaperFile = typeof LocalPaperFile.Type;
  */
 export const LocalPaperContainerKind = Schema.Literals(["paper", "project-paper"]);
 export type LocalPaperContainerKind = typeof LocalPaperContainerKind.Type;
+
+export const LocalPaperPublication = Schema.Struct({
+  remotePaperId: TrimmedNonEmptyString,
+  slug: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+  publishedAt: IsoDateTime,
+});
+export type LocalPaperPublication = typeof LocalPaperPublication.Type;
 
 /**
  * A single paper discovered by scanning the managed workspace root. Papers
@@ -73,6 +85,7 @@ export const LocalPaperSummary = Schema.Struct({
    */
   abstract: Schema.NullOr(TrimmedNonEmptyString),
   publishManifestPresent: Schema.Boolean,
+  publication: Schema.NullOr(LocalPaperPublication),
   /** Thread that owns this folder, if one can be matched by workspace path. */
   threadId: Schema.NullOr(ThreadId),
   threadTitle: Schema.NullOr(TrimmedNonEmptyString),
@@ -87,3 +100,8 @@ export const LocalPapersListResponse = Schema.Struct({
   papers: Schema.Array(LocalPaperSummary),
 });
 export type LocalPapersListResponse = typeof LocalPapersListResponse.Type;
+
+export const LocalPaperPublishResponse = Schema.Struct({
+  paper: LocalPaperSummary,
+});
+export type LocalPaperPublishResponse = typeof LocalPaperPublishResponse.Type;

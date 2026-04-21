@@ -90,8 +90,11 @@ function PapersLoadingState() {
 }
 
 function PapersListLayout({ papers }: { papers: ReadonlyArray<LocalPaper> }) {
-  const manifestCount = papers.filter((paper) => paper.publishManifestPresent).length;
-  const localCount = papers.length - manifestCount;
+  const publishedCount = papers.filter((paper) => paper.publication !== null).length;
+  const manifestCount = papers.filter(
+    (paper) => paper.publication === null && paper.publishManifestPresent,
+  ).length;
+  const localCount = papers.length - publishedCount - manifestCount;
 
   return (
     <div className="flex flex-col gap-8">
@@ -99,8 +102,9 @@ function PapersListLayout({ papers }: { papers: ReadonlyArray<LocalPaper> }) {
         <h1 className="font-display text-[1.875rem] leading-tight text-ink">Papers</h1>
         <p className="text-[0.8125rem] text-ink-faint">
           {papers.length} {papers.length === 1 ? "paper" : "papers"} on this computer
+          {publishedCount > 0 ? <> · {publishedCount} published</> : null}
           {manifestCount > 0 ? <> · {manifestCount} with publish manifest</> : null}
-          {localCount > 0 && manifestCount > 0 ? <> · {localCount} local only</> : null}
+          {localCount > 0 ? <> · {localCount} local only</> : null}
         </p>
       </header>
 
@@ -150,7 +154,7 @@ function PaperRow({ paper }: { paper: LocalPaper }) {
           </h2>
         </button>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.75rem] text-ink-faint">
-          <PaperStatusBadge hasPublishManifest={paper.publishManifestPresent} />
+          <PaperStatusBadge paper={paper} />
           <span aria-hidden className="text-ink-faint/70">
             ·
           </span>
@@ -192,12 +196,20 @@ function PaperRow({ paper }: { paper: LocalPaper }) {
   );
 }
 
-function PaperStatusBadge({ hasPublishManifest }: { hasPublishManifest: boolean }) {
-  const Icon = hasPublishManifest ? FileTextIcon : HardDriveIcon;
-  const label = hasPublishManifest ? "Publish manifest" : "Local only";
-  const hint = hasPublishManifest
-    ? "This workspace includes agentscience.publish.json. The app has not uploaded this paper."
-    : "This paper lives only on this computer.";
+function PaperStatusBadge({ paper }: { paper: LocalPaper }) {
+  const isPublished = paper.publication !== null;
+  const hasPublishManifest = paper.publishManifestPresent;
+  const Icon = isPublished || hasPublishManifest ? FileTextIcon : HardDriveIcon;
+  const label = isPublished
+    ? "Published"
+    : hasPublishManifest
+      ? "Publish manifest"
+      : "Local only";
+  const hint = isPublished
+    ? `Published to AgentScience on ${new Date(paper.publication.publishedAt).toLocaleString()}.`
+    : hasPublishManifest
+      ? "This workspace includes agentscience.publish.json. Publish it from the paper detail view."
+      : "This paper lives only on this computer.";
   return (
     <span
       title={hint}

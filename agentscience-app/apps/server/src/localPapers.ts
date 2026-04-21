@@ -26,6 +26,7 @@ import Mime from "@effect/platform-node/Mime";
 import {
   type LocalPaperContainerKind,
   type LocalPaperFile,
+  type LocalPaperPublication,
   type LocalPaperSummary,
   ProjectId,
   ThreadId,
@@ -35,6 +36,8 @@ import { Effect, Layer, ServiceMap } from "effect";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { AgentScienceAuthService } from "./agentScienceAuth.ts";
+import { ServerConfig } from "./config.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
 import { ServerSettingsService } from "./serverSettings.ts";
 import {
@@ -92,6 +95,24 @@ const SCAN_SKIP_DIRS = new Set<string>([
 const MAX_SCAN_DEPTH = 4;
 
 const PUBLISH_MANIFEST_FILENAME = "agentscience.publish.json";
+const PUBLISHED_METADATA_FILENAME = ".agentscience-published.json";
+const BIB_FILENAME_CANDIDATES = [
+  "references.bib",
+  "paper.bib",
+  "manuscript.bib",
+  "main.bib",
+] as const;
+const BUNDLE_SKIP_SUFFIXES = [
+  ".aux",
+  ".fdb_latexmk",
+  ".fls",
+  ".log",
+  ".out",
+  ".pyc",
+  ".synctex.gz",
+  ".toc",
+] as const;
+const FIGURE_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
 /**
  * Max bytes read from a source file while extracting title + abstract.
  * Big enough to get past a typical LaTeX preamble + abstract body; small
@@ -111,12 +132,43 @@ export interface LocalPapersServiceShape {
     paperId: string,
     relativePath: string,
   ) => Effect.Effect<string | null>;
+  /** Publish or update a local paper on AgentScience. */
+  readonly publish: (
+    paperId: string,
+  ) => Effect.Effect<LocalPaperSummary, LocalPaperPublishError>;
 }
 
 export class LocalPapersService extends ServiceMap.Service<
   LocalPapersService,
   LocalPapersServiceShape
 >()("agentscience/LocalPapersService") {}
+
+export class LocalPaperPublishError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "LocalPaperPublishError";
+    this.status = status;
+  }
+}
+
+type StoredPublicationRecord = {
+  readonly ownerUserId: string;
+  readonly publication: LocalPaperPublication;
+};
+
+type UploadDescriptor = {
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly bytes: Buffer;
+};
+
+type ArtifactUploadDescriptor = {
+  readonly path: string;
+  readonly contentType: string;
+  readonly bytes: Buffer;
+};
 
 // ── ID helpers ──────────────────────────────────────────────────────────
 
@@ -134,6 +186,10 @@ function decodePaperId(paperId: string): string | null {
   } catch {
     return null;
   }
+}
+
+function joinUrl(base: string, pathname: string): string {
+  return new URL(pathname, `${base.replace(/\/+$/, "")}/`).toString();
 }
 
 // ── Filesystem helpers ──────────────────────────────────────────────────
@@ -181,6 +237,395 @@ async function readFirstBytes(filePath: string, maxBytes: number): Promise<strin
   } catch {
     return null;
   }
+}
+
+async function readFileText(filePath: string): Promise<string> {
+  return fs.readFile(filePath, "utf8");
+}
+
+async function readFileBuffer(filePath: string): Promise<Buffer> {
+  return fs.readFile(filePath);
+}
+
+function resolvePaperFolderAbsolutePath(
+  paperId: string,
+  containerRoot: string,
+): string | null {
+  const folderAbsolutePath = decodePaperId(paperId);
+  if (!folderAbsolutePath) {
+    return null;
+  }
+
+  const relativeToRoot = path.relative(containerRoot, folderAbsolutePath);
+  if (
+    relativeToRoot.length === 0 ||
+    relativeToRoot.startsWith("..") ||
+    path.isAbsolute(relativeToRoot)
+  ) {
+    return null;
+  }
+
+  return folderAbsolutePath;
+}
+
+function toPaperCandidate(
+  folderAbsolutePath: string,
+  containerRoot: string,
+): PaperCandidate | null {
+  const relative = path.relative(containerRoot, folderAbsolutePath).replaceAll("\\", "/");
+  if (
+    relative.length === 0 ||
+    relative.startsWith("../") ||
+    path.isAbsolute(relative)
+  ) {
+    return null;
+  }
+
+  const segments = relative.split("/").filter((segment) => segment.length > 0);
+  if (segments.length === 2 && segments[0] === PAPERS_DIRNAME) {
+    return {
+      folderAbsolutePath,
+      folderName: segments[1]!,
+      containerKind: "paper",
+      projectFolderAbsolutePath: null,
+      projectFolderSlug: null,
+    };
+  }
+
+  if (
+    segments.length === 4 &&
+    segments[0] === PROJECTS_DIRNAME &&
+    segments[2] === PROJECT_PAPERS_DIRNAME
+  ) {
+    return {
+      folderAbsolutePath,
+      folderName: segments[3]!,
+      containerKind: "project-paper",
+      projectFolderAbsolutePath: path.join(containerRoot, segments[0]!, segments[1]!),
+      projectFolderSlug: segments[1]!,
+    };
+  }
+
+  return null;
+}
+
+function normalizePublicationRecord(value: unknown): StoredPublicationRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const ownerUserId =
+    typeof record.ownerUserId === "string" && record.ownerUserId.trim().length > 0
+      ? record.ownerUserId.trim()
+      : null;
+  const remotePaperId =
+    typeof record.remotePaperId === "string" && record.remotePaperId.trim().length > 0
+      ? record.remotePaperId.trim()
+      : null;
+  const slug =
+    typeof record.slug === "string" && record.slug.trim().length > 0
+      ? record.slug.trim()
+      : null;
+  const url =
+    typeof record.url === "string" && record.url.trim().length > 0
+      ? record.url.trim()
+      : null;
+  const publishedAt =
+    typeof record.publishedAt === "string" && Number.isFinite(Date.parse(record.publishedAt))
+      ? new Date(record.publishedAt).toISOString()
+      : null;
+
+  if (!ownerUserId || !remotePaperId || !slug || !url || !publishedAt) {
+    return null;
+  }
+
+  return {
+    ownerUserId,
+    publication: {
+      remotePaperId,
+      slug,
+      url,
+      publishedAt,
+    },
+  };
+}
+
+async function readPublicationRecord(
+  folderAbsolutePath: string,
+): Promise<StoredPublicationRecord | null> {
+  const metadataPath = path.join(folderAbsolutePath, PUBLISHED_METADATA_FILENAME);
+  const raw = await readFirstBytes(metadataPath, SOURCE_EXTRACT_MAX_BYTES);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return normalizePublicationRecord(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+async function writePublicationRecord(
+  folderAbsolutePath: string,
+  input: StoredPublicationRecord,
+): Promise<void> {
+  const metadataPath = path.join(folderAbsolutePath, PUBLISHED_METADATA_FILENAME);
+  await fs.writeFile(
+    metadataPath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        ownerUserId: input.ownerUserId,
+        remotePaperId: input.publication.remotePaperId,
+        slug: input.publication.slug,
+        url: input.publication.url,
+        publishedAt: input.publication.publishedAt,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
+function shouldSkipBundlePath(relativePath: string): boolean {
+  if (!relativePath || relativePath.startsWith("../")) {
+    return true;
+  }
+
+  if (relativePath === PUBLISHED_METADATA_FILENAME) {
+    return true;
+  }
+
+  if (
+    relativePath
+      .split("/")
+      .some((segment) => segment.startsWith(".") || SCAN_SKIP_DIRS.has(segment))
+  ) {
+    return true;
+  }
+
+  return BUNDLE_SKIP_SUFFIXES.some((suffix) => relativePath.endsWith(suffix));
+}
+
+function guessBundleContentType(relativePath: string): string {
+  return Mime.getType(relativePath) ?? "application/octet-stream";
+}
+
+function isFigureFile(relativePath: string): boolean {
+  return FIGURE_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
+}
+
+async function walkPublishBundle(
+  currentDir: string,
+  workspaceDir: string,
+  artifacts: ArtifactUploadDescriptor[],
+  figures: UploadDescriptor[],
+): Promise<void> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(currentDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const absolutePath = path.join(currentDir, entry.name);
+    const relativePath = path.relative(workspaceDir, absolutePath).replaceAll("\\", "/");
+
+    if (shouldSkipBundlePath(relativePath)) {
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      await walkPublishBundle(absolutePath, workspaceDir, artifacts, figures);
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const contentType = guessBundleContentType(relativePath);
+    if (contentType === "application/octet-stream") {
+      continue;
+    }
+
+    const bytes = await readFileBuffer(absolutePath);
+    if (isFigureFile(relativePath)) {
+      figures.push({
+        fileName: path.basename(absolutePath),
+        contentType,
+        bytes,
+      });
+      continue;
+    }
+
+    artifacts.push({
+      path: relativePath,
+      contentType,
+      bytes,
+    });
+  }
+}
+
+async function collectPublishBundle(folderAbsolutePath: string): Promise<{
+  readonly artifacts: ArtifactUploadDescriptor[];
+  readonly figures: UploadDescriptor[];
+}> {
+  const artifacts: ArtifactUploadDescriptor[] = [];
+  const figures: UploadDescriptor[] = [];
+  await walkPublishBundle(folderAbsolutePath, folderAbsolutePath, artifacts, figures);
+  return { artifacts, figures };
+}
+
+function assertPublishablePaper(summary: LocalPaperSummary): asserts summary is LocalPaperSummary & {
+  pdf: LocalPaperFile;
+  source: LocalPaperFile;
+} {
+  if (!summary.source) {
+    throw new LocalPaperPublishError("This paper is missing a source file.", 400);
+  }
+  if (!summary.pdf) {
+    throw new LocalPaperPublishError("This paper is missing a compiled PDF.", 400);
+  }
+  if (!summary.source.relativePath.endsWith(".tex")) {
+    throw new LocalPaperPublishError(
+      "This paper needs a LaTeX source file before it can be published.",
+      400,
+    );
+  }
+  if (summary.title.trim().length < 12) {
+    throw new LocalPaperPublishError(
+      "This paper title is too short to publish. Use at least 12 characters.",
+      400,
+    );
+  }
+  if (!summary.abstract || summary.abstract.trim().length < 80) {
+    throw new LocalPaperPublishError(
+      "This paper needs an abstract of at least 80 characters before publishing.",
+      400,
+    );
+  }
+}
+
+async function buildPublishFormData(input: {
+  readonly folderAbsolutePath: string;
+  readonly summary: LocalPaperSummary;
+}): Promise<FormData> {
+  assertPublishablePaper(input.summary);
+  const abstract = input.summary.abstract?.trim();
+  if (!abstract) {
+    throw new LocalPaperPublishError(
+      "This paper needs an abstract of at least 80 characters before publishing.",
+      400,
+    );
+  }
+
+  const sourceAbsolutePath = path.join(
+    input.folderAbsolutePath,
+    input.summary.source.relativePath,
+  );
+  const pdfAbsolutePath = path.join(input.folderAbsolutePath, input.summary.pdf.relativePath);
+  const [latexSource, pdfBytes, bibMatch, bundle] = await Promise.all([
+    readFileText(sourceAbsolutePath),
+    readFileBuffer(pdfAbsolutePath),
+    findShallowestCandidate(
+      input.folderAbsolutePath,
+      BIB_FILENAME_CANDIDATES,
+      MAX_SCAN_DEPTH,
+    ),
+    collectPublishBundle(input.folderAbsolutePath),
+  ]);
+
+  const form = new FormData();
+  form.set("title", input.summary.title.trim());
+  form.set("abstract", abstract);
+  form.set("latexSource", latexSource);
+  form.set(
+    "pdf",
+    new File([pdfBytes], path.basename(pdfAbsolutePath), {
+      type: guessBundleContentType(input.summary.pdf.relativePath) || "application/pdf",
+    }),
+  );
+
+  if (bibMatch) {
+    const bibSource = await readFileText(
+      path.join(input.folderAbsolutePath, bibMatch.relativePath),
+    ).catch(() => null);
+    if (bibSource && bibSource.trim().length > 0) {
+      form.set("bibSource", bibSource);
+    }
+  }
+
+  if (bundle.artifacts.length > 0) {
+    form.set(
+      "artifactManifest",
+      JSON.stringify(
+        bundle.artifacts.map((artifact, index) => ({
+          fieldName: `artifact_${index}`,
+          path: artifact.path,
+          contentType: artifact.contentType,
+        })),
+      ),
+    );
+    bundle.artifacts.forEach((artifact, index) => {
+      form.set(
+        `artifact_${index}`,
+        new File([artifact.bytes], path.basename(artifact.path), {
+          type: artifact.contentType,
+        }),
+      );
+    });
+  }
+
+  for (const figure of bundle.figures) {
+    form.append(
+      "figures",
+      new File([figure.bytes], figure.fileName, {
+        type: figure.contentType,
+      }),
+    );
+  }
+
+  return form;
+}
+
+function parsePublishedPaperResponse(
+  payload: unknown,
+  baseUrl: string,
+): LocalPaperPublication | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (!record.paper || typeof record.paper !== "object" || Array.isArray(record.paper)) {
+    return null;
+  }
+
+  const paper = record.paper as Record<string, unknown>;
+  const remotePaperId =
+    typeof paper.id === "string" && paper.id.trim().length > 0 ? paper.id.trim() : null;
+  const slug =
+    typeof paper.slug === "string" && paper.slug.trim().length > 0 ? paper.slug.trim() : null;
+  const publishedAt =
+    typeof paper.publishedAt === "string" && Number.isFinite(Date.parse(paper.publishedAt))
+      ? new Date(paper.publishedAt).toISOString()
+      : null;
+
+  if (!remotePaperId || !slug || !publishedAt) {
+    return null;
+  }
+
+  return {
+    remotePaperId,
+    slug,
+    url: joinUrl(baseUrl, `/papers/${encodeURIComponent(slug)}`),
+    publishedAt,
+  };
 }
 
 /**
@@ -745,6 +1190,7 @@ async function inspectPaperFolder(
     (await statFileIfPresent(
       path.join(candidate.folderAbsolutePath, PUBLISH_MANIFEST_FILENAME),
     )) !== null;
+  const publicationRecord = await readPublicationRecord(candidate.folderAbsolutePath);
 
   const thread =
     lookups.threadsByPath.get(normalizePathKey(candidate.folderAbsolutePath)) ??
@@ -796,6 +1242,7 @@ async function inspectPaperFolder(
     source: sourceMatch ? toFile(sourceMatch.relativePath, sourceMatch.stat) : null,
     abstract,
     publishManifestPresent,
+    publication: publicationRecord?.publication ?? null,
     threadId: thread ? ThreadId.makeUnsafe(thread.threadId) : null,
     threadTitle: thread?.threadTitle ?? null,
     threadArchivedAt: thread?.archivedAt ?? null,
@@ -809,6 +1256,8 @@ async function inspectPaperFolder(
 export const makeLocalPapersService = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const agentScienceAuth = yield* AgentScienceAuthService;
+  const config = yield* ServerConfig;
 
   const list: LocalPapersServiceShape["list"] = () =>
     Effect.gen(function* () {
@@ -835,20 +1284,8 @@ export const makeLocalPapersService = Effect.gen(function* () {
       const containerRoot = normalizeWorkspacePath(settings.workspaceRoot);
 
       return yield* Effect.tryPromise(async () => {
-        const folderAbsolutePath = decodePaperId(paperId);
+        const folderAbsolutePath = resolvePaperFolderAbsolutePath(paperId, containerRoot);
         if (!folderAbsolutePath) return null;
-
-        // Confine to the managed workspace root. This is the load-bearing
-        // safety check: paper IDs come in over the wire and must not be
-        // allowed to address arbitrary paths.
-        const relativeToRoot = path.relative(containerRoot, folderAbsolutePath);
-        if (
-          relativeToRoot.length === 0 ||
-          relativeToRoot.startsWith("..") ||
-          path.isAbsolute(relativeToRoot)
-        ) {
-          return null;
-        }
 
         const normalized = path.posix
           .normalize(relativePath.trim().replaceAll("\\", "/"))
@@ -880,9 +1317,172 @@ export const makeLocalPapersService = Effect.gen(function* () {
       });
     }).pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
 
+  const publish: LocalPapersServiceShape["publish"] = (paperId) =>
+    Effect.gen(function* () {
+      const settings = yield* serverSettings.getSettings.pipe(
+        Effect.mapError(
+          (error) =>
+            new LocalPaperPublishError(
+              error instanceof Error && error.message.trim().length > 0
+                ? error.message
+                : "Unable to read the local workspace settings.",
+              500,
+            ),
+        ),
+      );
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const containerRoot = normalizeWorkspacePath(settings.workspaceRoot);
+      const authState = yield* agentScienceAuth.getState.pipe(
+        Effect.mapError(
+          (error) => new LocalPaperPublishError(error.message, 401),
+        ),
+      );
+      const token = yield* agentScienceAuth.getBearerToken;
+
+      if (authState.status !== "signed-in" || !authState.user || !token) {
+        return yield* Effect.fail(
+          new LocalPaperPublishError(
+            "Connect this device to AgentScience before publishing.",
+            401,
+          ),
+        );
+      }
+      const signedInUser = authState.user;
+
+      const folderAbsolutePath = resolvePaperFolderAbsolutePath(paperId, containerRoot);
+      if (!folderAbsolutePath) {
+        return yield* Effect.fail(new LocalPaperPublishError("Paper not found.", 404));
+      }
+
+      const candidate = toPaperCandidate(folderAbsolutePath, containerRoot);
+      if (!candidate) {
+        return yield* Effect.fail(new LocalPaperPublishError("Paper not found.", 404));
+      }
+
+      const lookups = buildReadModelLookups(readModel);
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const summary = await inspectPaperFolder(candidate, lookups);
+          if (!summary) {
+            throw new LocalPaperPublishError("Paper not found.", 404);
+          }
+
+          const existingPublication = await readPublicationRecord(folderAbsolutePath);
+          const canUpdateExisting =
+            existingPublication?.ownerUserId === signedInUser.id &&
+            existingPublication.publication.slug.trim().length > 0;
+
+          const requestForm = () =>
+            buildPublishFormData({
+              folderAbsolutePath,
+              summary,
+            });
+
+          const sendRequest = async (input: {
+            readonly method: "POST" | "PATCH";
+            readonly pathname: string;
+          }) => {
+            const response = await fetch(joinUrl(config.agentScienceBaseUrl, input.pathname), {
+              method: input.method,
+              headers: {
+                authorization: `Bearer ${token}`,
+              },
+              body: await requestForm(),
+            });
+
+            let payload: unknown = null;
+            try {
+              payload = await response.json();
+            } catch {
+              payload = null;
+            }
+
+            if (!response.ok) {
+              const message =
+                payload &&
+                typeof payload === "object" &&
+                !Array.isArray(payload) &&
+                typeof (payload as { error?: unknown }).error === "string"
+                  ? ((payload as { error: string }).error ?? "").trim()
+                  : "";
+              throw new LocalPaperPublishError(
+                message || `Publish failed (${response.status}).`,
+                response.status,
+              );
+            }
+
+            const publication = parsePublishedPaperResponse(payload, config.agentScienceBaseUrl);
+            if (!publication) {
+              throw new LocalPaperPublishError(
+                "AgentScience accepted the publish request but returned an unexpected response.",
+                502,
+              );
+            }
+
+            return publication;
+          };
+
+          let publication: LocalPaperPublication;
+          if (canUpdateExisting) {
+            try {
+              publication = await sendRequest({
+                method: "PATCH",
+                pathname: `/api/v1/papers/${encodeURIComponent(
+                  existingPublication.publication.slug,
+                )}`,
+              });
+            } catch (error) {
+              if (
+                error instanceof LocalPaperPublishError &&
+                error.status === 404
+              ) {
+                publication = await sendRequest({
+                  method: "POST",
+                  pathname: "/api/v1/papers",
+                });
+              } else {
+                throw error;
+              }
+            }
+          } else {
+            publication = await sendRequest({
+              method: "POST",
+              pathname: "/api/v1/papers",
+            });
+          }
+
+          await writePublicationRecord(folderAbsolutePath, {
+            ownerUserId: signedInUser.id,
+            publication,
+          });
+
+          const refreshed = await inspectPaperFolder(candidate, lookups);
+          if (!refreshed) {
+            throw new LocalPaperPublishError(
+              "The paper was published but could not be reloaded locally.",
+              500,
+            );
+          }
+
+          return refreshed;
+        },
+        catch: (cause) =>
+          cause instanceof LocalPaperPublishError
+            ? cause
+            : new LocalPaperPublishError(
+                cause instanceof Error && cause.message.trim().length > 0
+                  ? cause.message
+                  : "Failed to publish the paper.",
+                500,
+              ),
+      });
+    });
+
   return {
     list,
     resolveFilePath,
+    publish,
   } satisfies LocalPapersServiceShape;
 });
 
@@ -903,8 +1503,11 @@ export const __internal = {
   extractMarkdownAbstract,
   stripLatexComments,
   folderNameToTitle,
+  normalizePublicationRecord,
+  readPublicationRecord,
   PDF_FILENAME_CANDIDATES,
   TEX_FILENAME_CANDIDATES,
   MD_FILENAME_CANDIDATES,
   MAX_SCAN_DEPTH,
+  PUBLISHED_METADATA_FILENAME,
 };

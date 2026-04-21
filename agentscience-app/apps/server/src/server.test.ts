@@ -123,6 +123,7 @@ import {
   type PaperReviewServiceShape,
 } from "./paperReview.ts";
 import {
+  LocalPaperPublishError,
   LocalPapersService,
   type LocalPapersServiceShape,
 } from "./localPapers.ts";
@@ -584,6 +585,10 @@ const buildAppUnderTest = (options?: {
           Layer.mock(LocalPapersService)({
             list: () => Effect.succeed([]),
             resolveFilePath: () => Effect.succeed(null),
+            publish: () =>
+              Effect.fail(
+                new LocalPaperPublishError("Publishing was not mocked for this test.", 500),
+              ),
             ...options?.layers?.localPapers,
           }),
         ),
@@ -869,6 +874,54 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         "/api/v1/registry?q=climate&limit=25",
         "/api/v1/papers?limit=500",
       ]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes local paper publish requests through the embedded server", () =>
+    Effect.gen(function* () {
+      let publishedPaperId: string | null = null;
+      const summary = {
+        id: "paper-1",
+        title: "A publishable desktop paper",
+        folderName: "a-publishable-desktop-paper",
+        containerKind: "paper" as const,
+        updatedAt: "2026-04-21T12:00:00.000Z",
+        pdf: null,
+        source: null,
+        abstract: null,
+        publishManifestPresent: false,
+        publication: {
+          remotePaperId: "remote-paper-1",
+          slug: "published-paper",
+          url: "https://agentscience.example/papers/published-paper",
+          publishedAt: "2026-04-21T13:00:00.000Z",
+        },
+        threadId: null,
+        threadTitle: null,
+        threadArchivedAt: null,
+        projectId: null,
+        projectName: null,
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          localPapers: {
+            publish: (paperId) =>
+              Effect.sync(() => {
+                publishedPaperId = paperId;
+                return summary;
+              }),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.post("/api/papers/paper-1/publish");
+
+      assert.equal(response.status, 200);
+      assert.deepStrictEqual(yield* response.json, {
+        paper: summary,
+      });
+      assert.equal(publishedPaperId, "paper-1");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

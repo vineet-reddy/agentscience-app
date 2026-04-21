@@ -7,6 +7,7 @@ import {
   datasetProvidersRouteLayer,
   datasetRegistryRouteLayer,
   datasetTopicsRouteLayer,
+  localPapersPublishRouteLayer,
   localPapersRouteLayer,
   otlpTracesProxyRouteLayer,
   paperReviewCompileRouteLayer,
@@ -156,6 +157,7 @@ const PaperReviewLayerLive = PaperReviewServiceLive.pipe(
 );
 
 const LocalPapersLayerLive = LocalPapersServiceLive.pipe(
+  Layer.provideMerge(AgentScienceAuthLive),
   Layer.provide(OrchestrationLayerLive),
 );
 
@@ -278,6 +280,7 @@ export const makeRoutesLayer = Layer.mergeAll(
   paperReviewSnapshotRouteLayer,
   paperReviewCompileRouteLayer,
   localPapersRouteLayer,
+  localPapersPublishRouteLayer,
   projectFaviconRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
@@ -306,6 +309,7 @@ export const makeServerLayer = Layer.unwrap(
 
     return serverApplicationLayer.pipe(
       Layer.provideMerge(RuntimeServicesLive),
+      Layer.provideMerge(AgentScienceAuthLive),
       Layer.provideMerge(HttpServerLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),

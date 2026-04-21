@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchLocalPaper,
   fetchLocalPapers,
+  publishLocalPaper,
   resolveLocalPaperFileUrl,
 } from "./papers";
 
@@ -54,6 +55,7 @@ describe("fetchLocalPapers", () => {
           },
           source: null,
           publishManifestPresent: false,
+          publication: null,
           threadId: null,
           threadTitle: null,
           threadArchivedAt: null,
@@ -110,5 +112,56 @@ describe("fetchLocalPaper", () => {
     );
 
     expect(await fetchLocalPaper("nope")).toBeNull();
+  });
+});
+
+describe("publishLocalPaper", () => {
+  it("hits the publish endpoint and absolutizes the returned publication URL", async () => {
+    stubDesktopServer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              paper: {
+                id: "paperid-abc",
+                title: "A paper",
+                folderName: "a-paper",
+                containerKind: "paper",
+                updatedAt: "2026-04-17T00:00:00.000Z",
+                pdf: null,
+                source: null,
+                abstract: null,
+                publishManifestPresent: false,
+                publication: {
+                  remotePaperId: "remote-paper-1",
+                  slug: "a-paper",
+                  url: "https://agentscience.example/papers/a-paper",
+                  publishedAt: "2026-04-18T00:00:00.000Z",
+                },
+                threadId: null,
+                threadTitle: null,
+                threadArchivedAt: null,
+                projectId: null,
+                projectName: null,
+              },
+            }),
+        }),
+      ),
+    );
+
+    const paper = await publishLocalPaper("paperid-abc");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:55566/api/papers/paperid-abc/publish",
+      expect.objectContaining({
+        credentials: "same-origin",
+        method: "POST",
+      }),
+    );
+    expect(paper.publication?.url).toBe("https://agentscience.example/papers/a-paper");
   });
 });
