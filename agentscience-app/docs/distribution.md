@@ -101,7 +101,7 @@ For each release:
 
 1. Merge release-ready changes to `main`.
 2. Create or update the release tag, for example `v0.0.19`.
-3. Run the `Release Desktop` workflow if needed.
+3. Push the release tag.
 4. Verify the GitHub Release contains:
    - both Mac DMGs
    - the stable alias DMGs

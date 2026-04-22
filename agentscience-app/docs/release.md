@@ -32,7 +32,7 @@ All four desktop builds run in parallel in a matrix job. The GitHub Release happ
 
 ## The normal release flow
 
-Day to day this is the only path you need.
+Day to day this is the only path you need. There is no separate manual production release flow.
 
 1. Make sure CI is green on the branch you are releasing from.
 2. Create and push the tag:
@@ -154,7 +154,8 @@ Update UX:
 Provider and repo resolution:
 
 - provider is GitHub Releases (`provider: github`), configured at build time
-- the repo slug comes from `AGENTSCIENCE_DESKTOP_UPDATE_REPOSITORY` (format `owner/repo`) if set, otherwise from `GITHUB_REPOSITORY` during the build
+- production builds are pinned to `vineet-reddy/agentscience-app`
+- local mock-update testing still uses the generic mock-update server path
 
 Private-repo auth workaround:
 
@@ -169,7 +170,7 @@ Required release assets for the updater to work at all:
 
 One macOS quirk: `electron-updater` reads `latest-mac.yml` for both Intel and Apple Silicon, but the build produces one per-arch manifest. The workflow merges the two per-arch mac manifests into a single `latest-mac.yml` before publishing the GitHub Release. If updates are broken on one mac arch only, this merge step is the first place to look.
 
-If update behavior is acting weird in a specific build, check the desktop main process code in `main.ts` and check the release assets on GitHub. Almost every update bug is either missing assets, a wrong repo slug, or an old build that pre-dates an updater change.
+If update behavior is acting weird in a specific build, check the desktop main process code in `main.ts` and check the release assets on GitHub. Almost every update bug is either missing assets, a stale packaged build, or missing updater metadata.
 
 ## Troubleshooting a broken release
 

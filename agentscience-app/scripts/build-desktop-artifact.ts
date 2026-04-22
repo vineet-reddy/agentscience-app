@@ -19,6 +19,10 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
+const DESKTOP_RELEASE_REPOSITORY = {
+  owner: "vineet-reddy",
+  repo: "agentscience-app",
+} as const;
 const PACKAGED_PINNED_DEPENDENCIES = {
   "@effect/platform-node-shared": "4.0.0-beta.43",
 } as const;
@@ -690,20 +694,11 @@ function resolveGitHubPublishConfig():
       readonly repo: string;
       readonly releaseType: "release";
     }
-  | undefined {
-  const rawRepo =
-    process.env.AGENTSCIENCE_DESKTOP_UPDATE_REPOSITORY?.trim() ||
-    process.env.GITHUB_REPOSITORY?.trim() ||
-    "";
-  if (!rawRepo) return undefined;
-
-  const [owner, repo, ...rest] = rawRepo.split("/");
-  if (!owner || !repo || rest.length > 0) return undefined;
-
+{
   return {
     provider: "github",
-    owner,
-    repo,
+    owner: DESKTOP_RELEASE_REPOSITORY.owner,
+    repo: DESKTOP_RELEASE_REPOSITORY.repo,
     releaseType: "release",
   };
 }
@@ -730,16 +725,15 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       },
     ],
   };
-  const publishConfig = resolveGitHubPublishConfig();
-  if (publishConfig) {
-    buildConfig.publish = [publishConfig];
-  } else if (mockUpdates) {
+  if (mockUpdates) {
     buildConfig.publish = [
       {
         provider: "generic",
         url: `http://localhost:${mockUpdateServerPort ?? 3000}`,
       },
     ];
+  } else {
+    buildConfig.publish = [resolveGitHubPublishConfig()];
   }
 
   if (platform === "mac") {

@@ -82,8 +82,8 @@ const LINUX_DESKTOP_ENTRY_NAME = isDevelopment
 const LINUX_WM_CLASS = isDevelopment ? "agentscience-dev" : "agentscience";
 const USER_DATA_DIR_NAME = isDevelopment ? "agentscience-dev" : "agentscience";
 const LEGACY_USER_DATA_DIR_NAMES = isDevelopment
-  ? ["AgentScience (Dev)", "Agent Science (Dev)", "T3 Code (Dev)"]
-  : ["AgentScience", "Agent Science (Alpha)", "T3 Code (Alpha)"];
+  ? ["AgentScience (Dev)", "Agent Science (Dev)"]
+  : ["AgentScience", "Agent Science (Alpha)"];
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -1010,7 +1010,7 @@ function configureAutoUpdater(): void {
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
-  // Keep alpha branding, but force all installs onto the stable update track.
+  // Production builds always read from the stable AgentScience release channel.
   autoUpdater.channel = DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
