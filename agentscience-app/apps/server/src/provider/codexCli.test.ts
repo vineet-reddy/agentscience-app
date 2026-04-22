@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { buildCodexSpawnEnv } from "./codexCli";
 
+function expectedManagedDesktopBasePath(): string {
+  switch (process.platform) {
+    case "darwin":
+      return "/usr/bin:/bin:/usr/sbin:/sbin";
+    case "linux":
+      return "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin";
+    default:
+      return "/usr/bin:/bin";
+  }
+}
+
 describe("buildCodexSpawnEnv", () => {
   it("prepends managed science and paper toolchain bins to PATH", () => {
     const env = buildCodexSpawnEnv({
@@ -16,7 +27,9 @@ describe("buildCodexSpawnEnv", () => {
       },
     });
 
-    expect(env.PATH).toBe("/opt/science/bin:/opt/tex/bin:/opt/managed/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    expect(env.PATH).toBe(
+      `/opt/science/bin:/opt/tex/bin:/opt/managed/bin:${expectedManagedDesktopBasePath()}`,
+    );
     expect(env.PYTHONHOME).toBe("/opt/science");
   });
 
@@ -54,6 +67,6 @@ describe("buildCodexSpawnEnv", () => {
       },
     });
 
-    expect(env.PATH).toBe("/opt/managed/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    expect(env.PATH).toBe(`/opt/managed/bin:${expectedManagedDesktopBasePath()}`);
   });
 });
