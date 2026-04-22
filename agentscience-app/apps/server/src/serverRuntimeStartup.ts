@@ -22,7 +22,6 @@ import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { WorkspaceLayout } from "./workspace/Services/WorkspaceLayout.ts";
-import { AgentScienceRuntimeStatus } from "./agentScienceRuntimeStatus";
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -189,7 +188,6 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const serverSettings = yield* ServerSettingsService;
   const workspaceLayout = yield* WorkspaceLayout;
-  const agentScienceRuntimeStatus = yield* AgentScienceRuntimeStatus;
 
   const commandGate = yield* makeCommandGate;
   const httpListening = yield* Deferred.make<void>();
@@ -226,21 +224,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
       ),
     );
 
-    yield* Effect.logDebug("startup phase: starting AgentScience runtime status check");
-    yield* runStartupPhase(
-      "agentscienceRuntime.refresh",
-      agentScienceRuntimeStatus.refresh.pipe(
-        Effect.tap((status) =>
-          Effect.logInfo("agentscience runtime status checked", {
-            state: status.state,
-            updateAvailable: status.updateAvailable,
-            refreshRecommended: status.refreshRecommended,
-            checkedAt: status.checkedAt,
-          }),
-        ),
-        Effect.forkScoped,
-      ),
-    );
+    yield* Effect.logDebug("startup phase: deferring AgentScience runtime status check");
 
     yield* Effect.logDebug("startup phase: starting orchestration reactors");
     yield* runStartupPhase(
