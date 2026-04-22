@@ -196,7 +196,6 @@ export interface NativeApi {
       input?: CodexAuthCancelLoginInput,
     ) => Promise<CodexAuthState>;
     logoutCodex: () => Promise<CodexAuthState>;
-    refreshAgentScienceRuntimeStatus: () => Promise<ServerRuntimeAgentScience>;
     applyAgentScienceRuntimeUpdates: () => Promise<ServerRuntimeAgentScience>;
     getAgentScienceAuthState: () => Promise<AgentScienceAuthState>;
     startAgentScienceLogin: () => Promise<AgentScienceAuthState>;

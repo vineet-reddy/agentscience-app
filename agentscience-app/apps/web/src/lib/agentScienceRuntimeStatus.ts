@@ -12,9 +12,8 @@ export function describeAgentScienceRuntimeStatus(
 ): AgentScienceRuntimeStatusDescriptor {
   if (!status || status.state === "checking") {
     return {
-      settingsTitle: "Not checked yet",
-      settingsDescription:
-        "AgentScience can check the background tools on demand from Settings.",
+      settingsTitle: "Checking on launch",
+      settingsDescription: "AgentScience is checking the background tools on this device.",
       noticeTitle: null,
       noticeDescription: null,
     };
@@ -24,7 +23,7 @@ export function describeAgentScienceRuntimeStatus(
     return {
       settingsTitle: "Runtime check unavailable",
       settingsDescription:
-        status.message ?? "AgentScience could not run the background-tools check on this system.",
+        status.message ?? "AgentScience could not run the startup runtime check on this system.",
       noticeTitle: null,
       noticeDescription: null,
     };
@@ -34,7 +33,7 @@ export function describeAgentScienceRuntimeStatus(
     return {
       settingsTitle: "Runtime check failed",
       settingsDescription:
-        status.message ?? "AgentScience could not complete the background-tools check.",
+        status.message ?? "AgentScience could not complete the startup runtime check.",
       noticeTitle: null,
       noticeDescription: null,
     };

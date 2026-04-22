@@ -611,7 +611,6 @@ export function GeneralSettingsPanel() {
     Partial<Record<ProviderKind, string | null>>
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
-  const [isRefreshingAgentScienceRuntime, setIsRefreshingAgentScienceRuntime] = useState(false);
   const [isApplyingAgentScienceUpdate, setIsApplyingAgentScienceUpdate] = useState(false);
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
@@ -751,25 +750,6 @@ export function GeneralSettingsPanel() {
   const openLogsDirectory = useCallback(() => {
     openInPreferredEditor("logsDirectory", logsDirectoryPath, "Unable to open logs folder.");
   }, [logsDirectoryPath, openInPreferredEditor]);
-
-  const refreshAgentScienceRuntime = useCallback(async () => {
-    if (isRefreshingAgentScienceRuntime) {
-      return;
-    }
-
-    setIsRefreshingAgentScienceRuntime(true);
-    try {
-      await ensureNativeApi().server.refreshAgentScienceRuntimeStatus();
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Unable to check background tools",
-        description: error instanceof Error ? error.message : "An unknown error occurred.",
-      });
-    } finally {
-      setIsRefreshingAgentScienceRuntime(false);
-    }
-  }, [isRefreshingAgentScienceRuntime]);
 
   const applyAgentScienceUpdate = useCallback(async () => {
     if (isApplyingAgentScienceUpdate) {
@@ -1684,19 +1664,7 @@ export function GeneralSettingsPanel() {
                 ) : null}
                 {getAgentScienceUpdateActionLabel(agentScienceRuntime)}
               </Button>
-            ) : (
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={isRefreshingAgentScienceRuntime}
-                onClick={() => void refreshAgentScienceRuntime()}
-              >
-                {isRefreshingAgentScienceRuntime ? (
-                  <LoaderIcon className="size-3 animate-spin" />
-                ) : null}
-                {isRefreshingAgentScienceRuntime ? "Checking..." : "Check now"}
-              </Button>
-            )
+            ) : null
           }
           status={
             <>

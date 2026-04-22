@@ -119,7 +119,6 @@ export const WS_METHODS = {
   serverLoginCodexWithApiKey: "server.loginCodexWithApiKey",
   serverCancelCodexChatgptLogin: "server.cancelCodexChatgptLogin",
   serverLogoutCodex: "server.logoutCodex",
-  serverRefreshAgentScienceRuntimeStatus: "server.refreshAgentScienceRuntimeStatus",
   serverApplyAgentScienceRuntimeUpdates: "server.applyAgentScienceRuntimeUpdates",
   serverGetAgentScienceAuthState: "server.getAgentScienceAuthState",
   serverStartAgentScienceLogin: "server.startAgentScienceLogin",
@@ -195,15 +194,6 @@ export const WsServerLogoutCodexRpc = Rpc.make(WS_METHODS.serverLogoutCodex, {
   success: CodexAuthState,
   error: CodexAuthError,
 });
-
-export const WsServerRefreshAgentScienceRuntimeStatusRpc = Rpc.make(
-  WS_METHODS.serverRefreshAgentScienceRuntimeStatus,
-  {
-    payload: Schema.Struct({}),
-    success: ServerRuntimeAgentScience,
-    error: AgentScienceRuntimeActionError,
-  },
-);
 
 export const WsServerApplyAgentScienceRuntimeUpdatesRpc = Rpc.make(
   WS_METHODS.serverApplyAgentScienceRuntimeUpdates,
@@ -442,7 +432,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerLoginCodexWithApiKeyRpc,
   WsServerCancelCodexChatgptLoginRpc,
   WsServerLogoutCodexRpc,
-  WsServerRefreshAgentScienceRuntimeStatusRpc,
   WsServerApplyAgentScienceRuntimeUpdatesRpc,
   WsServerGetAgentScienceAuthStateRpc,
   WsServerStartAgentScienceLoginRpc,

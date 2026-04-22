@@ -89,7 +89,6 @@ const rpcClientMock = {
     updateSettings: vi.fn(),
     subscribeConfig: vi.fn(),
     subscribeLifecycle: vi.fn(),
-    refreshAgentScienceRuntimeStatus: vi.fn(),
     applyAgentScienceRuntimeUpdates: vi.fn(),
   },
   orchestration: {

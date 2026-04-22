@@ -109,7 +109,9 @@ export const readEnvironmentFromLoginShell: ShellEnvironmentReader = (
     return {};
   }
 
-  const output = execFile(shell, ["-ilc", buildEnvironmentCaptureCommand(names)], {
+  // Avoid interactive shell startup on app launch. Interactive rc hooks can
+  // execute arbitrary user tooling before AgentScience does anything.
+  const output = execFile(shell, ["-lc", buildEnvironmentCaptureCommand(names)], {
     encoding: "utf8",
     timeout: 5000,
   });

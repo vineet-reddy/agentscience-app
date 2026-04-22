@@ -563,14 +563,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.serverLogoutCodex, codexAuth.logout, {
           "rpc.aggregate": "server",
         }),
-      [WS_METHODS.serverRefreshAgentScienceRuntimeStatus]: (_input) =>
-        observeRpcEffect(
-          WS_METHODS.serverRefreshAgentScienceRuntimeStatus,
-          agentScienceRuntimeStatus.refresh,
-          {
-            "rpc.aggregate": "server",
-          },
-        ),
       [WS_METHODS.serverGetAgentScienceAuthState]: (_input) =>
         observeRpcEffect(
           WS_METHODS.serverGetAgentScienceAuthState,

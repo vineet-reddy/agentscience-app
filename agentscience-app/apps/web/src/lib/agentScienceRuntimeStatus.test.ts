@@ -6,7 +6,7 @@ import {
 } from "./agentScienceRuntimeStatus";
 
 describe("agentScienceRuntimeStatus", () => {
-  it("shows no notice before the runtime check has been requested", () => {
+  it("shows no notice while startup check is still running", () => {
     const status = {
       state: "checking" as const,
       checkedAt: "2026-04-15T08:00:00.000Z",
@@ -16,9 +16,9 @@ describe("agentScienceRuntimeStatus", () => {
       nextSteps: [],
     };
 
-    expect(describeAgentScienceRuntimeStatus(status).settingsTitle).toBe("Not checked yet");
+    expect(describeAgentScienceRuntimeStatus(status).settingsTitle).toBe("Checking on launch");
     expect(describeAgentScienceRuntimeStatus(status).settingsDescription).toBe(
-      "AgentScience can check the background tools on demand from Settings.",
+      "AgentScience is checking the background tools on this device.",
     );
     expect(shouldShowAgentScienceRuntimeNotice(status)).toBe(false);
   });
@@ -61,7 +61,7 @@ describe("agentScienceRuntimeStatus", () => {
     expect(shouldShowAgentScienceRuntimeNotice(status)).toBe(true);
   });
 
-  it("shows no notice when runtime checks are current", () => {
+  it("shows no notice when startup checks are current", () => {
     const status = {
       state: "ready" as const,
       checkedAt: "2026-04-15T08:00:00.000Z",
