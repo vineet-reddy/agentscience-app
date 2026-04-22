@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { statSync } from "node:fs";
 
 import {
   AgentScienceRuntimeActionError,
@@ -8,7 +9,8 @@ import {
 } from "@agentscience/contracts";
 import { Effect, Equal, Exit, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
 
-import { ServerConfig } from "./config";
+import { ServerConfig, type ServerConfigShape } from "./config";
+import { resolveManagedAgentScienceCliLaunch } from "./managedAgentScienceCli";
 
 const AGENTSCIENCE_RUNTIME_STATUS_TIMEOUT_MS = 15_000;
 const AGENTSCIENCE_RUNTIME_STATUS_MAX_BUFFER_BYTES = 1024 * 1024;
@@ -16,6 +18,13 @@ const AGENTSCIENCE_RUNTIME_ACTION_TIMEOUT_MS = 5 * 60_000;
 const AGENTSCIENCE_RUNTIME_ACTION_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 const AGENTSCIENCE_INSTALLED_VERSION_TIMEOUT_MS = 10_000;
 const AGENTSCIENCE_INSTALLED_VERSION_MAX_BUFFER_BYTES = 512 * 1024;
+const MANAGED_CODEX_BINARY_ENV = "AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH";
+const MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV = "AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR";
+const MANAGED_PYTHON_PATH_ENV = "AGENTSCIENCE_MANAGED_PYTHON_PATH";
+const DESKTOP_MANAGED_CLI_MISSING_MESSAGE =
+  "This AgentScience app build is missing its bundled CLI. Reinstall the latest app.";
+const DESKTOP_MANAGED_RUNTIME_MISSING_MESSAGE =
+  "This AgentScience app build is missing its bundled scientific runtime. Install the latest app release.";
 
 interface RawAgentScienceRuntimeCli {
   version?: unknown;
@@ -284,11 +293,108 @@ type AgentScienceMaintenanceCommand = {
   readonly args: readonly string[];
 };
 
+type AgentScienceCliLaunch = {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly version?: string;
+};
+
+function isDirectory(candidatePath: string | undefined): boolean {
+  if (!candidatePath) {
+    return false;
+  }
+
+  try {
+    return statSync(candidatePath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isFile(candidatePath: string | undefined): boolean {
+  if (!candidatePath) {
+    return false;
+  }
+
+  try {
+    return statSync(candidatePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDesktopMode(config: Pick<ServerConfigShape, "mode">): boolean {
+  return config.mode === "desktop";
+}
+
+function isManagedDesktopCodexEnvironment(): boolean {
+  return Boolean(normalizeNonEmptyString(process.env[MANAGED_CODEX_BINARY_ENV]));
+}
+
+export function hasManagedScienceRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isDirectory(normalizeNonEmptyString(env[MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV])) &&
+    isFile(normalizeNonEmptyString(env[MANAGED_PYTHON_PATH_ENV]));
+}
+
+export function normalizeDesktopManagedStatus(
+  status: ServerRuntimeAgentScience,
+  managedCliVersion: string | undefined,
+): ServerRuntimeAgentScience {
+  const nextSteps = removeAgentScienceUpdateSteps(status.nextSteps);
+  const cli = status.cli
+    ? {
+        ...status.cli,
+        ...(managedCliVersion ? { version: managedCliVersion } : {}),
+      }
+    : managedCliVersion
+      ? { version: managedCliVersion }
+      : undefined;
+
+  if (status.state !== "ready") {
+    return {
+      ...status,
+      nextSteps,
+      ...(cli ? { cli } : {}),
+    };
+  }
+
+  return {
+    ...status,
+    updateAvailable: false,
+    nextSteps,
+    ...(cli ? { cli } : {}),
+  };
+}
+
+function resolveAgentScienceCliLaunch(
+  config: Pick<ServerConfigShape, "mode">,
+  cliArgs: readonly string[],
+): AgentScienceCliLaunch | null {
+  if (!isDesktopMode(config)) {
+    return {
+      command: "agentscience",
+      args: cliArgs,
+    };
+  }
+
+  return resolveManagedAgentScienceCliLaunch(cliArgs);
+}
+
+function createDesktopManagedRuntimeError(
+  checkedAt: string,
+  message: string,
+): ServerRuntimeAgentScience {
+  return createErroredAgentScienceRuntimeStatus(checkedAt, message);
+}
+
 function resolveExecutable(binaryName: string): string {
   return process.platform === "win32" ? `${binaryName}.cmd` : binaryName;
 }
 
 function resolveRecommendedMaintenanceCommands(
+  config: Pick<ServerConfigShape, "mode">,
   status: ServerRuntimeAgentScience,
 ): ReadonlyArray<AgentScienceMaintenanceCommand> {
   if (status.state !== "ready") {
@@ -298,6 +404,10 @@ function resolveRecommendedMaintenanceCommands(
   const commands: AgentScienceMaintenanceCommand[] = [];
 
   if (status.updateAvailable) {
+    if (isDesktopMode(config)) {
+      return [];
+    }
+
     commands.push({
       command: resolveExecutable("npm"),
       args: ["install", "-g", "agentscience@latest"],
@@ -305,24 +415,34 @@ function resolveRecommendedMaintenanceCommands(
   }
 
   if (status.codexActive?.refreshRecommended) {
+    const launch = resolveAgentScienceCliLaunch(config, [
+      "setup",
+      "codex",
+      ...(status.codexActive.scope === "project" ? ["--project"] : []),
+    ]);
+    if (!launch) {
+      return [];
+    }
+
     commands.push({
-      command: resolveExecutable("agentscience"),
-      args: [
-        "setup",
-        "codex",
-        ...(status.codexActive.scope === "project" ? ["--project"] : []),
-      ],
+      command: launch.command,
+      args: launch.args,
     });
   }
 
   if (status.claudeCodeActive?.refreshRecommended) {
+    const launch = resolveAgentScienceCliLaunch(config, [
+      "setup",
+      "claude-code",
+      ...(status.claudeCodeActive.scope === "project" ? ["--project"] : []),
+    ]);
+    if (!launch) {
+      return [];
+    }
+
     commands.push({
-      command: resolveExecutable("agentscience"),
-      args: [
-        "setup",
-        "claude-code",
-        ...(status.claudeCodeActive.scope === "project" ? ["--project"] : []),
-      ],
+      command: launch.command,
+      args: launch.args,
     });
   }
 
@@ -407,9 +527,14 @@ function readInstalledAgentSciencePackageVersion(
 }
 
 function reconcileRuntimeStatusWithInstalledCliVersion(
+  config: Pick<ServerConfigShape, "mode">,
   cwd: string,
   status: ServerRuntimeAgentScience,
 ): Effect.Effect<ServerRuntimeAgentScience> {
+  if (isDesktopMode(config)) {
+    return Effect.succeed(status);
+  }
+
   if (
     status.state !== "ready" ||
     !status.updateAvailable ||
@@ -425,16 +550,31 @@ function reconcileRuntimeStatusWithInstalledCliVersion(
   );
 }
 
-function runAgentScienceRuntimeStatusCommand(cwd: string): Effect.Effect<ServerRuntimeAgentScience> {
+function runAgentScienceRuntimeStatusCommand(
+  config: Pick<ServerConfigShape, "cwd" | "mode">,
+): Effect.Effect<ServerRuntimeAgentScience> {
   return Effect.promise(() => {
     const checkedAt = new Date().toISOString();
+    const launch = resolveAgentScienceCliLaunch(config, ["runtime", "status", "--json"]);
+
+    if (!launch) {
+      return Promise.resolve(
+        createUnavailableAgentScienceRuntimeStatus(checkedAt, DESKTOP_MANAGED_CLI_MISSING_MESSAGE),
+      );
+    }
+
+    if (isDesktopMode(config) && isManagedDesktopCodexEnvironment() && !hasManagedScienceRuntime()) {
+      return Promise.resolve(
+        createDesktopManagedRuntimeError(checkedAt, DESKTOP_MANAGED_RUNTIME_MISSING_MESSAGE),
+      );
+    }
 
     return new Promise<ServerRuntimeAgentScience>((resolve) => {
       execFile(
-        "agentscience",
-        ["runtime", "status", "--json"],
+        launch.command,
+        [...launch.args],
         {
-          cwd,
+          cwd: config.cwd,
           env: process.env,
           encoding: "utf8",
           timeout: AGENTSCIENCE_RUNTIME_STATUS_TIMEOUT_MS,
@@ -468,7 +608,12 @@ function runAgentScienceRuntimeStatusCommand(cwd: string): Effect.Effect<ServerR
           }
 
           try {
-            resolve(parseAgentScienceRuntimeStatusJson(stdout, checkedAt));
+            const parsed = parseAgentScienceRuntimeStatusJson(stdout, checkedAt);
+            resolve(
+              isDesktopMode(config)
+                ? normalizeDesktopManagedStatus(parsed, launch.version)
+                : parsed,
+            );
           } catch (parseError) {
             resolve(
               createErroredAgentScienceRuntimeStatus(
@@ -483,7 +628,7 @@ function runAgentScienceRuntimeStatusCommand(cwd: string): Effect.Effect<ServerR
       );
     });
   }).pipe(
-    Effect.flatMap((status) => reconcileRuntimeStatusWithInstalledCliVersion(cwd, status)),
+    Effect.flatMap((status) => reconcileRuntimeStatusWithInstalledCliVersion(config, config.cwd, status)),
   );
 }
 
@@ -512,15 +657,15 @@ export const AgentScienceRuntimeStatusLive = Layer.effect(
       getSnapshot: Ref.get(snapshotRef),
       refresh: Effect.gen(function* () {
         yield* publishSnapshot(createInitialAgentScienceRuntimeStatus());
-        const next = yield* runAgentScienceRuntimeStatusCommand(config.cwd);
+        const next = yield* runAgentScienceRuntimeStatusCommand(config);
         yield* publishSnapshot(next);
         return next;
       }),
       applyRecommendedActions: Effect.gen(function* () {
         const current = yield* Ref.get(snapshotRef);
         const status =
-          current.state === "ready" ? current : yield* runAgentScienceRuntimeStatusCommand(config.cwd);
-        const commands = resolveRecommendedMaintenanceCommands(status);
+          current.state === "ready" ? current : yield* runAgentScienceRuntimeStatusCommand(config);
+        const commands = resolveRecommendedMaintenanceCommands(config, status);
 
         if (commands.length === 0) {
           yield* publishSnapshot(status);
@@ -535,7 +680,7 @@ export const AgentScienceRuntimeStatusLive = Layer.effect(
           }),
         );
 
-        const refreshed = yield* runAgentScienceRuntimeStatusCommand(config.cwd);
+        const refreshed = yield* runAgentScienceRuntimeStatusCommand(config);
         yield* publishSnapshot(refreshed);
 
         if (Exit.isFailure(exit)) {

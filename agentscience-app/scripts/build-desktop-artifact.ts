@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -27,6 +29,19 @@ const PACKAGED_PINNED_DEPENDENCIES = {
   "@effect/platform-node-shared": "4.0.0-beta.43",
 } as const;
 const MANAGED_CODEX_RESOURCE_DIR = "codex-runtime";
+const MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR = "science-runtime";
+const MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG = "20260414";
+const MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION = "3.12.13";
+const MANAGED_SCIENCE_RUNTIME_UV_VERSION = "0.11.7";
+const MANAGED_SCIENCE_RUNTIME_PACKAGE_SPECS = [
+  "numpy==2.4.4",
+  "pandas==2.3.3",
+  "matplotlib==3.10.7",
+  "scipy==1.16.3",
+  "scikit-learn==1.7.2",
+  "seaborn==0.13.2",
+  "statsmodels==0.14.5",
+] as const;
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("..", import.meta.url))),
@@ -58,6 +73,12 @@ interface ManagedCodexTarget {
   readonly packageName: string;
   readonly packageVersionSuffix: string;
   readonly targetTriple: string;
+}
+
+interface ManagedScienceRuntimeTarget {
+  readonly platformKey: string;
+  readonly pythonTargetTriple: string;
+  readonly uvTargetTriple: string;
 }
 
 const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
@@ -665,6 +686,114 @@ function resolveManagedCodexDependencies(
   );
 }
 
+function resolveManagedScienceRuntimeTargets(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): ReadonlyArray<ManagedScienceRuntimeTarget> {
+  if (platform !== "mac") {
+    return [];
+  }
+
+  if (arch === "arm64") {
+    return [
+      {
+        platformKey: "darwin-arm64",
+        pythonTargetTriple: "aarch64-apple-darwin",
+        uvTargetTriple: "aarch64-apple-darwin",
+      },
+    ];
+  }
+
+  if (arch === "x64") {
+    return [
+      {
+        platformKey: "darwin-x64",
+        pythonTargetTriple: "x86_64-apple-darwin",
+        uvTargetTriple: "x86_64-apple-darwin",
+      },
+    ];
+  }
+
+  return [
+    {
+      platformKey: "darwin-arm64",
+      pythonTargetTriple: "aarch64-apple-darwin",
+      uvTargetTriple: "aarch64-apple-darwin",
+    },
+    {
+      platformKey: "darwin-x64",
+      pythonTargetTriple: "x86_64-apple-darwin",
+      uvTargetTriple: "x86_64-apple-darwin",
+    },
+  ];
+}
+
+function resolveManagedSciencePythonArchiveName(target: ManagedScienceRuntimeTarget): string {
+  return `cpython-${MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION}+${MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG}-${target.pythonTargetTriple}-install_only.tar.gz`;
+}
+
+function resolveManagedScienceUvArchiveName(target: ManagedScienceRuntimeTarget): string {
+  return `uv-${target.uvTargetTriple}.tar.gz`;
+}
+
+function sha256File(filePath: string): string {
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+}
+
+function parseChecksumFileEntry(contents: string, filename: string): string {
+  const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = contents.match(new RegExp(`^([a-f0-9]{64})\\s+\\*?${escapedFilename}$`, "im"));
+  if (!match?.[1]) {
+    throw new Error(`Could not find checksum for ${filename}.`);
+  }
+  return match[1].toLowerCase();
+}
+
+function assertSha256(filePath: string, expectedHash: string): void {
+  const actualHash = sha256File(filePath);
+  if (actualHash !== expectedHash.toLowerCase()) {
+    throw new Error(`Checksum mismatch for ${filePath}: expected ${expectedHash}, got ${actualHash}.`);
+  }
+}
+
+function runCheckedCommand(input: {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly cwd?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly verbose: boolean;
+}): void {
+  const result = spawnSync(input.command, [...input.args], {
+    cwd: input.cwd,
+    env: input.env,
+    encoding: "utf8",
+    stdio: input.verbose ? "inherit" : "pipe",
+  });
+  if (result.status === 0) {
+    return;
+  }
+
+  const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+  throw new Error(
+    `Command failed: ${input.command} ${input.args.join(" ")}${details ? `\n${details}` : ""}`,
+  );
+}
+
+function buildManagedScienceRuntimeEnv(runtimeDir: string, cacheDir: string): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  const runtimeBinDir = join(runtimeDir, "bin");
+  env.PATH = `${runtimeBinDir}:/usr/bin:/bin:/usr/sbin:/sbin`;
+  env.PIP_DISABLE_PIP_VERSION_CHECK = "1";
+  env.PIP_NO_INPUT = "1";
+  env.PIP_CACHE_DIR = cacheDir;
+  env.PYTHONHOME = runtimeDir;
+  env.PYTHONNOUSERSITE = "1";
+  delete env.PYTHONPATH;
+  delete env.VIRTUAL_ENV;
+  delete env.__PYVENV_LAUNCHER__;
+  return env;
+}
+
 function toBunInstallTargetOs(platform: typeof BuildPlatform.Type): "darwin" | "linux" | "win32" {
   switch (platform) {
     case "mac":
@@ -1044,6 +1173,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.platform,
     options.arch,
   );
+  yield* bundleManagedScienceRuntime(
+    stageManagedResourcesDir,
+    options.platform,
+    options.arch,
+    options.verbose,
+  );
 
   yield* Effect.log("[desktop-artifact] Removing duplicated managed Codex install payloads...");
   yield* pruneManagedCodexInstallArtifacts(stageAppDir, options.platform, options.arch);
@@ -1157,6 +1292,135 @@ const bundleManagedCodexRuntime = Effect.fn("bundleManagedCodexRuntime")(functio
     }
 
     yield* fs.copy(sourceDir, path.join(runtimeRoot, target.targetTriple));
+  }
+});
+
+const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(function* (
+  stageManagedResourcesDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+  verbose: boolean,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const runtimeTargets = resolveManagedScienceRuntimeTargets(platform, arch);
+
+  if (runtimeTargets.length === 0) {
+    return;
+  }
+
+  const runtimeRoot = path.join(stageManagedResourcesDir, MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR);
+  yield* fs.makeDirectory(runtimeRoot, { recursive: true });
+
+  const pythonChecksumsUrl = `https://github.com/astral-sh/python-build-standalone/releases/download/${MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG}/SHA256SUMS`;
+  const uvBaseUrl = `https://github.com/astral-sh/uv/releases/download/${MANAGED_SCIENCE_RUNTIME_UV_VERSION}`;
+  const tempRoot = mkdtempSync(join(tmpdir(), "agentscience-managed-science-runtime-"));
+
+  try {
+    const pythonChecksumsPath = path.join(tempRoot, "python-build-standalone-sha256sums.txt");
+    runCheckedCommand({
+      command: "curl",
+      args: ["--fail", "--location", "--retry", "3", "--output", pythonChecksumsPath, pythonChecksumsUrl],
+      verbose,
+    });
+    const pythonChecksums = readFileSync(pythonChecksumsPath, "utf8");
+
+    for (const target of runtimeTargets) {
+      const pythonArchiveName = resolveManagedSciencePythonArchiveName(target);
+      const uvArchiveName = resolveManagedScienceUvArchiveName(target);
+      const targetTempDir = path.join(tempRoot, target.platformKey);
+      const targetRuntimeDir = path.join(runtimeRoot, target.platformKey);
+      const pythonArchivePath = path.join(targetTempDir, pythonArchiveName);
+      const uvArchivePath = path.join(targetTempDir, uvArchiveName);
+      const uvExtractDir = path.join(targetTempDir, "uv-extract");
+      const pipCacheDir = path.join(targetTempDir, "pip-cache");
+
+      yield* fs.makeDirectory(targetTempDir, { recursive: true });
+
+      const pythonUrl = `https://github.com/astral-sh/python-build-standalone/releases/download/${MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG}/${pythonArchiveName}`;
+      runCheckedCommand({
+        command: "curl",
+        args: ["--fail", "--location", "--retry", "3", "--output", pythonArchivePath, pythonUrl],
+        verbose,
+      });
+      assertSha256(pythonArchivePath, parseChecksumFileEntry(pythonChecksums, pythonArchiveName));
+
+      const uvChecksumPath = path.join(targetTempDir, `${uvArchiveName}.sha256`);
+      const uvChecksumUrl = `${uvBaseUrl}/${uvArchiveName}.sha256`;
+      runCheckedCommand({
+        command: "curl",
+        args: ["--fail", "--location", "--retry", "3", "--output", uvChecksumPath, uvChecksumUrl],
+        verbose,
+      });
+      const uvChecksumText = readFileSync(uvChecksumPath, "utf8");
+
+      runCheckedCommand({
+        command: "curl",
+        args: ["--fail", "--location", "--retry", "3", "--output", uvArchivePath, `${uvBaseUrl}/${uvArchiveName}`],
+        verbose,
+      });
+      assertSha256(uvArchivePath, parseChecksumFileEntry(uvChecksumText, uvArchiveName));
+
+      yield* fs.remove(targetRuntimeDir, { recursive: true, force: true }).pipe(Effect.ignore);
+      runCheckedCommand({
+        command: "tar",
+        args: ["-xzf", pythonArchivePath, "-C", targetTempDir],
+        verbose,
+      });
+      const extractedPythonDir = path.join(targetTempDir, "python");
+      const extractedPythonBinary = path.join(extractedPythonDir, "bin", "python3");
+      if (!(yield* fs.exists(extractedPythonBinary))) {
+        return yield* new BuildScriptError({
+          message: `Missing extracted Python runtime at ${extractedPythonBinary}.`,
+        });
+      }
+      yield* fs.rename(extractedPythonDir, targetRuntimeDir);
+
+      yield* fs.makeDirectory(uvExtractDir, { recursive: true });
+      runCheckedCommand({
+        command: "tar",
+        args: ["-xzf", uvArchivePath, "-C", uvExtractDir],
+        verbose,
+      });
+      const extractedUvBinary = path.join(uvExtractDir, `uv-${target.uvTargetTriple}`, "uv");
+      if (!(yield* fs.exists(extractedUvBinary))) {
+        return yield* new BuildScriptError({
+          message: `Missing extracted uv binary at ${extractedUvBinary}.`,
+        });
+      }
+      yield* fs.copyFile(extractedUvBinary, path.join(targetRuntimeDir, "bin", "uv"));
+
+      const pythonEnv = buildManagedScienceRuntimeEnv(targetRuntimeDir, pipCacheDir);
+      runCheckedCommand({
+        command: path.join(targetRuntimeDir, "bin", "python3"),
+        args: [
+          "-m",
+          "pip",
+          "install",
+          "--no-cache-dir",
+          "--upgrade",
+          ...MANAGED_SCIENCE_RUNTIME_PACKAGE_SPECS,
+        ],
+        env: pythonEnv,
+        verbose,
+      });
+      runCheckedCommand({
+        command: path.join(targetRuntimeDir, "bin", "python3"),
+        args: [
+          "-c",
+          "import numpy, pandas, matplotlib, scipy, sklearn, seaborn, statsmodels; print('managed science runtime ready')",
+        ],
+        env: pythonEnv,
+        verbose,
+      });
+    }
+  } catch (cause) {
+    return yield* new BuildScriptError({
+      message: "Failed to bundle the managed scientific runtime.",
+      cause,
+    });
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 

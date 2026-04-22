@@ -4,9 +4,11 @@ import {
   createErroredAgentScienceRuntimeStatus,
   createInitialAgentScienceRuntimeStatus,
   createUnavailableAgentScienceRuntimeStatus,
-  parseInstalledAgentSciencePackageVersionJson,
+  hasManagedScienceRuntime,
   parseAgentScienceRuntimeStatusJson,
   reconcileInstalledAgentScienceCliVersion,
+  parseInstalledAgentSciencePackageVersionJson,
+  normalizeDesktopManagedStatus,
 } from "./agentScienceRuntimeStatus";
 
 describe("agentScienceRuntimeStatus", () => {
@@ -174,5 +176,48 @@ describe("agentScienceRuntimeStatus", () => {
         current: true,
       },
     });
+  });
+
+  it("treats desktop bundled tooling as app-managed instead of npm-managed", () => {
+    const status = parseAgentScienceRuntimeStatusJson(
+      JSON.stringify({
+        runtime: {
+          ok: true,
+          updateAvailable: true,
+          cli: {
+            version: "0.5.5",
+            latestVersion: "0.5.6",
+            checkedAt: "2026-04-15T08:12:08.238Z",
+          },
+          nextSteps: [
+            "npm install -g agentscience@latest",
+            "agentscience setup codex",
+          ],
+        },
+      }),
+      "2026-04-15T08:00:00.000Z",
+    );
+
+    expect(normalizeDesktopManagedStatus(status, "0.5.6")).toEqual({
+      state: "ready",
+      checkedAt: "2026-04-15T08:12:08.238Z",
+      ok: true,
+      updateAvailable: false,
+      refreshRecommended: false,
+      nextSteps: ["agentscience setup codex"],
+      cli: {
+        version: "0.5.6",
+        latestVersion: "0.5.6",
+      },
+    });
+  });
+
+  it("requires a bundled managed science runtime when the desktop app advertises managed tooling", () => {
+    expect(
+      hasManagedScienceRuntime({
+        AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR: "/definitely/missing/bin",
+        AGENTSCIENCE_MANAGED_PYTHON_PATH: "/definitely/missing/bin/python3",
+      }),
+    ).toBe(false);
   });
 });

@@ -39,11 +39,12 @@
         "agentscience-server": "./dist/bin.mjs",
       },
       "dependencies": {
-        "@agentscience/personality": "^1.0.4",
+        "@agentscience/personality": "^1.0.5",
         "@effect/platform-bun": "catalog:",
         "@effect/platform-node": "catalog:",
         "@effect/sql-sqlite-bun": "catalog:",
         "@pierre/diffs": "^1.1.0-beta.16",
+        "agentscience": "^0.5.6",
         "effect": "catalog:",
         "node-pty": "^1.1.0",
         "open": "^10.1.0",
@@ -187,7 +188,7 @@
 
     "@agentscience/desktop": ["@agentscience/desktop@workspace:apps/desktop"],
 
-    "@agentscience/personality": ["@agentscience/personality@1.0.4", "", {}, "sha512-rADA7QyncppOAgToyuoLaW2gLxY0amplbPhLgogSCp+O4uw0GIM8zh4gasLEcYY8WT/HT3tW6DXZTMyzN4v1YQ=="],
+    "@agentscience/personality": ["@agentscience/personality@1.0.5", "", {}, "sha512-pK//VwGdzUJZEllahAUqU1mA6QvBwTWFgHWY9iiOZ4pgB4zwAKzWkAnok6evG8VTsoRsAfk8H0n+J+lQsNgmgQ=="],
 
     "@agentscience/scripts": ["@agentscience/scripts@workspace:scripts"],
 
@@ -750,6 +751,8 @@
     "acorn": ["acorn@8.16.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw=="],
 
     "agent-base": ["agent-base@6.0.2", "", { "dependencies": { "debug": "4" } }, "sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ=="],
+
+    "agentscience": ["agentscience@0.5.6", "", { "dependencies": { "@agentscience/personality": "^1.0.5" }, "bin": { "agentscience": "bin/agentscience" } }, "sha512-dz0LLGw/sC+H4btvPDwedWbv/mD0ptX66TwPy853F4JtPyOoWW/AJcGireHNplqtPQ+TGxoBXbSy6yYNmDVDDQ=="],
 
     "ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 

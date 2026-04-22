@@ -10,12 +10,14 @@ describe("buildCodexSpawnEnv", () => {
         PATH: "/usr/bin:/bin",
         AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH: "/opt/managed/codex",
         AGENTSCIENCE_MANAGED_CODEX_PATH_DIR: "/opt/managed/bin",
+        AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_DIR: "/opt/science",
         AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR: "/opt/science/bin",
         AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR: "/opt/tex/bin",
       },
     });
 
-    expect(env.PATH).toBe("/opt/science/bin:/opt/tex/bin:/opt/managed/bin:/usr/bin:/bin");
+    expect(env.PATH).toBe("/opt/science/bin:/opt/tex/bin:/opt/managed/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+    expect(env.PYTHONHOME).toBe("/opt/science");
   });
 
   it("injects workspace-local cache, temp, and TeX env defaults when a cwd is provided", () => {
@@ -40,5 +42,18 @@ describe("buildCodexSpawnEnv", () => {
       TEXMFCONFIG: "/tmp/worktree/.texlive/texmf-config",
       TEXMFHOME: "/tmp/worktree/.texlive/texmf-home",
     });
+  });
+
+  it("uses a safe system PATH for managed desktop Codex so host Anaconda does not leak in", () => {
+    const env = buildCodexSpawnEnv({
+      binaryPath: "/opt/managed/codex",
+      processEnv: {
+        PATH: "/opt/anaconda3/bin:/opt/homebrew/bin:/usr/bin:/bin",
+        AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH: "/opt/managed/codex",
+        AGENTSCIENCE_MANAGED_CODEX_PATH_DIR: "/opt/managed/bin",
+      },
+    });
+
+    expect(env.PATH).toBe("/opt/managed/bin:/usr/bin:/bin:/usr/sbin:/sbin");
   });
 });

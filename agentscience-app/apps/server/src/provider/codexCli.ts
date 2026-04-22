@@ -5,7 +5,12 @@ const DEFAULT_CODEX_BINARY_PATH = "codex";
 const MANAGED_BINARY_ENV = "AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH";
 const MANAGED_PATH_DIR_ENV = "AGENTSCIENCE_MANAGED_CODEX_PATH_DIR";
 const PAPER_TOOLCHAIN_BIN_DIR_ENV = "AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR";
+const MANAGED_SCIENCE_RUNTIME_DIR_ENV = "AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_DIR";
 const MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV = "AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR";
+const SAFE_MANAGED_DESKTOP_PATHS: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: "/usr/bin:/bin:/usr/sbin:/sbin",
+  linux: "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin",
+};
 const CODEX_PYTHON_GUARD_ENV = {
   PIP_REQUIRE_VIRTUALENV: "1",
   PIP_DISABLE_PIP_VERSION_CHECK: "1",
@@ -50,6 +55,14 @@ function buildWorkspaceLocalExecutionEnv(cwd: string): NodeJS.ProcessEnv {
   };
 }
 
+function resolveSafeManagedDesktopBasePath(
+  platform: NodeJS.Platform,
+  pathValue: string | undefined,
+): string | undefined {
+  const safeDefault = SAFE_MANAGED_DESKTOP_PATHS[platform];
+  return safeDefault ?? pathValue;
+}
+
 export function resolveCodexBinaryPath(settings: Pick<CodexSettings, "binaryPath">): string {
   const explicitBinaryPath = settings.binaryPath.trim();
   if (explicitBinaryPath.length > 0) {
@@ -83,6 +96,10 @@ export function buildCodexSpawnEnv(input: {
   ].filter((entry) => entry.length > 0);
   const managedBinaryPath = envSource[MANAGED_BINARY_ENV]?.trim();
   const managedPathDir = envSource[MANAGED_PATH_DIR_ENV]?.trim();
+  const isManagedDesktopCodex =
+    managedBinaryPath &&
+    managedBinaryPath.length > 0 &&
+    input.binaryPath === managedBinaryPath;
   if (
     managedBinaryPath &&
     managedPathDir &&
@@ -92,8 +109,19 @@ export function buildCodexSpawnEnv(input: {
     managedPathEntries.push(managedPathDir);
   }
 
+  const basePath = isManagedDesktopCodex
+    ? resolveSafeManagedDesktopBasePath(process.platform, env.PATH)
+    : env.PATH;
+
   if (managedPathEntries.length > 0) {
-    env.PATH = prependPath(env.PATH, managedPathEntries);
+    env.PATH = prependPath(basePath, managedPathEntries);
+  } else if (basePath !== undefined && basePath !== env.PATH) {
+    env.PATH = basePath;
+  }
+
+  const managedScienceRuntimeDir = envSource[MANAGED_SCIENCE_RUNTIME_DIR_ENV]?.trim();
+  if (managedScienceRuntimeDir && managedScienceRuntimeDir.length > 0) {
+    env.PYTHONHOME = managedScienceRuntimeDir;
   }
 
   const homePath = input.homePath?.trim();
