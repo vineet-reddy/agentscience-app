@@ -187,7 +187,7 @@ describe("agentScienceRuntimeStatus", () => {
           updateAvailable: true,
           cli: {
             version: "0.5.5",
-            latestVersion: "0.5.6",
+            latestVersion: "0.5.7",
             checkedAt: "2026-04-15T08:12:08.238Z",
           },
           nextSteps: [
@@ -199,7 +199,7 @@ describe("agentScienceRuntimeStatus", () => {
       "2026-04-15T08:00:00.000Z",
     );
 
-    expect(normalizeDesktopManagedStatus(status, "0.5.6")).toEqual({
+    expect(normalizeDesktopManagedStatus(status, "0.5.7")).toEqual({
       state: "ready",
       checkedAt: "2026-04-15T08:12:08.238Z",
       ok: true,
@@ -207,8 +207,8 @@ describe("agentScienceRuntimeStatus", () => {
       refreshRecommended: false,
       nextSteps: ["agentscience setup codex"],
       cli: {
-        version: "0.5.6",
-        latestVersion: "0.5.6",
+        version: "0.5.7",
+        latestVersion: "0.5.7",
       },
     });
   });

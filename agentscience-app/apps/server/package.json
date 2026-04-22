@@ -24,7 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "agentscience": "^0.5.6",
+    "agentscience": "^0.5.7",
     "@agentscience/personality": "^1.0.5",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",

@@ -44,7 +44,7 @@
         "@effect/platform-node": "catalog:",
         "@effect/sql-sqlite-bun": "catalog:",
         "@pierre/diffs": "^1.1.0-beta.16",
-        "agentscience": "^0.5.6",
+        "agentscience": "^0.5.7",
         "effect": "catalog:",
         "node-pty": "^1.1.0",
         "open": "^10.1.0",
@@ -752,7 +752,7 @@
 
     "agent-base": ["agent-base@6.0.2", "", { "dependencies": { "debug": "4" } }, "sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ=="],
 
-    "agentscience": ["agentscience@0.5.6", "", { "dependencies": { "@agentscience/personality": "^1.0.5" }, "bin": { "agentscience": "bin/agentscience" } }, "sha512-dz0LLGw/sC+H4btvPDwedWbv/mD0ptX66TwPy853F4JtPyOoWW/AJcGireHNplqtPQ+TGxoBXbSy6yYNmDVDDQ=="],
+    "agentscience": ["agentscience@0.5.7", "", { "dependencies": { "@agentscience/personality": "^1.0.5" }, "bin": { "agentscience": "bin/agentscience" } }, "sha512-GtBdsigQNpVVRuy2vWHJOtq90Fs9z/+gLw/OGaMYglAK/OgzZOADzzLEk5T9I7G7GfadaGItMOcAdUC6ZtDuOg=="],
 
     "ansi-regex": ["ansi-regex@5.0.1", "", {}, "sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ=="],
 
