@@ -4,7 +4,7 @@ This doc is for engineers cutting desktop releases, or touching the release pipe
 
 - [release.yml](../../.github/workflows/release.yml)
 
-The big picture: one git tag drives one release. Pushing a tag like `v1.2.3` kicks off a GitHub Actions workflow that runs quality gates, builds desktop installers for macOS, Linux, and Windows in parallel, and publishes one GitHub Release with all the files. Signing is optional and auto-detected per platform from secrets, so the unsigned path always works even if signing is broken.
+The big picture: one git tag drives one release. Pushing a tag like `v1.2.3` kicks off a GitHub Actions workflow that runs quality gates, builds the macOS installers, and publishes one GitHub Release with all the files. Signing is optional and auto-detected, so the unsigned path still works if Apple signing is broken.
 
 Versions with a suffix after the numeric part (for example `1.2.3-alpha.1`) are published as GitHub prereleases and do not become the "latest" release. Only plain `X.Y.Z` tags are marked latest.
 
@@ -13,22 +13,17 @@ Versions with a suffix after the numeric part (for example `1.2.3-alpha.1`) are 
 When a tag matching `v*.*.*` is pushed, the workflow:
 
 - runs preflight quality gates (lint, typecheck, test) and fails fast if they fail
-- builds four desktop artifacts in parallel:
+- builds two desktop artifacts in parallel:
   - macOS `arm64` DMG
   - macOS `x64` DMG
-  - Linux `x64` AppImage
-  - Windows `x64` NSIS installer
 - signs macOS builds if Apple secrets are present, otherwise ships unsigned
-- signs the Windows installer via Azure Trusted Signing if Azure secrets are present, otherwise ships unsigned
 - publishes one GitHub Release with all the installers plus electron-updater metadata files (`latest*.yml`, `*.blockmap`, mac `.zip` payloads)
 - publishes stable alias assets for the public website download buttons:
   - `Agent-Science-mac-arm64.dmg`
   - `Agent-Science-mac-intel.dmg`
-  - `Agent-Science-linux-x64.AppImage`
-  - `Agent-Science-windows-x64.exe`
 - aligns internal workspace package versions to the release tag before committing the release bump back to `main`
 
-All four desktop builds run in parallel in a matrix job. The GitHub Release happens in a final job after the matrix completes.
+Both macOS builds run in parallel in a matrix job. The GitHub Release happens in a final job after the matrix completes.
 
 ## The normal release flow
 
@@ -43,8 +38,8 @@ git push origin vX.Y.Z
 ```
 
 3. Wait for the workflow to finish. It takes a while because of the signing and notarization steps on macOS.
-4. Verify the GitHub Release contains every platform artifact and the updater metadata files.
-5. Download at least one build per platform and smoke test it.
+4. Verify the GitHub Release contains both Mac artifacts and the updater metadata files.
+5. Download both Mac builds and smoke test them.
 
 That is it. If you find yourself doing anything else, read the sections below.
 
@@ -63,13 +58,13 @@ git tag v0.0.0-test.1
 git push origin v0.0.0-test.1
 ```
 
-Then check the resulting GitHub Release, download the artifacts, and install them on each platform. Delete the release afterwards if you care about keeping the list clean.
+Then check the resulting GitHub Release, download both Mac artifacts, and install them on test machines. Delete the release afterwards if you care about keeping the list clean.
 
 This is also the right thing to do when you are changing the release workflow itself. Do not test release pipeline changes by cutting a real release.
 
 ## Signing
 
-Signing is strictly optional. Every platform has an unsigned fallback, which is useful because it means a broken cert or expired key never blocks a release, it just downgrades quality. Each platform has its own set of secrets, and the workflow decides at runtime whether signing is enabled based on whether those secrets exist and are non-empty.
+Signing is strictly optional. The release path has an unsigned fallback, which is useful because it means a broken cert or expired key never blocks a release, it just downgrades quality. The workflow decides at runtime whether macOS signing is enabled based on whether the Apple secrets exist and are non-empty.
 
 ### macOS signing and notarization
 
@@ -94,35 +89,14 @@ First-time setup checklist:
 
 One implementation detail worth knowing: `APPLE_API_KEY` is stored as raw key text because that is what the workflow expects. The workflow writes it to a temporary `AuthKey_<id>.p8` file at runtime before invoking notarization.
 
-### Windows signing (Azure Trusted Signing)
-
-When these secrets are present the workflow signs the Windows installer via Azure Trusted Signing:
-
-- `AZURE_TENANT_ID`
-- `AZURE_CLIENT_ID`
-- `AZURE_CLIENT_SECRET`
-- `AZURE_TRUSTED_SIGNING_ENDPOINT`
-- `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`
-- `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`
-- `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`
-
-First-time setup checklist:
-
-1. Create an Azure Trusted Signing account and certificate profile.
-2. Record the ATS endpoint, account name, certificate profile name, and publisher name.
-3. Create or pick an Entra app registration (service principal) that has the right Trusted Signing permissions.
-4. Create a client secret for that service principal.
-5. Add all seven Azure secrets to GitHub Actions secrets.
-6. Push a prerelease tag and confirm the Windows installer comes out signed.
-
 ### What to do if signing is breaking a release
 
 Do not skip signing by force. Instead:
 
 1. Cut a prerelease with no signing secrets present and confirm the unsigned path still works, so you know the build itself is healthy.
-2. Re-add the signing secrets one platform at a time.
+2. Re-add the Apple signing secrets.
 3. Check that every required secret is present and non-empty. Empty secrets are the single most common failure.
-4. Double-check cert profile names, tenant and client ids, and that the Apple team rights and cert are still valid.
+4. Double-check the Apple team rights, cert, key id, and issuer id.
 
 ## Internal Server Runtime
 
@@ -164,7 +138,7 @@ Private-repo auth workaround:
 
 Required release assets for the updater to work at all:
 
-- platform installers: `.exe`, `.dmg`, `.AppImage`, plus macOS `.zip` for Squirrel.Mac update payloads
+- macOS installers: `.dmg` plus macOS `.zip` for Squirrel.Mac update payloads
 - `latest*.yml` updater metadata files
 - `*.blockmap` files, used for differential downloads
 

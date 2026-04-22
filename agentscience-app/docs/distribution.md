@@ -37,8 +37,6 @@ The release pipeline builds:
 
 - macOS arm64 DMG
 - macOS x64 DMG
-- Linux x64 AppImage
-- Windows x64 installer
 
 It publishes a GitHub Release that includes:
 
@@ -50,16 +48,12 @@ Those stable alias assets are the important part for the website download button
 
 ## Current live release
 
-As of April 12, 2026, the first public release flow is live at:
+The current public release is whatever is marked latest on the GitHub Releases page for this repo.
 
-- `v0.0.19`
-
-That release already includes the stable public download assets:
+Each release is expected to include the stable public download assets:
 
 - `Agent-Science-mac-arm64.dmg`
 - `Agent-Science-mac-intel.dmg`
-- `Agent-Science-linux-x64.AppImage`
-- `Agent-Science-windows-x64.exe`
 
 ## What still is not done
 

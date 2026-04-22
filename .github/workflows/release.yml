@@ -87,16 +87,6 @@ jobs:
             platform: mac
             target: dmg
             arch: x64
-          - label: Linux x64
-            runner: ubuntu-24.04
-            platform: linux
-            target: AppImage
-            arch: x64
-          - label: Windows x64
-            runner: windows-2022
-            platform: win
-            target: nsis
-            arch: x64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -128,13 +118,6 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
-          AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
-          AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
         run: |
           args=(
             --platform "${{ matrix.platform }}"
@@ -163,22 +146,6 @@ jobs:
             else
               echo "macOS signing disabled (missing one or more Apple signing secrets)."
             fi
-          elif [[ "${{ matrix.platform }}" == "win" ]]; then
-            if has_all \
-              "$AZURE_TENANT_ID" \
-              "$AZURE_CLIENT_ID" \
-              "$AZURE_CLIENT_SECRET" \
-              "$AZURE_TRUSTED_SIGNING_ENDPOINT" \
-              "$AZURE_TRUSTED_SIGNING_ACCOUNT_NAME" \
-              "$AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME" \
-              "$AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"; then
-              echo "Windows signing enabled (Azure Trusted Signing)."
-              args+=(--signed)
-            else
-              echo "Windows signing disabled (missing one or more Azure Trusted Signing secrets)."
-            fi
-          else
-            echo "Signing disabled for ${{ matrix.platform }}."
           fi
 
           bun run dist:desktop:artifact -- "${args[@]}"
@@ -193,8 +160,6 @@ jobs:
           for pattern in \
             "release/*.dmg" \
             "release/*.zip" \
-            "release/*.AppImage" \
-            "release/*.exe" \
             "release/*.blockmap" \
             "release/latest*.yml"; do
             for file in $pattern; do
@@ -217,26 +182,6 @@ jobs:
               else
                 cp "${dmg_files[0]}" release-publish/Agent-Science-mac-intel.dmg
               fi
-            fi
-          fi
-
-          if [[ "${{ matrix.platform }}" == "linux" ]]; then
-            shopt -s nullglob
-            appimage_files=(release-publish/Agent-Science-*-${{ matrix.arch }}.AppImage)
-            # electron-builder names Linux AppImages with x86_64 even when the matrix arch is x64.
-            if (( ${#appimage_files[@]} == 0 )); then
-              appimage_files=(release-publish/Agent-Science-*.AppImage)
-            fi
-            if (( ${#appimage_files[@]} > 0 )); then
-              cp "${appimage_files[0]}" release-publish/Agent-Science-linux-x64.AppImage
-            fi
-          fi
-
-          if [[ "${{ matrix.platform }}" == "win" ]]; then
-            shopt -s nullglob
-            exe_files=(release-publish/Agent-Science-*-${{ matrix.arch }}.exe)
-            if (( ${#exe_files[@]} > 0 )); then
-              cp "${exe_files[0]}" release-publish/Agent-Science-windows-x64.exe
             fi
           fi
 
@@ -288,8 +233,6 @@ jobs:
           files: |
             agentscience-app/release-assets/*.dmg
             agentscience-app/release-assets/*.zip
-            agentscience-app/release-assets/*.AppImage
-            agentscience-app/release-assets/*.exe
             agentscience-app/release-assets/*.blockmap
             agentscience-app/release-assets/latest*.yml
           fail_on_unmatched_files: true
