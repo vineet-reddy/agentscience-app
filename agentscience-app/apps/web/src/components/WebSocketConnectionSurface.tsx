@@ -43,7 +43,7 @@ function formatRetryCountdown(nextRetryAt: string, nowMs: number): string {
 }
 
 function describeOfflineToast(): string {
-  return "WebSocket disconnected. Waiting for network.";
+  return "AgentScience is waiting for an internet connection.";
 }
 
 function formatReconnectAttemptLabel(status: WsConnectionStatus): string {
@@ -55,15 +55,15 @@ function formatReconnectAttemptLabel(status: WsConnectionStatus): string {
 }
 
 function describeExhaustedToast(): string {
-  return "Retries exhausted trying to reconnect";
+  return "AgentScience is still trying to reconnect.";
 }
 
 function buildReconnectTitle(status: WsConnectionStatus): string {
-  if (status.nextRetryAt === null) {
-    return `Disconnected from ${APP_DISPLAY_NAME} Server`;
+  if (!status.hasConnected) {
+    return `Starting ${APP_DISPLAY_NAME}`;
   }
 
-  return `Disconnected from ${APP_DISPLAY_NAME} Server`;
+  return `Reconnecting ${APP_DISPLAY_NAME}`;
 }
 
 function describeRecoveredToast(
@@ -123,34 +123,38 @@ function buildBlockingCopy(
 } {
   if (uiState === "connecting") {
     return {
-      description: `Opening the WebSocket connection to the ${APP_DISPLAY_NAME} server and waiting for the initial config snapshot.`,
-      eyebrow: "Starting Session",
-      title: `Connecting to ${APP_DISPLAY_NAME}`,
+      description: `${APP_DISPLAY_NAME} is preparing your workspace and local tools. This usually takes a few seconds.`,
+      eyebrow: `Starting ${APP_DISPLAY_NAME}`,
+      title: "Opening your workspace",
     };
   }
 
   if (uiState === "offline") {
     return {
       description:
-        `Your browser is offline, so the web client cannot reach the ${APP_DISPLAY_NAME} server. Reconnect to the network and the app will retry automatically.`,
+        `${APP_DISPLAY_NAME} is open, but this window cannot finish reconnecting while your Mac is offline. Reconnect to the internet and the app will recover automatically.`,
       eyebrow: "Offline",
-      title: "WebSocket connection unavailable",
+      title: "Waiting for an internet connection",
     };
   }
 
   if (status.lastError?.trim()) {
     return {
-      description: `${status.lastError} Verify that the ${APP_DISPLAY_NAME} server is running and reachable, then reload the app if needed.`,
-      eyebrow: "Connection Error",
-      title: `Cannot reach the ${APP_DISPLAY_NAME} server`,
+      description: status.hasConnected
+        ? `${APP_DISPLAY_NAME} lost its connection to the local app service and is retrying automatically. Reload the app if this keeps happening.`
+        : `${APP_DISPLAY_NAME} is still starting its local app service. Reload the app if this keeps happening.`,
+      eyebrow: status.hasConnected ? "Reconnecting" : "Still starting",
+      title: status.hasConnected
+        ? `${APP_DISPLAY_NAME} is reconnecting`
+        : `${APP_DISPLAY_NAME} is taking longer than expected`,
     };
   }
 
   return {
     description:
-      `The web client could not complete its initial WebSocket connection to the ${APP_DISPLAY_NAME} server. It will keep retrying in the background.`,
-    eyebrow: "Connection Error",
-    title: `Cannot reach the ${APP_DISPLAY_NAME} server`,
+      `${APP_DISPLAY_NAME} has not finished connecting to its local app service yet. It will keep retrying in the background.`,
+    eyebrow: "Still starting",
+    title: `${APP_DISPLAY_NAME} is taking longer than expected`,
   };
 }
 
@@ -227,10 +231,12 @@ function WebSocketBlockingState({
             </p>
             <p className="mt-1 font-medium text-foreground">
               {uiState === "connecting"
-                ? "Opening WebSocket"
+                ? "Preparing the app"
                 : uiState === "offline"
                   ? "Waiting for network"
-                  : "Retrying server connection"}
+                  : status.hasConnected
+                    ? "Reconnecting in the background"
+                    : "Starting local services"}
             </p>
           </div>
           <div>
@@ -244,14 +250,14 @@ function WebSocketBlockingState({
         <div className="mt-5 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => window.location.reload()}>
             <RotateCw />
-            Reload app
+            Reload AgentScience
           </Button>
         </div>
 
         <details className="group mt-5 overflow-hidden rounded-lg border border-border/70 bg-background/55">
           <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-muted-foreground">
-            <span className="group-open:hidden">Show connection details</span>
-            <span className="hidden group-open:inline">Hide connection details</span>
+            <span className="group-open:hidden">Show troubleshooting details</span>
+            <span className="hidden group-open:inline">Hide troubleshooting details</span>
           </summary>
           <pre className="max-h-56 overflow-auto border-t border-border/70 bg-background/80 px-3 py-2 text-xs text-foreground/85">
             {buildConnectionDetails(status, uiState)}
@@ -287,7 +293,7 @@ export function WebSocketConnectionCoordinator() {
         toastManager.add({
           type: "error",
           title: "Reconnect failed",
-          description: error instanceof Error ? error.message : "Unable to restart the WebSocket.",
+          description: error instanceof Error ? error.message : "Unable to restart the connection.",
           data: {
             dismissAfterVisibleMs: 8_000,
             hideCopyButton: true,
@@ -403,7 +409,7 @@ export function WebSocketConnectionCoordinator() {
               hideCopyButton: true,
             },
           }
-        : shouldShowExhaustedToast
+          : shouldShowExhaustedToast
           ? {
               actionProps: {
                 children: "Retry",
@@ -411,7 +417,7 @@ export function WebSocketConnectionCoordinator() {
               },
               description: describeExhaustedToast(),
               timeout: 0,
-              title: "Disconnected from T3 Server",
+              title: `${APP_DISPLAY_NAME} needs attention`,
               type: "error" as const,
               data: {
                 hideCopyButton: true,
@@ -449,12 +455,12 @@ export function WebSocketConnectionCoordinator() {
       (previousUiState === "offline" || previousUiState === "reconnecting") &&
       previousDisconnectedAt !== null
     ) {
-      const successToast = {
-        description: describeRecoveredToast(previousDisconnectedAt, status.connectedAt),
-        title: "Reconnected to T3 Server",
-        type: "success" as const,
-        timeout: 0,
-        data: {
+        const successToast = {
+          description: describeRecoveredToast(previousDisconnectedAt, status.connectedAt),
+          title: `${APP_DISPLAY_NAME} reconnected`,
+          type: "success" as const,
+          timeout: 0,
+          data: {
           dismissAfterVisibleMs: 8_000,
           hideCopyButton: true,
         },

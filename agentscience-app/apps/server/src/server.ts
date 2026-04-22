@@ -4,6 +4,7 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
+  desktopReadyRouteLayer,
   datasetProvidersRouteLayer,
   datasetRegistryRouteLayer,
   datasetTopicsRouteLayer,
@@ -270,6 +271,7 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
 );
 
 export const makeRoutesLayer = Layer.mergeAll(
+  desktopReadyRouteLayer,
   attachmentsRouteLayer,
   // Longer paths must be registered before shorter ones so exact-match routing
   // picks the more specific handler (e.g. /providers wins over /registry).

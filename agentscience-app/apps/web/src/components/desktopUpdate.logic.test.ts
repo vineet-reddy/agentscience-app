@@ -303,6 +303,18 @@ describe("shouldOfferReleaseDownload", () => {
     ).toBe(true);
   });
 
+  it("offers the latest release link when automatic install is unavailable on macOS", () => {
+    expect(
+      shouldOfferReleaseDownload({
+        ...baseState,
+        enabled: false,
+        status: "disabled",
+        message:
+          "This Mac build was released without Apple Developer signing, so AgentScience cannot install updates automatically yet. Download the latest release instead.",
+      }),
+    ).toBe(true);
+  });
+
   it("does not offer the latest release link for packaged builds", () => {
     expect(
       shouldOfferReleaseDownload({

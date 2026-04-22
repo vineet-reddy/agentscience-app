@@ -97,8 +97,13 @@ const DEFAULT_STANDALONE_CODEX_HOME_PATH = resolveDefaultDesktopCodexHomePath(
 );
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const BACKEND_READY_PATH = "/api/desktop/ready";
+const BACKEND_READY_RETRY_DELAY_MS = 250;
+const BACKEND_READY_REQUEST_TIMEOUT_MS = 1_500;
+const BACKEND_READY_TIMEOUT_MS = 45_000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
+const AGENTSCIENCE_RELEASES_URL = "https://github.com/vineet-reddy/agentscience-app/releases/latest";
 const MAC_APP_ICON_BASENAME = "app-icon";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
@@ -265,6 +270,64 @@ function formatErrorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function resolvePackagedAppBundlePath(): string | null {
+  if (!app.isPackaged || process.platform !== "darwin") {
+    return null;
+  }
+
+  return Path.dirname(Path.dirname(Path.dirname(app.getPath("exe"))));
+}
+
+let macAutoUpdateDisabledReasonCache: string | null | undefined;
+
+function resolveMacAutoUpdateDisabledReason(): string | null {
+  if (process.platform !== "darwin" || !app.isPackaged) {
+    return null;
+  }
+  if (macAutoUpdateDisabledReasonCache !== undefined) {
+    return macAutoUpdateDisabledReasonCache;
+  }
+
+  const appBundlePath = resolvePackagedAppBundlePath();
+  if (!appBundlePath) {
+    macAutoUpdateDisabledReasonCache = null;
+    return null;
+  }
+
+  try {
+    const result = ChildProcess.spawnSync("codesign", ["-dv", "--verbose=4", appBundlePath], {
+      encoding: "utf8",
+    });
+    const report = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0 && report.trim().length === 0) {
+      throw new Error(`codesign exited with status ${result.status ?? "unknown"}`);
+    }
+
+    if (/Signature=adhoc/i.test(report) || /TeamIdentifier=not set/i.test(report)) {
+      macAutoUpdateDisabledReasonCache =
+        "This Mac build was released without Apple Developer signing, so AgentScience cannot install updates automatically yet. Download the latest release instead.";
+      return macAutoUpdateDisabledReasonCache;
+    }
+
+    macAutoUpdateDisabledReasonCache = null;
+    return null;
+  } catch (error) {
+    macAutoUpdateDisabledReasonCache =
+      "AgentScience could not verify this Mac build for automatic installs. Download the latest release instead.";
+    console.warn("[desktop-updater] Failed to inspect macOS code signature", error);
+    return macAutoUpdateDisabledReasonCache;
+  }
 }
 
 function getSafeExternalUrl(rawUrl: unknown): string | null {
@@ -653,22 +716,25 @@ function dispatchMenuAction(action: string): void {
 }
 
 function handleCheckForUpdatesMenuClick(): void {
-  const disabledReason = getAutoUpdateDisabledReason({
-    isDevelopment,
-    isPackaged: app.isPackaged,
-    platform: process.platform,
-    appImage: process.env.APPIMAGE,
-    disabledByEnv: process.env.AGENTSCIENCE_DISABLE_AUTO_UPDATE === "1",
-  });
+  const disabledReason = resolveAutoUpdateDisabledReason();
   if (disabledReason) {
     console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
-    void dialog.showMessageBox({
+    void dialog
+      .showMessageBox({
       type: "info",
       title: "Updates unavailable",
       message: "Automatic updates are not available right now.",
       detail: disabledReason,
-      buttons: ["OK"],
-    });
+      buttons:
+        /download the latest release/i.test(disabledReason) ? ["Open latest release", "OK"] : ["OK"],
+      defaultId: 0,
+      cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (/download the latest release/i.test(disabledReason) && response === 0) {
+          void shell.openExternal(AGENTSCIENCE_RELEASES_URL);
+        }
+      });
     return;
   }
 
@@ -688,6 +754,29 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       message: `AgentScience ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
+  } else if (updateState.status === "available") {
+    dispatchMenuAction("open-updates");
+    void dialog.showMessageBox({
+      type: "info",
+      title: "Update available",
+      message: `AgentScience ${updateState.availableVersion ?? "update"} is ready to download.`,
+      detail:
+        "Open Settings to download the latest app bundle. App updates include the bundled CLI and shared personality.",
+      buttons: ["OK"],
+    });
+  } else if (updateState.status === "downloaded") {
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      title: "Update ready to install",
+      message: `AgentScience ${updateState.downloadedVersion ?? "update"} has finished downloading.`,
+      detail: "Restart AgentScience to finish installing the new app bundle.",
+      buttons: ["Install and Restart", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) {
+      await installDownloadedUpdate();
+    }
   } else if (updateState.status === "error") {
     void dialog.showMessageBox({
       type: "warning",
@@ -880,7 +969,7 @@ function setUpdateState(patch: Partial<DesktopUpdateState>): void {
   emitUpdateState();
 }
 
-function shouldEnableAutoUpdates(): boolean {
+function resolveAutoUpdateDisabledReason(): string | null {
   return (
     getAutoUpdateDisabledReason({
       isDevelopment,
@@ -888,7 +977,7 @@ function shouldEnableAutoUpdates(): boolean {
       platform: process.platform,
       appImage: process.env.APPIMAGE,
       disabledByEnv: process.env.AGENTSCIENCE_DISABLE_AUTO_UPDATE === "1",
-    }) === null
+    }) ?? resolveMacAutoUpdateDisabledReason()
   );
 }
 
@@ -971,11 +1060,13 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
 }
 
 function configureAutoUpdater(): void {
-  const enabled = shouldEnableAutoUpdates();
+  const disabledReason = resolveAutoUpdateDisabledReason();
+  const enabled = disabledReason === null;
   setUpdateState({
     ...createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo),
     enabled,
     status: enabled ? "idle" : "disabled",
+    message: disabledReason,
   });
   if (!enabled) {
     return;
@@ -1469,7 +1560,125 @@ function getIconOption(): { icon: string } | Record<string, never> {
   return iconPath ? { icon: iconPath } : {};
 }
 
-function createWindow(): BrowserWindow {
+function resolveAppShellUrl(): string {
+  return isDevelopment ? (process.env.VITE_DEV_SERVER_URL as string) : `${DESKTOP_SCHEME}://app/index.html`;
+}
+
+function resolveDesktopBootUrl(): string {
+  const bootHtml = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${APP_DISPLAY_NAME}</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f5f5f5;
+        color: #1a1a1a;
+      }
+      main {
+        width: min(32rem, calc(100vw - 3rem));
+        padding: 2rem;
+      }
+      h1 {
+        margin: 0;
+        font-family: "EB Garamond", Georgia, serif;
+        font-size: 2.5rem;
+        font-weight: 400;
+        line-height: 1.05;
+      }
+      p {
+        margin: 0.9rem 0 0;
+        max-width: 28rem;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: #6e6e6e;
+      }
+      .rule {
+        margin-top: 1.5rem;
+        width: 5rem;
+        height: 1px;
+        background: #e5e5e5;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #151515;
+          color: #f5f5f5;
+        }
+        p {
+          color: #b4b4b4;
+        }
+        .rule {
+          background: #303030;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Starting AgentScience</h1>
+      <p>Preparing your workspace and local tools. This usually takes a few seconds.</p>
+      <div class="rule"></div>
+    </main>
+  </body>
+</html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(bootHtml)}`;
+}
+
+function resolveBackendReadyUrl(): string {
+  return `http://127.0.0.1:${backendPort}${BACKEND_READY_PATH}`;
+}
+
+async function waitForBackendReady(): Promise<void> {
+  const deadline = Date.now() + BACKEND_READY_TIMEOUT_MS;
+  let lastErrorMessage: string | null = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(resolveBackendReadyUrl(), {
+        cache: "no-store",
+        signal: AbortSignal.timeout(BACKEND_READY_REQUEST_TIMEOUT_MS),
+      });
+      if (response.ok) {
+        return;
+      }
+      lastErrorMessage = `Startup check returned ${response.status}.`;
+    } catch (error) {
+      lastErrorMessage = formatErrorMessage(error);
+    }
+
+    await sleep(BACKEND_READY_RETRY_DELAY_MS);
+  }
+
+  throw new Error(
+    lastErrorMessage
+      ? `AgentScience took too long to start. ${lastErrorMessage}`
+      : "AgentScience took too long to start.",
+  );
+}
+
+function loadAppShell(window: BrowserWindow): void {
+  if (window.isDestroyed()) {
+    return;
+  }
+
+  void window.loadURL(resolveAppShellUrl());
+  if (isDevelopment && !window.webContents.isDevToolsOpened()) {
+    window.webContents.openDevTools({ mode: "detach" });
+  }
+}
+
+function createWindow(options?: { readonly loadAppImmediately?: boolean }): BrowserWindow {
+  const loadAppImmediately = options?.loadAppImmediately ?? true;
   const window = new BrowserWindow({
     width: 1100,
     height: 780,
@@ -1544,11 +1753,10 @@ function createWindow(): BrowserWindow {
     window.show();
   });
 
-  if (isDevelopment) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
-    window.webContents.openDevTools({ mode: "detach" });
+  if (loadAppImmediately) {
+    loadAppShell(window);
   } else {
-    void window.loadURL(`${DESKTOP_SCHEME}://app/index.html`);
+    void window.loadURL(resolveDesktopBootUrl());
   }
 
   window.on("closed", () => {
@@ -1584,8 +1792,14 @@ async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
-  mainWindow = createWindow();
+  mainWindow = createWindow({ loadAppImmediately: false });
   writeDesktopLogHeader("bootstrap main window created");
+  await waitForBackendReady();
+  writeDesktopLogHeader("bootstrap backend ready confirmed");
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    loadAppShell(mainWindow);
+    writeDesktopLogHeader("bootstrap app shell loaded");
+  }
 }
 
 app.on("before-quit", () => {

@@ -114,6 +114,7 @@ export function shouldOfferReleaseDownload(state: DesktopUpdateState | null): bo
     state &&
       !state.enabled &&
       typeof state.message === "string" &&
-      /packaged production builds/i.test(state.message),
+      (/packaged production builds/i.test(state.message) ||
+        /download the latest release/i.test(state.message)),
   );
 }
