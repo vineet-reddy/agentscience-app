@@ -63,7 +63,7 @@ describe("datasetRegistry", () => {
 
   it("builds public source paper links against the AgentScience platform", () => {
     expect(resolveSourcePaperUrl({ slug: "climate-registry-paper" })).toBe(
-      "https://agentscience.vercel.app/papers/climate-registry-paper",
+      "https://agentscience.app/papers/climate-registry-paper",
     );
   });
 });

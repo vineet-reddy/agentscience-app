@@ -9,7 +9,7 @@
 import { Effect, FileSystem, Layer, LogLevel, Path, Schema, ServiceMap } from "effect";
 
 export const DEFAULT_PORT = 3773;
-export const DEFAULT_AGENTSCIENCE_BASE_URL = "https://agentscience.vercel.app";
+export const DEFAULT_AGENTSCIENCE_BASE_URL = "https://agentscience.app";
 
 export const RuntimeMode = Schema.Literals(["web", "desktop"]);
 export type RuntimeMode = typeof RuntimeMode.Type;

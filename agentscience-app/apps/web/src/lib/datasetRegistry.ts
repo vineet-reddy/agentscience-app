@@ -3,7 +3,7 @@ import { resolveServerUrl } from "./utils";
 const DATASET_REGISTRY_PROXY_PATH = "/api/datasets/registry";
 const DATASET_PROVIDERS_PROXY_PATH = "/api/datasets/registry/providers";
 const DATASET_TOPICS_PROXY_PATH = "/api/datasets/registry/topics";
-const DEFAULT_AGENTSCIENCE_BASE_URL = "https://agentscience.vercel.app";
+const DEFAULT_AGENTSCIENCE_BASE_URL = "https://agentscience.app";
 
 export type DatasetProviderSearchKind = "GRAPHQL" | "REST" | "HTML";
 
