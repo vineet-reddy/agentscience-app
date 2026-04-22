@@ -762,20 +762,20 @@ export function GeneralSettingsPanel() {
       if (nextStatus.updateAvailable || nextStatus.refreshRecommended) {
         toastManager.add({
           type: "warning",
-          title: "Background tools still need attention",
+          title: "Managed tools still need attention",
           description: "The update finished, but there are still details to review in Settings.",
         });
       } else {
         toastManager.add({
           type: "success",
-          title: "Background tools updated",
+          title: "Managed tools updated",
           description: "This device is now up to date.",
         });
       }
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Unable to update background tools",
+        title: "Unable to update managed tools",
         description: toFriendlyAgentScienceUpdateErrorMessage(error),
       });
     } finally {

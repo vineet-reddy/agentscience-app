@@ -906,13 +906,27 @@ async function inspectThreadWorkspace(
   };
 }
 
-function compileEnv(pathDir: string | undefined): NodeJS.ProcessEnv | undefined {
-  if (!pathDir) {
-    return undefined;
-  }
+function compileEnv(
+  workspaceRoot: string,
+  pathDir: string | undefined,
+): NodeJS.ProcessEnv {
+  const cacheRoot = path.join(workspaceRoot, ".cache");
+  const configRoot = path.join(workspaceRoot, ".config");
+  const tmpRoot = path.join(workspaceRoot, ".tmp");
+  const texRoot = path.join(workspaceRoot, ".texlive");
+
   return {
     ...process.env,
-    PATH: `${pathDir}${path.delimiter}${process.env.PATH ?? ""}`,
+    ...(pathDir ? { PATH: `${pathDir}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
+    XDG_CACHE_HOME: cacheRoot,
+    XDG_CONFIG_HOME: configRoot,
+    TMPDIR: tmpRoot,
+    TEMP: tmpRoot,
+    TMP: tmpRoot,
+    TECTONIC_CACHE_DIR: path.join(cacheRoot, "tectonic"),
+    TEXMFVAR: path.join(texRoot, "texmf-var"),
+    TEXMFCONFIG: path.join(texRoot, "texmf-config"),
+    TEXMFHOME: path.join(texRoot, "texmf-home"),
   };
 }
 
@@ -922,7 +936,7 @@ async function runLatexBuild(input: {
   readonly bibliography: PaperReviewArtifact | null;
   readonly compiler: ResolvedCompiler & { kind: Exclude<PaperReviewCompilerKind, "none"> };
 }): Promise<{ outputExcerpt: string | null }> {
-  const env = compileEnv(input.compiler.pathDir);
+  const env = compileEnv(input.workspaceRoot, input.compiler.pathDir);
 
   if (input.compiler.kind === "managed-latexmk" || input.compiler.kind === "system-latexmk") {
     const result = await runProcess(

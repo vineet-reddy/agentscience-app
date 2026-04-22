@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { statSync } from "node:fs";
+import { join } from "node:path";
 
 import {
   AgentScienceRuntimeActionError,
@@ -19,10 +20,13 @@ const AGENTSCIENCE_RUNTIME_ACTION_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 const AGENTSCIENCE_INSTALLED_VERSION_TIMEOUT_MS = 10_000;
 const AGENTSCIENCE_INSTALLED_VERSION_MAX_BUFFER_BYTES = 512 * 1024;
 const MANAGED_CODEX_BINARY_ENV = "AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH";
+const MANAGED_PAPER_TOOLCHAIN_BIN_DIR_ENV = "AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR";
 const MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV = "AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR";
 const MANAGED_PYTHON_PATH_ENV = "AGENTSCIENCE_MANAGED_PYTHON_PATH";
 const DESKTOP_MANAGED_CLI_MISSING_MESSAGE =
   "This AgentScience app build is missing its bundled CLI. Reinstall the latest app.";
+const DESKTOP_MANAGED_PAPER_TOOLCHAIN_MISSING_MESSAGE =
+  "This AgentScience app build is missing its bundled paper compiler. Install the latest app release.";
 const DESKTOP_MANAGED_RUNTIME_MISSING_MESSAGE =
   "This AgentScience app build is missing its bundled scientific runtime. Install the latest app release.";
 
@@ -331,6 +335,23 @@ function isManagedDesktopCodexEnvironment(): boolean {
   return Boolean(normalizeNonEmptyString(process.env[MANAGED_CODEX_BINARY_ENV]));
 }
 
+function resolveManagedToolExecutableName(binaryName: string): string {
+  return process.platform === "win32" ? `${binaryName}.exe` : binaryName;
+}
+
+export function hasManagedPaperToolchain(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const binDir = normalizeNonEmptyString(env[MANAGED_PAPER_TOOLCHAIN_BIN_DIR_ENV]);
+  if (!binDir || !isDirectory(binDir)) {
+    return false;
+  }
+  return (
+    isFile(join(binDir, resolveManagedToolExecutableName("tectonic"))) &&
+    isFile(join(binDir, resolveManagedToolExecutableName("pdflatex")))
+  );
+}
+
 export function hasManagedScienceRuntime(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
@@ -566,6 +587,15 @@ function runAgentScienceRuntimeStatusCommand(
     if (isDesktopMode(config) && isManagedDesktopCodexEnvironment() && !hasManagedScienceRuntime()) {
       return Promise.resolve(
         createDesktopManagedRuntimeError(checkedAt, DESKTOP_MANAGED_RUNTIME_MISSING_MESSAGE),
+      );
+    }
+
+    if (isDesktopMode(config) && isManagedDesktopCodexEnvironment() && !hasManagedPaperToolchain()) {
+      return Promise.resolve(
+        createDesktopManagedRuntimeError(
+          checkedAt,
+          DESKTOP_MANAGED_PAPER_TOOLCHAIN_MISSING_MESSAGE,
+        ),
       );
     }
 

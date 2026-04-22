@@ -49,6 +49,7 @@ function buildWorkspaceLocalExecutionEnv(cwd: string): NodeJS.ProcessEnv {
     PIP_CACHE_DIR: join(cacheRoot, "pip"),
     UV_CACHE_DIR: join(cacheRoot, "uv"),
     PYTHONPYCACHEPREFIX: join(cacheRoot, "pycache"),
+    TECTONIC_CACHE_DIR: join(cacheRoot, "tectonic"),
     TEXMFVAR: join(texRoot, "texmf-var"),
     TEXMFCONFIG: join(texRoot, "texmf-config"),
     TEXMFHOME: join(texRoot, "texmf-home"),

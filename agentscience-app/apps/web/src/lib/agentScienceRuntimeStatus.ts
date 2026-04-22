@@ -13,7 +13,7 @@ export function describeAgentScienceRuntimeStatus(
   if (!status || status.state === "checking") {
     return {
       settingsTitle: "Checking on launch",
-      settingsDescription: "AgentScience is checking the background tools on this device.",
+      settingsDescription: "AgentScience is checking the managed tools in this app.",
       noticeTitle: null,
       noticeDescription: null,
     };
@@ -42,33 +42,33 @@ export function describeAgentScienceRuntimeStatus(
   if (status.refreshRecommended && status.updateAvailable) {
     return {
       settingsTitle: "Update ready",
-      settingsDescription: "A background-tools update is ready and setup will be refreshed too.",
-      noticeTitle: "Background tools update ready",
-      noticeDescription: "Open Settings to update the background tools.",
+      settingsDescription: "A managed-tools update is ready and setup will be refreshed too.",
+      noticeTitle: "Managed tools update ready",
+      noticeDescription: "Open Settings to update the managed tools.",
     };
   }
 
   if (status.refreshRecommended) {
     return {
       settingsTitle: "Refresh needed",
-      settingsDescription: "The background tools need a quick refresh on this device.",
-      noticeTitle: "Background tools need a refresh",
-      noticeDescription: "Open Settings to refresh the background tools.",
+      settingsDescription: "The managed tools need a quick refresh in this app.",
+      noticeTitle: "Managed tools need a refresh",
+      noticeDescription: "Open Settings to refresh the managed tools.",
     };
   }
 
   if (status.updateAvailable) {
     return {
       settingsTitle: "Update ready",
-      settingsDescription: "A background-tools update is ready for this device.",
-      noticeTitle: "Background tools update ready",
-      noticeDescription: "Open Settings to update the background tools.",
+      settingsDescription: "A managed-tools update is ready in this app.",
+      noticeTitle: "Managed tools update ready",
+      noticeDescription: "Open Settings to update the managed tools.",
     };
   }
 
   return {
     settingsTitle: "Up to date",
-    settingsDescription: "The background tools are up to date on this device.",
+    settingsDescription: "The managed tools bundled with this app are up to date.",
     noticeTitle: null,
     noticeDescription: null,
   };

@@ -4,6 +4,7 @@ import {
   createErroredAgentScienceRuntimeStatus,
   createInitialAgentScienceRuntimeStatus,
   createUnavailableAgentScienceRuntimeStatus,
+  hasManagedPaperToolchain,
   hasManagedScienceRuntime,
   parseAgentScienceRuntimeStatusJson,
   reconcileInstalledAgentScienceCliVersion,
@@ -217,6 +218,14 @@ describe("agentScienceRuntimeStatus", () => {
       hasManagedScienceRuntime({
         AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR: "/definitely/missing/bin",
         AGENTSCIENCE_MANAGED_PYTHON_PATH: "/definitely/missing/bin/python3",
+      }),
+    ).toBe(false);
+  });
+
+  it("requires a bundled paper toolchain when the desktop app advertises managed tooling", () => {
+    expect(
+      hasManagedPaperToolchain({
+        AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR: "/definitely/missing/bin",
       }),
     ).toBe(false);
   });

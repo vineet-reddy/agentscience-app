@@ -2,7 +2,14 @@
 
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -29,7 +36,9 @@ const PACKAGED_PINNED_DEPENDENCIES = {
   "@effect/platform-node-shared": "4.0.0-beta.43",
 } as const;
 const MANAGED_CODEX_RESOURCE_DIR = "codex-runtime";
+const MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR = "paper-toolchain";
 const MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR = "science-runtime";
+const MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION = "0.16.9";
 const MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG = "20260414";
 const MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION = "3.12.13";
 const MANAGED_SCIENCE_RUNTIME_UV_VERSION = "0.11.7";
@@ -79,6 +88,12 @@ interface ManagedScienceRuntimeTarget {
   readonly platformKey: string;
   readonly pythonTargetTriple: string;
   readonly uvTargetTriple: string;
+}
+
+interface ManagedPaperToolchainTarget {
+  readonly platformKey: string;
+  readonly tectonicArchiveName: string;
+  readonly tectonicSha256: string;
 }
 
 const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
@@ -728,6 +743,48 @@ function resolveManagedScienceRuntimeTargets(
   ];
 }
 
+function resolveManagedPaperToolchainTargets(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): ReadonlyArray<ManagedPaperToolchainTarget> {
+  if (platform !== "mac") {
+    return [];
+  }
+
+  if (arch === "arm64") {
+    return [
+      {
+        platformKey: "darwin-arm64",
+        tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-aarch64-apple-darwin.tar.gz`,
+        tectonicSha256: "edb67c61aba768289f6da441c9e6f523cfaff4f8b2a5708523ef29c543f8e88e",
+      },
+    ];
+  }
+
+  if (arch === "x64") {
+    return [
+      {
+        platformKey: "darwin-x64",
+        tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-x86_64-apple-darwin.tar.gz`,
+        tectonicSha256: "79d8839fa3594bfea9b2bf2ac0a0455bcc4d0de956a5e5c403107e9a72f79e86",
+      },
+    ];
+  }
+
+  return [
+    {
+      platformKey: "darwin-arm64",
+      tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-aarch64-apple-darwin.tar.gz`,
+      tectonicSha256: "edb67c61aba768289f6da441c9e6f523cfaff4f8b2a5708523ef29c543f8e88e",
+    },
+    {
+      platformKey: "darwin-x64",
+      tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-x86_64-apple-darwin.tar.gz`,
+      tectonicSha256: "79d8839fa3594bfea9b2bf2ac0a0455bcc4d0de956a5e5c403107e9a72f79e86",
+    },
+  ];
+}
+
 function resolveManagedSciencePythonArchiveName(target: ManagedScienceRuntimeTarget): string {
   return `cpython-${MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION}+${MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG}-${target.pythonTargetTriple}-install_only.tar.gz`;
 }
@@ -792,6 +849,93 @@ function buildManagedScienceRuntimeEnv(runtimeDir: string, cacheDir: string): No
   delete env.VIRTUAL_ENV;
   delete env.__PYVENV_LAUNCHER__;
   return env;
+}
+
+function writeExecutableScript(filePath: string, contents: string): void {
+  writeFileSync(filePath, `${contents}\n`, { mode: 0o755 });
+  chmodSync(filePath, 0o755);
+}
+
+function managedPaperCompileWrapperScript(): string {
+  return [
+    "#!/bin/sh",
+    "set -eu",
+    "",
+    'SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
+    'TECTONIC="$SELF_DIR/tectonic"',
+    "",
+    'if [ ! -x "$TECTONIC" ]; then',
+    '  echo "Missing bundled tectonic binary at $TECTONIC" >&2',
+    "  exit 1",
+    "fi",
+    "",
+    'outdir=""',
+    'input=""',
+    'while [ "$#" -gt 0 ]; do',
+    '  case "$1" in',
+    "    --version|-version|-v)",
+    '      exec "$TECTONIC" --version',
+    "      ;;",
+    "    -output-directory=*|-outdir=*)",
+    '      outdir=${1#*=}',
+    "      ;;",
+    "    -output-directory|-outdir)",
+    "      shift",
+    '      if [ "$#" -eq 0 ]; then',
+    '        echo "Missing output directory." >&2',
+    "        exit 2",
+    "      fi",
+    '      outdir="$1"',
+    "      ;;",
+    "    -interaction=*|-halt-on-error|-file-line-error|-pdf|-quiet|-cd|-f|-g|-shell-escape|-no-shell-escape|-recorder|-emulate-aux-dir|-aux-directory=*|-jobname=*|-synctex=*)",
+    "      ;;",
+    "    -*)",
+    "      ;;",
+    "    *)",
+    '      if [ -z "$input" ]; then',
+    '        input="$1"',
+    "      fi",
+    "      ;;",
+    "  esac",
+    "  shift",
+    "done",
+    "",
+    'if [ -z "$input" ]; then',
+    '  echo "No LaTeX source provided." >&2',
+    "  exit 2",
+    "fi",
+    "",
+    'if [ -n "$outdir" ]; then',
+    '  exec "$TECTONIC" -X compile --keep-intermediates --keep-logs --outdir "$outdir" "$input"',
+    "fi",
+    "",
+    'exec "$TECTONIC" -X compile --keep-intermediates --keep-logs "$input"',
+  ].join("\n");
+}
+
+function managedPaperBibtexWrapperScript(): string {
+  return [
+    "#!/bin/sh",
+    "set -eu",
+    "",
+    'SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
+    'TECTONIC="$SELF_DIR/tectonic"',
+    "",
+    'case "${1:-}" in',
+    "  --version|-version|-v)",
+    '    exec "$TECTONIC" --version',
+    "    ;;",
+    "esac",
+    "",
+    "# Tectonic already performs the necessary BibTeX passes during compile.",
+    "exit 0",
+  ].join("\n");
+}
+
+function stageManagedPaperToolchainShims(binDir: string): void {
+  writeExecutableScript(join(binDir, "latexmk"), managedPaperCompileWrapperScript());
+  writeExecutableScript(join(binDir, "pdflatex"), managedPaperCompileWrapperScript());
+  writeExecutableScript(join(binDir, "bibtex"), managedPaperBibtexWrapperScript());
 }
 
 function toBunInstallTargetOs(platform: typeof BuildPlatform.Type): "darwin" | "linux" | "win32" {
@@ -1173,6 +1317,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.platform,
     options.arch,
   );
+  yield* bundleManagedPaperToolchain(
+    stageManagedResourcesDir,
+    options.platform,
+    options.arch,
+    options.verbose,
+  );
   yield* bundleManagedScienceRuntime(
     stageManagedResourcesDir,
     options.platform,
@@ -1292,6 +1442,88 @@ const bundleManagedCodexRuntime = Effect.fn("bundleManagedCodexRuntime")(functio
     }
 
     yield* fs.copy(sourceDir, path.join(runtimeRoot, target.targetTriple));
+  }
+});
+
+const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(function* (
+  stageManagedResourcesDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+  verbose: boolean,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const toolchainTargets = resolveManagedPaperToolchainTargets(platform, arch);
+
+  if (toolchainTargets.length === 0) {
+    return;
+  }
+
+  const toolchainRoot = path.join(stageManagedResourcesDir, MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR);
+  yield* fs.makeDirectory(toolchainRoot, { recursive: true });
+
+  const releaseBaseUrl =
+    `https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}`;
+  const tempRoot = mkdtempSync(join(tmpdir(), "agentscience-managed-paper-toolchain-"));
+
+  try {
+    for (const target of toolchainTargets) {
+      const targetTempDir = path.join(tempRoot, target.platformKey);
+      const targetToolchainDir = path.join(toolchainRoot, target.platformKey);
+      const targetBinDir = path.join(targetToolchainDir, "bin");
+      const archivePath = path.join(targetTempDir, target.tectonicArchiveName);
+      const extractedBinaryPath = path.join(targetTempDir, "tectonic");
+      const packagedBinaryPath = path.join(targetBinDir, "tectonic");
+
+      yield* fs.makeDirectory(targetTempDir, { recursive: true });
+
+      runCheckedCommand({
+        command: "curl",
+        args: [
+          "--fail",
+          "--location",
+          "--retry",
+          "3",
+          "--output",
+          archivePath,
+          `${releaseBaseUrl}/${target.tectonicArchiveName}`,
+        ],
+        verbose,
+      });
+      assertSha256(archivePath, target.tectonicSha256);
+
+      yield* fs.remove(targetToolchainDir, { recursive: true, force: true }).pipe(Effect.ignore);
+      yield* fs.makeDirectory(targetBinDir, { recursive: true });
+
+      runCheckedCommand({
+        command: "tar",
+        args: ["-xzf", archivePath, "-C", targetTempDir],
+        verbose,
+      });
+
+      if (!(yield* fs.exists(extractedBinaryPath))) {
+        return yield* new BuildScriptError({
+          message: `Missing extracted tectonic binary at ${extractedBinaryPath}.`,
+        });
+      }
+
+      yield* fs.copyFile(extractedBinaryPath, packagedBinaryPath);
+      chmodSync(packagedBinaryPath, 0o755);
+      stageManagedPaperToolchainShims(targetBinDir);
+
+      runCheckedCommand({
+        command: packagedBinaryPath,
+        args: ["--version"],
+        verbose,
+      });
+    }
+  } catch (cause) {
+    return yield* new BuildScriptError({
+      message: "Failed to bundle the managed paper toolchain.",
+      cause,
+    });
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });
 

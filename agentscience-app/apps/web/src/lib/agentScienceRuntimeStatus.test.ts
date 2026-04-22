@@ -18,7 +18,7 @@ describe("agentScienceRuntimeStatus", () => {
 
     expect(describeAgentScienceRuntimeStatus(status).settingsTitle).toBe("Checking on launch");
     expect(describeAgentScienceRuntimeStatus(status).settingsDescription).toBe(
-      "AgentScience is checking the background tools on this device.",
+      "AgentScience is checking the managed tools in this app.",
     );
     expect(shouldShowAgentScienceRuntimeNotice(status)).toBe(false);
   });
@@ -35,9 +35,9 @@ describe("agentScienceRuntimeStatus", () => {
 
     expect(describeAgentScienceRuntimeStatus(status)).toEqual({
       settingsTitle: "Update ready",
-      settingsDescription: "A background-tools update is ready for this device.",
-      noticeTitle: "Background tools update ready",
-      noticeDescription: "Open Settings to update the background tools.",
+      settingsDescription: "A managed-tools update is ready in this app.",
+      noticeTitle: "Managed tools update ready",
+      noticeDescription: "Open Settings to update the managed tools.",
     });
     expect(shouldShowAgentScienceRuntimeNotice(status)).toBe(true);
   });
@@ -54,9 +54,9 @@ describe("agentScienceRuntimeStatus", () => {
 
     expect(describeAgentScienceRuntimeStatus(status)).toEqual({
       settingsTitle: "Refresh needed",
-      settingsDescription: "The background tools need a quick refresh on this device.",
-      noticeTitle: "Background tools need a refresh",
-      noticeDescription: "Open Settings to refresh the background tools.",
+      settingsDescription: "The managed tools need a quick refresh in this app.",
+      noticeTitle: "Managed tools need a refresh",
+      noticeDescription: "Open Settings to refresh the managed tools.",
     });
     expect(shouldShowAgentScienceRuntimeNotice(status)).toBe(true);
   });
@@ -73,7 +73,7 @@ describe("agentScienceRuntimeStatus", () => {
 
     expect(describeAgentScienceRuntimeStatus(status)).toEqual({
       settingsTitle: "Up to date",
-      settingsDescription: "The background tools are up to date on this device.",
+      settingsDescription: "The managed tools bundled with this app are up to date.",
       noticeTitle: null,
       noticeDescription: null,
     });
