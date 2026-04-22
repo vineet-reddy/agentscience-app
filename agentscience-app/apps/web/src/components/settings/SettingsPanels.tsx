@@ -368,6 +368,17 @@ function AboutPersonalityTitle({ versionLabel }: { versionLabel: string | null }
   );
 }
 
+function AboutCliTitle({ versionLabel }: { versionLabel: string | null }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>Bundled CLI</span>
+      {versionLabel ? (
+        <code className="text-[11px] font-medium text-muted-foreground">{versionLabel}</code>
+      ) : null}
+    </span>
+  );
+}
+
 function AboutVersionSection() {
   const queryClient = useQueryClient();
   const updateStateQuery = useDesktopUpdateState();
@@ -484,7 +495,7 @@ function AboutVersionSection() {
       ? "This development build does not update itself."
       : action === "download" || action === "install"
       ? "Update available."
-      : "Current version of the application.";
+      : "Current app bundle. App updates include the bundled CLI and shared personality.";
 
   return (
     <SettingsRow
@@ -927,6 +938,8 @@ export function GeneralSettingsPanel() {
   const runtimePersonalityHash = runtimePersonality?.contentHash ?? null;
   const agentScienceRuntime = serverRuntime?.agentScience ?? null;
   const agentScienceRuntimeDescriptor = describeAgentScienceRuntimeStatus(agentScienceRuntime);
+  const bundledCliVersionLabel = getProviderVersionLabel(agentScienceRuntime?.cli?.version);
+  const bundledCliLatestVersionLabel = getProviderVersionLabel(agentScienceRuntime?.cli?.latestVersion);
   return (
     <SettingsPageContainer>
       <SettingsSection title="AgentScience account">
@@ -1701,6 +1714,28 @@ export function GeneralSettingsPanel() {
             ) : (
               <span className="block text-[11px] text-muted-foreground">
                 Resolving shared personality metadata...
+              </span>
+            )
+          }
+        />
+        <SettingsRow
+          title={<AboutCliTitle versionLabel={bundledCliVersionLabel} />}
+          description="Bundled agentscience CLI used for paper compilation, publishing, and runtime checks."
+          status={
+            bundledCliVersionLabel ? (
+              <>
+                <span className="block text-[11px] font-medium text-foreground">
+                  Included in this app bundle
+                </span>
+                <span className="mt-1 block text-[11px] text-muted-foreground">
+                  {bundledCliLatestVersionLabel && bundledCliLatestVersionLabel !== bundledCliVersionLabel
+                    ? `Latest available ${bundledCliLatestVersionLabel}.`
+                    : "Updated when the app bundle updates."}
+                </span>
+              </>
+            ) : (
+              <span className="block text-[11px] text-muted-foreground">
+                Resolving bundled CLI metadata...
               </span>
             )
           }
