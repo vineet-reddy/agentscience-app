@@ -30,7 +30,8 @@ import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import { UnifiedSettings } from "@agentscience/contracts/settings";
 
-export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
+export const COMPOSER_DRAFT_STORAGE_KEY = "agentscience:composer-drafts:v1";
+const LEGACY_COMPOSER_DRAFT_STORAGE_KEYS = ["t3code:composer-drafts:v1"] as const;
 const COMPOSER_DRAFT_STORAGE_VERSION = 3;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
@@ -41,6 +42,37 @@ const composerDebouncedStorage = createDebouncedStorage(
   typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
   COMPOSER_PERSIST_DEBOUNCE_MS,
 );
+const composerPersistStorage = {
+  async getItem(name: string): Promise<string | null> {
+    const currentValue = await composerDebouncedStorage.getItem(name);
+    if (currentValue !== null) {
+      return currentValue;
+    }
+    for (const legacyName of LEGACY_COMPOSER_DRAFT_STORAGE_KEYS) {
+      const legacyValue = await composerDebouncedStorage.getItem(legacyName);
+      if (legacyValue !== null) {
+        return legacyValue;
+      }
+    }
+    return null;
+  },
+  setItem(name: string, value: string): void {
+    composerDebouncedStorage.setItem(name, value);
+    for (const legacyName of LEGACY_COMPOSER_DRAFT_STORAGE_KEYS) {
+      if (legacyName !== name) {
+        composerDebouncedStorage.removeItem(legacyName);
+      }
+    }
+  },
+  removeItem(name: string): void {
+    composerDebouncedStorage.removeItem(name);
+    for (const legacyName of LEGACY_COMPOSER_DRAFT_STORAGE_KEYS) {
+      if (legacyName !== name) {
+        composerDebouncedStorage.removeItem(legacyName);
+      }
+    }
+  },
+};
 
 // Flush pending composer draft writes before page unload to prevent data loss.
 if (typeof window !== "undefined") {
@@ -2101,7 +2133,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
     {
       name: COMPOSER_DRAFT_STORAGE_KEY,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
-      storage: createJSONStorage(() => composerDebouncedStorage),
+      storage: createJSONStorage(() => composerPersistStorage),
       migrate: migratePersistedComposerDraftStoreState,
       partialize: partializeComposerDraftStoreState,
       merge: (persistedState, currentState) => {
