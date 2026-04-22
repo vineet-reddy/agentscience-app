@@ -851,6 +851,54 @@ function buildManagedScienceRuntimeEnv(runtimeDir: string, cacheDir: string): No
   return env;
 }
 
+function pruneManagedScienceRuntimeArtifacts(runtimeDir: string, verbose: boolean): void {
+  const searchRoots = [
+    join(runtimeDir, "lib"),
+    join(runtimeDir, "Lib"),
+  ].filter((candidate) => existsSync(candidate));
+
+  for (const searchRoot of searchRoots) {
+    runCheckedCommand({
+      command: "find",
+      args: [
+        searchRoot,
+        "(",
+        "-type",
+        "d",
+        "(",
+        "-name",
+        "__pycache__",
+        "-o",
+        "-name",
+        "tests",
+        "-o",
+        "-name",
+        "test",
+        "-o",
+        "-name",
+        "testing",
+        "-o",
+        "-name",
+        "benchmarks",
+        ")",
+        ")",
+        "-prune",
+        "-exec",
+        "rm",
+        "-rf",
+        "{}",
+        "+",
+      ],
+      verbose,
+    });
+    runCheckedCommand({
+      command: "find",
+      args: [searchRoot, "-type", "f", "(", "-name", "*.pyc", "-o", "-name", "*.pyo", ")", "-delete"],
+      verbose,
+    });
+  }
+}
+
 function writeExecutableScript(filePath: string, contents: string): void {
   writeFileSync(filePath, `${contents}\n`, { mode: 0o755 });
   chmodSync(filePath, 0o755);
@@ -1630,6 +1678,7 @@ const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(fun
           "pip",
           "install",
           "--no-cache-dir",
+          "--no-compile",
           "--upgrade",
           ...MANAGED_SCIENCE_RUNTIME_PACKAGE_SPECS,
         ],
@@ -1645,6 +1694,7 @@ const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(fun
         env: pythonEnv,
         verbose,
       });
+      pruneManagedScienceRuntimeArtifacts(targetRuntimeDir, verbose);
     }
   } catch (cause) {
     return yield* new BuildScriptError({
