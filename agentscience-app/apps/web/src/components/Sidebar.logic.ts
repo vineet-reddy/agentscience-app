@@ -22,6 +22,7 @@ export type ThreadTraversalDirection = "previous" | "next";
 
 export interface ThreadStatusPill {
   label:
+    | "Error"
     | "Working"
     | "Connecting"
     | "Completed"
@@ -45,6 +46,7 @@ export interface SidebarThreadEntryRecord<
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
+  Error: 6,
   "Pending Approval": 5,
   "Awaiting Input": 4,
   Working: 3,
@@ -324,11 +326,24 @@ export function resolveThreadStatusPill(input: {
 }): ThreadStatusPill | null {
   const { thread } = input;
 
+  if (
+    thread.session?.status === "error" ||
+    Boolean(thread.session?.lastError) ||
+    thread.latestTurn?.state === "error"
+  ) {
+    return {
+      label: "Error",
+      colorClass: "text-red-600 dark:text-red-300/90",
+      dotClass: "bg-red-500 dark:bg-red-300/90",
+      pulse: false,
+    };
+  }
+
   if (thread.hasPendingApprovals) {
     return {
       label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
+      colorClass: "text-violet-600 dark:text-violet-300/90",
+      dotClass: "bg-violet-500 dark:bg-violet-300/90",
       pulse: false,
     };
   }
@@ -336,8 +351,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPendingUserInput) {
     return {
       label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+      colorClass: "text-violet-600 dark:text-violet-300/90",
+      dotClass: "bg-violet-500 dark:bg-violet-300/90",
       pulse: false,
     };
   }
@@ -345,8 +360,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "running") {
     return {
       label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-orange-600 dark:text-orange-300/80",
+      dotClass: "bg-orange-500 dark:bg-orange-300/80",
       pulse: true,
     };
   }
@@ -354,8 +369,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "connecting") {
     return {
       label: "Connecting",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-orange-600 dark:text-orange-300/80",
+      dotClass: "bg-orange-500 dark:bg-orange-300/80",
       pulse: true,
     };
   }

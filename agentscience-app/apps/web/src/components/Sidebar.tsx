@@ -11,6 +11,7 @@ import {
   PencilIcon,
   PlusIcon,
   SettingsIcon,
+  Trash2Icon,
 } from "lucide-react";
 import {
   type DragEvent,
@@ -36,6 +37,8 @@ import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
   buildSidebarThreadEntries,
   type SidebarThreadEntryRecord,
+  resolveThreadStatusPill,
+  type ThreadStatusPill,
 } from "./Sidebar.logic";
 import { dispatchCommandAndSyncSnapshot } from "./Sidebar.rename";
 import { toastManager } from "./ui/toast";
@@ -81,6 +84,20 @@ interface CreateProjectDialogState {
   creating: boolean;
 }
 
+function ThreadStatusDot({ status }: { status: ThreadStatusPill | null }) {
+  if (!status) {
+    return null;
+  }
+
+  return (
+    <span
+      aria-label={status.label}
+      title={status.label}
+      className={cn("mt-1 size-2 shrink-0 rounded-full", status.dotClass, status.pulse && "animate-pulse")}
+    />
+  );
+}
+
 function deriveDraftTitle(prompt: string | undefined): string {
   const firstMeaningfulLine = prompt
     ?.split(/\r?\n/)
@@ -100,7 +117,7 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { handleNewThread, routeThreadId } = useHandleNewThread();
-  const { archiveThread, movePaper } = useThreadActions();
+  const { archiveThread, confirmAndDeleteThread, movePaper } = useThreadActions();
   const projects = useStore((state) => state.projects);
   const sidebarThreadsById = useStore((state) => state.sidebarThreadsById);
   const threadIdsByProjectId = useStore((state) => state.threadIdsByProjectId);
@@ -115,6 +132,9 @@ export default function Sidebar() {
     (state) => state.projectExpandedById,
   );
   const projectOrder = useUiStateStore((state) => state.projectOrder);
+  const threadLastVisitedAtById = useUiStateStore(
+    (state) => state.threadLastVisitedAtById,
+  );
   const setProjectExpanded = useUiStateStore(
     (state) => state.setProjectExpanded,
   );
@@ -225,6 +245,20 @@ export default function Sidebar() {
   }, [draftThreadsByThreadId, draftsByThreadId, visibleThreadsById]);
   const recentThreads = threadEntriesByProjectId.get(null) ?? [];
 
+  const resolveStatusForThread = (threadId: ThreadId): ThreadStatusPill | null => {
+    const thread = visibleThreadsById.get(threadId);
+    if (!thread) {
+      return null;
+    }
+
+    return resolveThreadStatusPill({
+      thread: {
+        ...thread,
+        lastVisitedAt: threadLastVisitedAtById[threadId],
+      },
+    });
+  };
+
   useEffect(() => {
     if (!contextMenu) {
       return;
@@ -328,6 +362,19 @@ export default function Sidebar() {
       toastManager.add({
         type: "error",
         title: "Failed to archive paper",
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
+
+  const handleDeleteThread = async (threadId: ThreadId) => {
+    setContextMenu(null);
+    try {
+      await confirmAndDeleteThread(threadId);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Failed to delete paper",
         description: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -539,6 +586,7 @@ export default function Sidebar() {
                   recentThreads.map((thread) => {
                     const isEditingThread =
                       editing?.kind === "thread" && editing.id === thread.id;
+                    const threadStatus = resolveStatusForThread(thread.id);
 
                     return (
                       <div
@@ -609,8 +657,11 @@ export default function Sidebar() {
                               />
                             ) : (
                               <>
-                                <div className="truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
-                                  {thread.title}
+                                <div className="flex items-start gap-2">
+                                  <div className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
+                                    {thread.title}
+                                  </div>
+                                  <ThreadStatusDot status={threadStatus} />
                                 </div>
                                 <div className="mt-1 text-xs text-sidebar-foreground/60">
                                   {formatRelativeTimeLabel(thread.timestamp)}
@@ -619,6 +670,32 @@ export default function Sidebar() {
                             )}
                           </div>
                         </button>
+                        {!isEditingThread && !thread.isDraft ? (
+                          <div className="flex items-center gap-0.5 pr-2 pt-2 opacity-0 transition-opacity group-hover/thread:opacity-100 group-focus-within/thread:opacity-100">
+                            <button
+                              type="button"
+                              className="inline-flex size-7 items-center justify-center rounded-md text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                              data-testid={`thread-archive-${thread.id}`}
+                              onClick={() => {
+                                void handleArchiveThread(thread.id);
+                              }}
+                              title="Archive paper"
+                            >
+                              <ArchiveIcon className="size-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex size-7 items-center justify-center rounded-md text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                              data-testid={`thread-delete-${thread.id}`}
+                              onClick={() => {
+                                void handleDeleteThread(thread.id);
+                              }}
+                              title="Delete paper"
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })
@@ -769,6 +846,7 @@ export default function Sidebar() {
                             editing?.kind === "thread" &&
                             editing.id === thread.id;
                           const canRenameThread = !thread.isDraft;
+                          const threadStatus = resolveStatusForThread(thread.id);
 
                           return (
                             <div
@@ -841,15 +919,18 @@ export default function Sidebar() {
                                     />
                                   ) : (
                                     <>
-                                      <div
-                                        className={cn(
-                                          "truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em]",
-                                          routeThreadId === thread.id
-                                            ? "text-sidebar-foreground"
-                                            : "text-sidebar-foreground",
-                                        )}
-                                      >
-                                        {thread.title}
+                                      <div className="flex items-start gap-2">
+                                        <div
+                                          className={cn(
+                                            "min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em]",
+                                            routeThreadId === thread.id
+                                              ? "text-sidebar-foreground"
+                                              : "text-sidebar-foreground",
+                                          )}
+                                        >
+                                          {thread.title}
+                                        </div>
+                                        <ThreadStatusDot status={threadStatus} />
                                       </div>
                                       <div
                                         className={cn(
@@ -889,12 +970,24 @@ export default function Sidebar() {
                                   <button
                                     type="button"
                                     className="inline-flex size-7 items-center justify-center rounded-md text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                                    data-testid={`thread-archive-${thread.id}`}
                                     onClick={() => {
                                       void handleArchiveThread(thread.id);
                                     }}
                                     title="Archive paper"
                                   >
                                     <ArchiveIcon className="size-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="inline-flex size-7 items-center justify-center rounded-md text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                                    data-testid={`thread-delete-${thread.id}`}
+                                    onClick={() => {
+                                      void handleDeleteThread(thread.id);
+                                    }}
+                                    title="Delete paper"
+                                  >
+                                    <Trash2Icon className="size-3.5" />
                                   </button>
                                 </div>
                               ) : null}
@@ -1035,6 +1128,15 @@ export default function Sidebar() {
             }}
           >
             Archive paper
+          </button>
+          <button
+            type="button"
+            className="flex w-full rounded-md px-3 py-2 text-left text-sm text-destructive hover:bg-accent"
+            onClick={() => {
+              void handleDeleteThread(contextMenu.threadId);
+            }}
+          >
+            Delete paper
           </button>
         </div>
       ) : null}

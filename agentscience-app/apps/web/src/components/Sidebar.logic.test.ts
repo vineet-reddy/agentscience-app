@@ -424,6 +424,22 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Pending Approval", pulse: false });
   });
 
+  it("shows error before any other status when the thread failed", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            orchestrationStatus: "error",
+            lastError: "The provider failed.",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Error", pulse: false });
+  });
+
   it("shows awaiting input when plan mode is blocked on user answers", () => {
     expect(
       resolveThreadStatusPill({
@@ -535,18 +551,24 @@ describe("resolveProjectStatusIndicator", () => {
         },
         {
           label: "Pending Approval",
-          colorClass: "text-amber-600",
-          dotClass: "bg-amber-500",
+          colorClass: "text-violet-600",
+          dotClass: "bg-violet-500",
+          pulse: false,
+        },
+        {
+          label: "Error",
+          colorClass: "text-red-600",
+          dotClass: "bg-red-500",
           pulse: false,
         },
         {
           label: "Working",
-          colorClass: "text-sky-600",
-          dotClass: "bg-sky-500",
+          colorClass: "text-orange-600",
+          dotClass: "bg-orange-500",
           pulse: true,
         },
       ]),
-    ).toMatchObject({ label: "Pending Approval", dotClass: "bg-amber-500" });
+    ).toMatchObject({ label: "Error", dotClass: "bg-red-500" });
   });
 
   it("prefers plan-ready over completed when no stronger action is needed", () => {
