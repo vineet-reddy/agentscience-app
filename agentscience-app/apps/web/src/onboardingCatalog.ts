@@ -1,5 +1,5 @@
 /**
- * Onboarding taxonomy: the 12–15 field chips shown in question 1, and the
+ * Onboarding taxonomy: the 12 to 15 field chips shown in question 1, and the
  * data-source chips shown in question 2 once a field is picked.
  *
  * Data-source chips deliberately conflate two things:

@@ -298,7 +298,7 @@ export const CURATED_SUGGESTED_QUESTIONS: ReadonlyArray<SuggestedQuestion> = [
   // ─── Clinical Epidemiology ──────────────────────────────────────────
   {
     id: "cep-01",
-    question: "Compare NHANES 2017–2020 fasting glucose trends across BMI quartiles.",
+    question: "Compare NHANES 2017-2020 fasting glucose trends across BMI quartiles.",
     sourceTag: "NHANES",
     requiredDataInterests: ["nhanes"],
     fields: ["clinical-epidemiology"],
@@ -483,7 +483,7 @@ export const CURATED_SUGGESTED_QUESTIONS: ReadonlyArray<SuggestedQuestion> = [
   },
   {
     id: "eco-econ-04",
-    question: "Using IPUMS USA, replicate the gender wage gap decomposition by industry, 2000–2020.",
+    question: "Using IPUMS USA, replicate the gender wage gap decomposition by industry, 2000 to 2020.",
     sourceTag: "IPUMS",
     requiredDataInterests: ["ipums"],
     fields: ["economics"],
@@ -491,7 +491,7 @@ export const CURATED_SUGGESTED_QUESTIONS: ReadonlyArray<SuggestedQuestion> = [
   },
   {
     id: "eco-econ-05",
-    question: "OECD productivity gap between manufacturing and services, 2010–2024.",
+    question: "OECD productivity gap between manufacturing and services, 2010 to 2024.",
     sourceTag: "OECD",
     requiredDataInterests: ["oecd"],
     fields: ["economics"],
@@ -543,7 +543,7 @@ export const CURATED_SUGGESTED_QUESTIONS: ReadonlyArray<SuggestedQuestion> = [
   // ─── Climate ────────────────────────────────────────────────────────
   {
     id: "cli-01",
-    question: "Pull ERA5 2-m temperature trends for major metro areas, 1994–2024.",
+    question: "Pull ERA5 2-m temperature trends for major metro areas, 1994 to 2024.",
     sourceTag: "ERA5",
     requiredDataInterests: ["era5"],
     fields: ["climate"],
@@ -567,7 +567,7 @@ export const CURATED_SUGGESTED_QUESTIONS: ReadonlyArray<SuggestedQuestion> = [
   },
   {
     id: "cli-04",
-    question: "Chart NOAA ocean-heat-content anomalies, 0–2000 m, since 2005.",
+    question: "Chart NOAA ocean-heat-content anomalies, 0 to 2000 m, since 2005.",
     sourceTag: "NOAA",
     requiredDataInterests: ["noaa"],
     fields: ["climate"],
@@ -626,7 +626,7 @@ export const CURATED_SUGGESTED_QUESTIONS: ReadonlyArray<SuggestedQuestion> = [
   },
   {
     id: "gen-fb-06",
-    question: "Plot OECD vs World Bank female labor participation, 2010–2024.",
+    question: "Plot OECD vs World Bank female labor participation, 2010 to 2024.",
     sourceTag: "OECD",
     requiredDataInterests: ["oecd", "world-bank"],
     fields: ["economics"],
