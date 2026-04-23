@@ -10,7 +10,6 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import * as Schema from "effect/Schema";
 import { useEffect, useEffectEvent, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
@@ -46,7 +45,6 @@ import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
-import { useLocalStorage } from "../hooks/useLocalStorage";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
@@ -71,18 +69,12 @@ export const Route = createRootRouteWithContext<{
   }),
 });
 
-const AGENTSCIENCE_CONNECT_SKIP_KEY = "agentscience:agentscience-connect-skipped:v1";
-
 function RootRouteView() {
   const navigate = useNavigate();
   const serverConfig = useServerConfig();
   const serverProviders = useServerProviders();
   const agentScienceAccount = useAgentScienceAccount();
-  const [agentScienceConnectSkipped, setAgentScienceConnectSkipped] = useLocalStorage(
-    AGENTSCIENCE_CONNECT_SKIP_KEY,
-    false,
-    Schema.Boolean,
-  );
+  const pathname = useLocation({ select: (loc) => loc.pathname });
 
   if (!readNativeApi()) {
     return (
@@ -101,21 +93,16 @@ function RootRouteView() {
 
   const codexProvider = serverProviders.find((provider) => provider.provider === "codex");
   const agentScienceStatus = agentScienceAccount.state?.status ?? "signed-out";
-  const shouldShowDesktopConnectionPortal =
-    isElectron && serverConfig !== null && codexProvider?.auth.status !== "authenticated";
+  const isSettingsRoute = pathname.startsWith("/settings");
   const shouldShowAgentScienceConnectionPortal =
+    isElectron && serverConfig !== null && agentScienceStatus !== "signed-in";
+  const shouldShowDesktopConnectionPortal =
     isElectron &&
     serverConfig !== null &&
-    codexProvider?.auth.status === "authenticated" &&
     !agentScienceAccount.isLoading &&
-    agentScienceStatus !== "signed-in" &&
-    (agentScienceStatus === "pending" || !agentScienceConnectSkipped);
-
-  useEffect(() => {
-    if (agentScienceStatus === "signed-in" && agentScienceConnectSkipped) {
-      setAgentScienceConnectSkipped(false);
-    }
-  }, [agentScienceConnectSkipped, agentScienceStatus, setAgentScienceConnectSkipped]);
+    agentScienceStatus === "signed-in" &&
+    !isSettingsRoute &&
+    codexProvider?.auth.status !== "authenticated";
 
   return (
     <ToastProvider>
@@ -140,12 +127,6 @@ function RootRouteView() {
               onStart={agentScienceAccount.startLogin}
               onCancel={agentScienceAccount.cancelLogin}
               onOpenBrowser={ensureNativeApi().shell.openExternal}
-              onSkip={() => {
-                setAgentScienceConnectSkipped(true);
-              }}
-              onOpenAdvanced={() => {
-                void navigate({ to: "/settings/general" });
-              }}
             />
           ) : (
             <AppSidebarLayout>

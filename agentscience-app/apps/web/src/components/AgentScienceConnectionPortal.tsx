@@ -12,9 +12,7 @@ import { toastManager } from "./ui/toast";
 interface AgentScienceConnectionPortalProps {
   readonly isLoading: boolean;
   readonly onCancel: () => Promise<AgentScienceAuthState>;
-  readonly onOpenAdvanced: () => void;
   readonly onOpenBrowser: (url: string) => Promise<void>;
-  readonly onSkip: () => void;
   readonly onStart: () => Promise<AgentScienceAuthState>;
   readonly state: AgentScienceAuthState | null;
 }
@@ -24,9 +22,7 @@ type Action = "cancel" | "open-browser" | "sign-in" | null;
 export function AgentScienceConnectionPortal({
   isLoading,
   onCancel,
-  onOpenAdvanced,
   onOpenBrowser,
-  onSkip,
   onStart,
   state,
 }: AgentScienceConnectionPortalProps) {
@@ -38,16 +34,17 @@ export function AgentScienceConnectionPortal({
   const status = state?.status ?? "signed-out";
   const isPending = status === "pending";
 
-  const title = isPending ? "Finish in your browser." : "Connect AgentScience.";
+  const title = isPending ? "Approve this device." : "Connect AgentScience.";
   const description = isPending
-    ? "Approve this Mac in your browser and AgentScience will connect automatically."
-    : "Link this Mac to your AgentScience account so local papers can publish from the app. You can skip for now and connect later in Settings.";
+    ? "Keep this window open while you approve the code in your browser."
+    : "Sign in or create an account so this Mac can publish papers and stay attached to your AgentScience identity.";
   const detail =
     status === "failed"
-      ? state?.message ?? "AgentScience accepted the device token, but the account could not be read."
+      ? (state?.message ??
+        "AgentScience accepted the device token, but the account could not be read.")
       : isPending
-        ? state?.verificationUrl ?? "agentscience.app"
-        : "You can disconnect or switch accounts later in Settings.";
+        ? (state?.verificationUrl ?? "agentscience.app")
+        : "The browser flow handles both sign-in and account creation.";
 
   const handleStart = async () => {
     setAction("sign-in");
@@ -114,7 +111,7 @@ export function AgentScienceConnectionPortal({
       <main className="flex flex-1 items-center px-8 py-10 sm:px-12">
         <div className="mx-auto w-full max-w-[760px]">
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-faint">
-            AgentScience account
+            Step 1 of 2
           </p>
           <div className="mt-6 max-w-[620px] space-y-4">
             <h1 className="font-display text-[3rem] leading-[1.04] text-ink sm:text-[3.5rem]">
@@ -136,7 +133,10 @@ export function AgentScienceConnectionPortal({
                     <>
                       {" "}
                       with code{" "}
-                      <span className="font-mono text-[0.8125rem] text-foreground">{state.code}</span>.
+                      <span className="font-mono text-[0.8125rem] text-foreground">
+                        {state.code}
+                      </span>
+                      .
                     </>
                   ) : (
                     "."
@@ -155,10 +155,14 @@ export function AgentScienceConnectionPortal({
                   size="sm"
                   disabled={action !== null || !state?.verificationUrl}
                   onClick={() =>
-                    state?.verificationUrl ? void handleOpenBrowser(state.verificationUrl) : undefined
+                    state?.verificationUrl
+                      ? void handleOpenBrowser(state.verificationUrl)
+                      : undefined
                   }
                 >
-                  {action === "open-browser" ? <LoaderIcon className="size-3 animate-spin" /> : null}
+                  {action === "open-browser" ? (
+                    <LoaderIcon className="size-3 animate-spin" />
+                  ) : null}
                   Open browser
                 </Button>
                 <Button
@@ -173,18 +177,16 @@ export function AgentScienceConnectionPortal({
               </>
             ) : (
               <>
-                <Button size="sm" disabled={action !== null || isLoading} onClick={() => void handleStart()}>
+                <Button
+                  size="sm"
+                  disabled={action !== null || isLoading}
+                  onClick={() => void handleStart()}
+                >
                   {action === "sign-in" ? <LoaderIcon className="size-3 animate-spin" /> : null}
-                  Sign in
-                </Button>
-                <Button size="sm" variant="outline" disabled={action !== null} onClick={onSkip}>
-                  Skip for now
+                  Continue with AgentScience
                 </Button>
               </>
             )}
-            <Button size="sm" variant="ghost" onClick={onOpenAdvanced}>
-              Settings
-            </Button>
           </div>
         </div>
       </main>
