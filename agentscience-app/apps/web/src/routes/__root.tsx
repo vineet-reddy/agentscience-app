@@ -18,6 +18,8 @@ import { APP_DISPLAY_NAME } from "../branding";
 import { AgentScienceConnectionPortal } from "../components/AgentScienceConnectionPortal";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { DesktopConnectionPortal } from "../components/DesktopConnectionPortal";
+import { OnboardingPortal } from "../components/OnboardingPortal";
+import { useOnboardingStore } from "../onboardingStore";
 import {
   SlowRpcAckToastCoordinator,
   WebSocketConnectionCoordinator,
@@ -104,6 +106,20 @@ function RootRouteView() {
     !isSettingsRoute &&
     codexProvider?.auth.status !== "authenticated";
 
+  // Onboarding sits between model-access connect and the workspace: the user
+  // is fully connected but hasn't yet told us which field / data they care
+  // about. Gate on client-only state so skipping never re-triggers the screen.
+  const onboardingSeen = useOnboardingStore(
+    (state) => state.completed || state.skipped,
+  );
+  const shouldShowOnboardingPortal =
+    !shouldShowAgentScienceConnectionPortal &&
+    !shouldShowDesktopConnectionPortal &&
+    !onboardingSeen &&
+    !isSettingsRoute &&
+    (!isElectron ||
+      (serverConfig !== null && codexProvider?.auth.status === "authenticated"));
+
   return (
     <ToastProvider>
       <AnchoredToastProvider>
@@ -127,6 +143,12 @@ function RootRouteView() {
               onStart={agentScienceAccount.startLogin}
               onCancel={agentScienceAccount.cancelLogin}
               onOpenBrowser={ensureNativeApi().shell.openExternal}
+            />
+          ) : shouldShowOnboardingPortal ? (
+            <OnboardingPortal
+              onComplete={() => {
+                void navigate({ to: "/", replace: true });
+              }}
             />
           ) : (
             <AppSidebarLayout>
