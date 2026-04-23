@@ -2,7 +2,7 @@
  * Per-thread empty state. Three zones, top to bottom, centered at 680px:
  *
  *   Zone 1: greeting (EB Garamond h1 + IBM Plex Sans subtext).
- *   Zone 2: primary list — research questions OR the user's own open loops.
+ *   Zone 2: primary list of research questions or the user's own open loops.
  *   Zone 3: connected datasets with Plex-Mono counts.
  *
  * All structure lives on thin 1px horizontal rules (`border-rule`). No cards.
@@ -21,10 +21,7 @@ import {
   useComposerDatasetMentionStore,
 } from "../composerDatasetMentionStore";
 import { useOnboardingStore } from "../onboardingStore";
-import {
-  GENERIC_DATA_INTERESTS,
-  resolveDataInterestChips,
-} from "../onboardingCatalog";
+import { OPEN_AUTO_CONNECT_DATASET_IDS } from "../onboardingCatalog";
 import {
   fetchDatasetProviders,
   fetchDatasetRegistry,
@@ -187,7 +184,9 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   }, [projects, threads]);
 
   const connectedDataInterests = useMemo<ReadonlyArray<string>>(() => {
-    return onboardingProfile.dataInterests;
+    return onboardingProfile.dataInterests.filter((id) =>
+      OPEN_AUTO_CONNECT_DATASET_IDS.has(id),
+    );
   }, [onboardingProfile.dataInterests]);
 
   const isFirstThreadPostOnboarding = useMemo(() => {
@@ -198,23 +197,6 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     );
     return threadsWithMessages.length === 0;
   }, [onboardingCompletedAt, onboardingSkipped, threadSummaries]);
-
-  const manualDatasetConnections = useMemo(() => {
-    // We treat any user interest not in the auto-connected set as a signal
-    // of a manual connection step. Heuristic; refine once we have real
-    // workspace dataset-connection events.
-    const auto = new Set(
-      onboardingProfile.autoConnectedDatasets.map((entry) => entry.slug),
-    );
-    return onboardingProfile.dataInterests.some((id) => {
-      const chip =
-        resolveDataInterestChips(onboardingProfile.field).find((c) => c.id === id) ??
-        GENERIC_DATA_INTERESTS.find((c) => c.id === id);
-      if (!chip) return false;
-      const slug = chip.datasetSlug ?? chip.providerSlug ?? null;
-      return slug !== null && !auto.has(slug);
-    });
-  }, [onboardingProfile.autoConnectedDatasets, onboardingProfile.dataInterests, onboardingProfile.field]);
 
   const presentation = useMemo(
     () =>
@@ -229,13 +211,12 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
         renderSalt,
         isFirstThreadPostOnboarding,
         welcomeGreetingConsumed,
-        manualDatasetConnections,
+        manualDatasetConnections: false,
       }),
     [
       connectedDataInterests,
       draftSummaries,
       isFirstThreadPostOnboarding,
-      manualDatasetConnections,
       onboardingProfile.dataInterests,
       onboardingProfile.field,
       projectSummaries,
@@ -252,7 +233,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   );
 
   // Case A can only fire once per account. Consume as soon as we actually
-  // paint it — no delay, no dwell time required. Runs in an effect so we
+  // paint it (no delay, no dwell time required). Runs in an effect so we
   // never touch another store during render.
   useEffect(() => {
     if (presentation.emptyStateCase !== "A") return;

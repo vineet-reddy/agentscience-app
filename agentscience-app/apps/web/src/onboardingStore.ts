@@ -2,7 +2,7 @@
  * Onboarding state, persisted to localStorage.
  *
  * This stays on the client by design. The spec asks for two tags on the user
- * profile — `field` and `data_interests` — but the server-side settings
+ * profile (`field` and `data_interests`), but the server-side settings
  * contract has no notion of user profile yet, and adding one here would
  * ripple through the contracts package, the desktop RPC, and the embedded
  * server. The onboarding flow is a local product decision: which screens do
@@ -17,6 +17,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type { FieldTag } from "./onboardingCatalog";
+import { resolveStorage } from "./lib/storage";
 
 export interface OnboardingProfile {
   /** Up to two field tags selected in question 1. */
@@ -31,12 +32,13 @@ export interface OnboardingProfile {
   /**
    * Dataset/provider slugs we pre-connected to the workspace based on the
    * data-interest selection. Text-only interests (own-lab, other) don't
-   * appear here — they're still in `dataInterests` for ranking signal.
+   * appear here; they're still in `dataInterests` for ranking signal.
    */
   autoConnectedDatasets: ReadonlyArray<{ kind: "dataset" | "provider"; slug: string }>;
 }
 
 export interface OnboardingState {
+  accountKey: string | null;
   completed: boolean;
   skipped: boolean;
   completedAt: string | null;
@@ -50,6 +52,7 @@ export interface OnboardingState {
   setAutoConnectedDatasets: (
     entries: ReadonlyArray<{ kind: "dataset" | "provider"; slug: string }>,
   ) => void;
+  syncAccount: (accountKey: string | null) => void;
   complete: (options?: { skipped?: boolean }) => void;
   markWelcomeGreetingConsumed: () => void;
   reset: () => void;
@@ -64,14 +67,21 @@ const EMPTY_PROFILE: OnboardingProfile = Object.freeze({
 
 const STORAGE_KEY = "agentscience:onboarding:v1";
 
+function buildEmptyOnboardingState(accountKey: string | null) {
+  return {
+    accountKey,
+    completed: false,
+    skipped: false,
+    completedAt: null,
+    welcomeGreetingConsumed: false,
+    profile: EMPTY_PROFILE,
+  };
+}
+
 export const useOnboardingStore = create<OnboardingState>()(
   persist(
     (set) => ({
-      completed: false,
-      skipped: false,
-      completedAt: null,
-      welcomeGreetingConsumed: false,
-      profile: EMPTY_PROFILE,
+      ...buildEmptyOnboardingState(null),
 
       setField: (field) => {
         const capped = field.slice(0, 2);
@@ -96,6 +106,15 @@ export const useOnboardingStore = create<OnboardingState>()(
           profile: { ...state.profile, autoConnectedDatasets: entries },
         }));
       },
+      syncAccount: (accountKey) => {
+        set((state) => {
+          const normalizedAccountKey = accountKey?.trim() || null;
+          if (state.accountKey === normalizedAccountKey) {
+            return state;
+          }
+          return buildEmptyOnboardingState(normalizedAccountKey);
+        });
+      },
       complete: (options) => {
         set(() => ({
           completed: true,
@@ -107,28 +126,17 @@ export const useOnboardingStore = create<OnboardingState>()(
         set(() => ({ welcomeGreetingConsumed: true }));
       },
       reset: () => {
-        set(() => ({
-          completed: false,
-          skipped: false,
-          completedAt: null,
-          welcomeGreetingConsumed: false,
-          profile: EMPTY_PROFILE,
-        }));
+        set((state) => buildEmptyOnboardingState(state.accountKey));
       },
     }),
     {
       name: STORAGE_KEY,
       storage: createJSONStorage(() =>
-        typeof localStorage !== "undefined"
-          ? localStorage
-          : {
-              getItem: () => null,
-              setItem: () => undefined,
-              removeItem: () => undefined,
-            },
+        resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       version: 1,
       partialize: (state) => ({
+        accountKey: state.accountKey,
         completed: state.completed,
         skipped: state.skipped,
         completedAt: state.completedAt,

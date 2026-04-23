@@ -101,6 +101,47 @@ describe("pickEmptyStatePresentation", () => {
     expect(result.suggestLinkOnly).toBe(false);
   });
 
+  it("Case C: an in-flight thread is enough to surface pick-up-where-you-left-off", () => {
+    const inFlightThread = baseThread({
+      id: ThreadId.makeUnsafe("thread-running"),
+      inFlight: true,
+      updatedAt: "2026-04-23T13:00:00.000Z",
+    });
+    const result = pickEmptyStatePresentation({
+      thisThreadId,
+      threads: [baseThread({ id: thisThreadId }), inFlightThread],
+      drafts: [],
+      projects: [],
+      fields: ["oncology"],
+      dataInterests: ["depmap"],
+      connectedDataInterests: ["depmap"],
+      renderSalt: 0,
+      isFirstThreadPostOnboarding: false,
+      welcomeGreetingConsumed: true,
+      manualDatasetConnections: false,
+    });
+    expect(result.emptyStateCase).toBe("C");
+    expect(result.items.some((item) => item.kind === "thread")).toBe(true);
+  });
+
+  it("Case C: an unsent draft is enough to surface pick-up-where-you-left-off", () => {
+    const result = pickEmptyStatePresentation({
+      thisThreadId,
+      threads: [baseThread({ id: thisThreadId })],
+      drafts: [baseDraft("draft-1")],
+      projects: [],
+      fields: ["oncology"],
+      dataInterests: ["depmap"],
+      connectedDataInterests: ["depmap"],
+      renderSalt: 0,
+      isFirstThreadPostOnboarding: false,
+      welcomeGreetingConsumed: true,
+      manualDatasetConnections: false,
+    });
+    expect(result.emptyStateCase).toBe("C");
+    expect(result.items.some((item) => item.kind === "draft")).toBe(true);
+  });
+
   it("Case C: with 3+ open drafts, suggestions hide behind the 'Suggest a question' link", () => {
     const drafts: DraftLikeSummary[] = [
       baseDraft("draft-1"),

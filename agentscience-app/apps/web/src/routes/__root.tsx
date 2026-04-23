@@ -109,9 +109,20 @@ function RootRouteView() {
   // Onboarding sits between model-access connect and the workspace: the user
   // is fully connected but hasn't yet told us which field / data they care
   // about. Gate on client-only state so skipping never re-triggers the screen.
-  const onboardingSeen = useOnboardingStore(
-    (state) => state.completed || state.skipped,
-  );
+  const onboardingAccountKey = agentScienceStatus === "signed-in"
+    ? (agentScienceAccount.state?.user?.id ?? null)
+    : null;
+  const onboardingStoreAccountKey = useOnboardingStore((state) => state.accountKey);
+  const onboardingSeenRaw = useOnboardingStore((state) => state.completed || state.skipped);
+  const syncOnboardingAccount = useOnboardingStore((state) => state.syncAccount);
+  const onboardingSeen =
+    onboardingStoreAccountKey === onboardingAccountKey && onboardingSeenRaw;
+  useEffect(() => {
+    if (agentScienceStatus === "signed-in" && onboardingAccountKey === null) {
+      return;
+    }
+    syncOnboardingAccount(onboardingAccountKey);
+  }, [agentScienceStatus, onboardingAccountKey, syncOnboardingAccount]);
   const shouldShowOnboardingPortal =
     !shouldShowAgentScienceConnectionPortal &&
     !shouldShowDesktopConnectionPortal &&

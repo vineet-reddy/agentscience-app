@@ -158,13 +158,17 @@ export function pickEmptyStatePresentation(
   );
   const activeProjects = projects.filter((project) => project.hasContent);
 
-  const hasGraduated =
-    threadsCompleted > 0 || activeProjects.length > 0 || manualDatasetConnections;
+  const hasOwnWork =
+    inflight.length > 0 ||
+    openDrafts.length > 0 ||
+    threadsCompleted > 0 ||
+    activeProjects.length > 0 ||
+    manualDatasetConnections;
 
   const caseD =
     threadsStarted >= CASE_D_THREAD_COUNT_THRESHOLD &&
     threadsCompleted === 0 &&
-    !hasGraduated;
+    !hasOwnWork;
 
   const suggestions = pickSuggestedQuestions({
     fields,
@@ -183,7 +187,7 @@ export function pickEmptyStatePresentation(
     };
   }
 
-  if (hasGraduated) {
+  if (hasOwnWork) {
     const ownItems = buildOwnWorkItems({
       inflightThreads: inflight,
       completedThreads: otherThreads.filter(
