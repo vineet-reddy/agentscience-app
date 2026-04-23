@@ -1,4 +1,4 @@
-import { type MessageId, type TurnId } from "@agentscience/contracts";
+import { type MessageId, type ThreadId, type TurnId } from "@agentscience/contracts";
 import {
   memo,
   useCallback,
@@ -61,6 +61,7 @@ import {
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
+import { ThreadEmptyState } from "../ThreadEmptyState";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
@@ -69,6 +70,12 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  /**
+   * Thread this timeline is rendering. Used for the richer empty-state
+   * surface (suggestions, connected datasets, pick-up-where-you-left-off).
+   * When omitted, the empty state falls back to a neutral placeholder.
+   */
+  emptyStateThreadId?: ThreadId;
   scrollContainer: HTMLDivElement | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
@@ -104,6 +111,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
+  emptyStateThreadId,
   scrollContainer,
   timelineEntries,
   completionDividerBeforeEntryId,
@@ -557,6 +565,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
 
   if (!hasMessages && !isWorking) {
+    if (emptyStateThreadId) {
+      return <ThreadEmptyState threadId={emptyStateThreadId} />;
+    }
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground/30">

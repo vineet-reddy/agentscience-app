@@ -144,6 +144,7 @@ import {
   useComposerDatasetMentionStore,
   useComposerDatasetMentionsForThread,
 } from "../composerDatasetMentionStore";
+import { useComposerFocusStore } from "../composerFocusStore";
 import {
   datasetToSlug,
   fetchDatasetProviders,
@@ -1747,6 +1748,20 @@ export default function ChatView({
       focusComposer();
     });
   }, [focusComposer]);
+
+  // Listen for external focus requests (e.g. the thread empty state asking
+  // to focus the composer after seeding a suggestion). We only react when
+  // the request is scoped to this thread so a stale thread can't steal
+  // focus from an active one.
+  const composerFocusToken = useComposerFocusStore((store) => store.token);
+  const composerFocusTargetThreadId = useComposerFocusStore((store) => store.threadId);
+  const consumeComposerFocus = useComposerFocusStore((store) => store.consume);
+  useEffect(() => {
+    if (composerFocusToken === 0) return;
+    if (composerFocusTargetThreadId !== threadId) return;
+    scheduleComposerFocus();
+    consumeComposerFocus();
+  }, [composerFocusToken, composerFocusTargetThreadId, threadId, scheduleComposerFocus, consumeComposerFocus]);
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
       if (!activeThread) {
@@ -4171,6 +4186,7 @@ export default function ChatView({
                 isWorking={isWorking}
                 activeTurnInProgress={isWorking || !latestTurnSettled}
                 activeTurnStartedAt={activeWorkStartedAt}
+                emptyStateThreadId={activeThread.id}
                 scrollContainer={messagesScrollElement}
                 timelineEntries={timelineEntries}
                 completionDividerBeforeEntryId={completionDividerBeforeEntryId}
