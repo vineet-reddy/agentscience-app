@@ -34,8 +34,6 @@ import {
 } from "../desktopUpdate.logic";
 import { AgentScienceAccountPanel } from "./AgentScienceAccountPanel";
 import { CodexAuthControls } from "./CodexAuthControls";
-import { ProviderModelPicker } from "../chat/ProviderModelPicker";
-import { TraitsPicker } from "../chat/TraitsPicker";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
@@ -45,11 +43,7 @@ import {
   setDesktopUpdateStateQueryData,
   useDesktopUpdateState,
 } from "../../lib/desktopUpdateReactQuery";
-import {
-  MAX_CUSTOM_MODEL_LENGTH,
-  getCustomModelOptionsByProvider,
-  resolveAppModelSelectionState,
-} from "../../modelSelection";
+import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
 import { describeAgentScienceRuntimeStatus } from "../../lib/agentScienceRuntimeStatus";
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
@@ -195,7 +189,9 @@ function getProviderVersionLabel(version: string | null | undefined) {
 function shouldShowAgentScienceUpdateAction(
   status: ServerRuntimeAgentScience | null,
 ): status is ServerRuntimeAgentScience {
-  return Boolean(status && status.state === "ready" && (status.updateAvailable || status.refreshRecommended));
+  return Boolean(
+    status && status.state === "ready" && (status.updateAvailable || status.refreshRecommended),
+  );
 }
 
 function getAgentScienceUpdateActionLabel(status: ServerRuntimeAgentScience | null): string {
@@ -489,11 +485,10 @@ function AboutVersionSection() {
   };
   const buttonLabel = offersReleaseDownload
     ? "View latest release"
-    : actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates";
-  const description =
-    offersReleaseDownload
-      ? "This development build does not update itself."
-      : action === "download" || action === "install"
+    : (actionLabel[action] ?? statusLabel[updateState?.status ?? ""] ?? "Check for Updates");
+  const description = offersReleaseDownload
+    ? "This development build does not update itself."
+    : action === "download" || action === "install"
       ? "Update available."
       : "Current app bundle. App updates include the bundled CLI and shared personality.";
 
@@ -527,10 +522,6 @@ export function useSettingsRestore(onRestored?: () => void) {
   const settings = useSettings();
   const { resetSettings } = useUpdateSettings();
 
-  const isGitWritingModelDirty = !Equal.equals(
-    settings.textGenerationModelSelection ?? null,
-    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
-  );
   const areProviderSettingsDirty = PROVIDER_SETTINGS.some((providerSettings) => {
     const currentSettings = settings.providers[providerSettings.provider];
     const defaultSettings = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
@@ -558,12 +549,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
         ? ["Delete confirmation"]
         : []),
-      ...(isGitWritingModelDirty ? ["Git writing model"] : []),
       ...(areProviderSettingsDirty ? ["Providers"] : []),
     ],
     [
       areProviderSettingsDirty,
-      isGitWritingModelDirty,
       settings.confirmThreadArchive,
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
@@ -705,21 +694,6 @@ export function GeneralSettingsPanel() {
     const mode = observability?.localTracingEnabled ? "Local trace file" : "Terminal logs only";
     return exports.length > 0 ? `${mode}. OTLP exporting ${exports.join(" and ")}.` : `${mode}.`;
   })();
-
-  const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
-  const textGenProvider = textGenerationModelSelection.provider;
-  const textGenModel = textGenerationModelSelection.model;
-  const textGenModelOptions = textGenerationModelSelection.options;
-  const gitModelOptionsByProvider = getCustomModelOptionsByProvider(
-    settings,
-    serverProviders,
-    textGenProvider,
-    textGenModel,
-  );
-  const isGitWritingModelDirty = !Equal.equals(
-    settings.textGenerationModelSelection ?? null,
-    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
-  );
 
   const openInPreferredEditor = useCallback(
     (target: "logsDirectory", path: string | null, failureMessage: string) => {
@@ -939,7 +913,9 @@ export function GeneralSettingsPanel() {
   const agentScienceRuntime = serverRuntime?.agentScience ?? null;
   const agentScienceRuntimeDescriptor = describeAgentScienceRuntimeStatus(agentScienceRuntime);
   const bundledCliVersionLabel = getProviderVersionLabel(agentScienceRuntime?.cli?.version);
-  const bundledCliLatestVersionLabel = getProviderVersionLabel(agentScienceRuntime?.cli?.latestVersion);
+  const bundledCliLatestVersionLabel = getProviderVersionLabel(
+    agentScienceRuntime?.cli?.latestVersion,
+  );
   return (
     <SettingsPageContainer>
       <SettingsSection title="AgentScience account">
@@ -1187,77 +1163,6 @@ export function GeneralSettingsPanel() {
             />
           }
         />
-
-        <SettingsRow
-          title="Text generation model"
-          description="Configure the model used for generated commit messages, PR titles, and similar Git text."
-          resetAction={
-            isGitWritingModelDirty ? (
-              <SettingResetButton
-                label="text generation model"
-                onClick={() =>
-                  updateSettings({
-                    textGenerationModelSelection:
-                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
-              <ProviderModelPicker
-                provider={textGenProvider}
-                model={textGenModel}
-                lockedProvider={null}
-                providers={serverProviders}
-                modelOptionsByProvider={gitModelOptionsByProvider}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onProviderModelChange={(provider, model) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: { provider, model },
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
-              <TraitsPicker
-                provider={textGenProvider}
-                models={
-                  serverProviders.find((provider) => provider.provider === textGenProvider)
-                    ?.models ?? []
-                }
-                model={textGenModel}
-                prompt=""
-                onPromptChange={() => {}}
-                modelOptions={textGenModelOptions}
-                allowPromptInjectedEffort={false}
-                triggerVariant="outline"
-                triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
-                onModelOptionsChange={(nextOptions) => {
-                  updateSettings({
-                    textGenerationModelSelection: resolveAppModelSelectionState(
-                      {
-                        ...settings,
-                        textGenerationModelSelection: {
-                          provider: textGenProvider,
-                          model: textGenModel,
-                          ...(nextOptions ? { options: nextOptions } : {}),
-                        },
-                      },
-                      serverProviders,
-                    ),
-                  });
-                }}
-              />
-            </div>
-          }
-        />
       </SettingsSection>
 
       <SettingsSection
@@ -1398,9 +1303,6 @@ export function GeneralSettingsPanel() {
                         <Switch
                           checked={providerCard.providerConfig.enabled}
                           onCheckedChange={(checked) => {
-                            const isDisabling = !checked;
-                            const shouldClearModelSelection =
-                              isDisabling && textGenProvider === providerCard.provider;
                             updateSettings({
                               providers: {
                                 ...settings.providers,
@@ -1409,12 +1311,6 @@ export function GeneralSettingsPanel() {
                                   enabled: Boolean(checked),
                                 },
                               },
-                              ...(shouldClearModelSelection
-                                ? {
-                                    textGenerationModelSelection:
-                                      DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
-                                  }
-                                : {}),
                             });
                           }}
                           aria-label={`Enable ${providerDisplayName}`}
@@ -1728,7 +1624,8 @@ export function GeneralSettingsPanel() {
                   Included in this app bundle
                 </span>
                 <span className="mt-1 block text-[11px] text-muted-foreground">
-                  {bundledCliLatestVersionLabel && bundledCliLatestVersionLabel !== bundledCliVersionLabel
+                  {bundledCliLatestVersionLabel &&
+                  bundledCliLatestVersionLabel !== bundledCliVersionLabel
                     ? `Latest available ${bundledCliLatestVersionLabel}.`
                     : "Updated when the app bundle updates."}
                 </span>
