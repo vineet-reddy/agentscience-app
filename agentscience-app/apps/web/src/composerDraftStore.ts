@@ -27,7 +27,11 @@ import {
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
-import { getDefaultServerModel } from "./providerModels";
+import {
+  getDefaultProviderModelOptions,
+  getDefaultServerModel,
+  getProviderModels,
+} from "./providerModels";
 import { UnifiedSettings } from "@agentscience/contracts/settings";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "agentscience:composer-drafts:v1";
@@ -614,6 +618,7 @@ export function deriveEffectiveComposerModelState(input: {
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
+  const providerModels = getProviderModels(input.providers, input.selectedProvider);
   const baseModel =
     normalizeModelSlug(
       input.threadModelSelection?.model ?? input.projectModelSelection?.model,
@@ -628,11 +633,18 @@ export function deriveEffectiveComposerModelState(input: {
         activeSelection.model,
       )
     : baseModel;
-  const modelOptions =
+  const explicitModelOptions =
     modelSelectionByProviderToOptions(input.draft?.modelSelectionByProvider) ??
     providerModelOptionsFromSelection(input.threadModelSelection) ??
     providerModelOptionsFromSelection(input.projectModelSelection) ??
     null;
+  const defaultProviderOptions =
+    input.threadModelSelection || input.projectModelSelection
+      ? undefined
+      : getDefaultProviderModelOptions(providerModels, input.selectedProvider, selectedModel);
+  const modelOptions =
+    explicitModelOptions ??
+    (defaultProviderOptions ? { [input.selectedProvider]: defaultProviderOptions } : null);
 
   return {
     selectedModel,

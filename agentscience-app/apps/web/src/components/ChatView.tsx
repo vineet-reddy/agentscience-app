@@ -21,7 +21,16 @@ import {
 import { normalizeModelSlug } from "@agentscience/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@agentscience/shared/projectScripts";
 import { truncate } from "@agentscience/shared/String";
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -111,7 +120,11 @@ import { MacTitlebarDragRow } from "./MacTitlebarDragRow";
 import { SidebarReopenTrigger } from "./SidebarReopenTrigger";
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
-import { getProviderModels, resolveSelectableProvider } from "../providerModels";
+import {
+  getDefaultProviderModelOptions,
+  getProviderModels,
+  resolveSelectableProvider,
+} from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -3633,9 +3646,17 @@ export default function ChatView({
         providerStatuses,
         model,
       );
+      const nextOptions =
+        composerModelOptions?.[resolvedProvider] ??
+        getDefaultProviderModelOptions(
+          getProviderModels(providerStatuses, resolvedProvider),
+          resolvedProvider,
+          resolvedModel,
+        );
       const nextModelSelection: ModelSelection = {
         provider: resolvedProvider,
         model: resolvedModel,
+        ...(nextOptions ? { options: nextOptions } : {}),
       };
       setComposerDraftModelSelection(activeThread.id, nextModelSelection);
       setStickyComposerModelSelection(nextModelSelection);
@@ -3647,6 +3668,7 @@ export default function ChatView({
       scheduleComposerFocus,
       setComposerDraftModelSelection,
       setStickyComposerModelSelection,
+      composerModelOptions,
       providerStatuses,
       settings,
     ],

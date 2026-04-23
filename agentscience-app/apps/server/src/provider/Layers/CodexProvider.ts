@@ -3,7 +3,6 @@ import type {
   ModelCapabilities,
   CodexSettings,
   ServerProvider,
-  ServerProviderModel,
   ServerProviderAuth,
   ServerProviderState,
 } from "@agentscience/contracts";
@@ -44,6 +43,13 @@ import {
   codexAuthSubType,
   type CodexAccountSnapshot,
 } from "../codexAccount";
+import {
+  DEFAULT_CODEX_GPT_CAPABILITIES,
+  fetchCodexModelCatalog,
+  mergeCodexCatalogModels,
+  modelsForCodexAccount,
+  type CodexCatalogModel,
+} from "../codexModelCatalog";
 import { probeCodexAccount } from "../codexAppServer";
 import { buildCodexSpawnEnv } from "../codexCli";
 import { resolveCodexHomePath, resolveEffectiveCodexSettings } from "../codexSettings";
@@ -54,122 +60,64 @@ import { ServerSettingsError } from "@agentscience/contracts";
 
 const PROVIDER = "codex" as const;
 const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);
-const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
+const BUILT_IN_MODELS: ReadonlyArray<CodexCatalogModel> = [
+  {
+    slug: "gpt-5.5",
+    name: "GPT-5.5",
+    isCustom: false,
+    availableFor: ["chatgpt"],
+    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
+  },
   {
     slug: "gpt-5.4",
     name: "GPT-5.4",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
+    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
   },
   {
     slug: "gpt-5.4-mini",
     name: "GPT-5.4 Mini",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
+    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
   },
   {
     slug: "gpt-5.3-codex",
     name: "GPT-5.3 Codex",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
+    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
   },
   {
     slug: "gpt-5.3-codex-spark",
     name: "GPT-5.3 Codex Spark",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
+    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
   },
   {
     slug: "gpt-5.2-codex",
     name: "GPT-5.2 Codex",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
+    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
   },
   {
     slug: "gpt-5.2",
     name: "GPT-5.2",
     isCustom: false,
-    capabilities: {
-      reasoningEffortLevels: [
-        { value: "xhigh", label: "Extra High" },
-        { value: "high", label: "High", isDefault: true },
-        { value: "medium", label: "Medium" },
-        { value: "low", label: "Low" },
-      ],
-      supportsFastMode: true,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    },
+    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
   },
 ];
 
 export function getCodexModelCapabilities(model: string | null | undefined): ModelCapabilities {
   const slug = model?.trim();
-  return (
-    BUILT_IN_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ?? {
-      reasoningEffortLevels: [],
-      supportsFastMode: false,
-      supportsThinkingToggle: false,
-      contextWindowOptions: [],
-      promptInjectedEffortLevels: [],
-    }
-  );
+  const fallback = slug?.startsWith("gpt-")
+    ? DEFAULT_CODEX_GPT_CAPABILITIES
+    : {
+        reasoningEffortLevels: [],
+        supportsFastMode: false,
+        supportsThinkingToggle: false,
+        contextWindowOptions: [],
+        promptInjectedEffortLevels: [],
+      };
+  return BUILT_IN_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ?? fallback;
 }
 
 export function parseAuthStatusFromOutput(result: CommandResult): {
@@ -201,7 +149,8 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       auth: { status: "unauthenticated" },
-      message: "Codex is not connected yet. Sign in with ChatGPT or add an API key in AgentScience.",
+      message:
+        "Codex is not connected yet. Sign in with ChatGPT or add an API key in AgentScience.",
     };
   }
 
@@ -227,7 +176,8 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
     return {
       status: "error",
       auth: { status: "unauthenticated" },
-      message: "Codex is not connected yet. Sign in with ChatGPT or add an API key in AgentScience.",
+      message:
+        "Codex is not connected yet. Sign in with ChatGPT or add an API key in AgentScience.",
     };
   }
   if (parsedAuth.attemptedJsonParse) {
@@ -328,6 +278,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     readonly binaryPath: string;
     readonly homePath?: string;
   }) => Effect.Effect<CodexAccountSnapshot | undefined>,
+  resolveModelCatalog?: (baseUrl: string) => Effect.Effect<ReadonlyArray<CodexCatalogModel>>,
 ): Effect.fn.Return<
   ServerProvider,
   ServerSettingsError,
@@ -343,7 +294,15 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
     Effect.map((settings) => resolveEffectiveCodexSettings(settings.providers.codex, config)),
   );
   const checkedAt = new Date().toISOString();
-  const models = providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, codexSettings.customModels);
+  const remoteModels = resolveModelCatalog
+    ? yield* resolveModelCatalog(config.agentScienceBaseUrl).pipe(Effect.orElseSucceed(() => []))
+    : [];
+  const catalogModels = mergeCodexCatalogModels(BUILT_IN_MODELS, remoteModels);
+  const models = providerModelsFromSettings(
+    modelsForCodexAccount(catalogModels, undefined),
+    PROVIDER,
+    codexSettings.customModels,
+  );
 
   if (!codexSettings.enabled) {
     return buildServerProvider({
@@ -466,7 +425,12 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         homePath: codexSettings.homePath,
       })
     : undefined;
-  const resolvedModels = adjustCodexModelsForAccount(models, account);
+  const accountModels = providerModelsFromSettings(
+    modelsForCodexAccount(catalogModels, account),
+    PROVIDER,
+    codexSettings.customModels,
+  );
+  const resolvedModels = adjustCodexModelsForAccount(accountModels, account);
 
   if (Result.isFailure(authProbe)) {
     const error = authProbe.failure;
@@ -545,9 +509,15 @@ export const CodexProviderLive = Layer.effect(
         });
       },
     });
+    const modelCatalogCache = yield* Cache.make({
+      capacity: 4,
+      timeToLive: Duration.minutes(30),
+      lookup: (baseUrl: string) => Effect.promise(() => fetchCodexModelCatalog(baseUrl)),
+    });
 
-    const checkProvider = checkCodexProviderStatus((input) =>
-      Cache.get(accountProbeCache, JSON.stringify([input.binaryPath, input.homePath])),
+    const checkProvider = checkCodexProviderStatus(
+      (input) => Cache.get(accountProbeCache, JSON.stringify([input.binaryPath, input.homePath])),
+      (baseUrl) => Cache.get(modelCatalogCache, baseUrl),
     ).pipe(
       Effect.provideService(ServerConfig, config),
       Effect.provideService(ServerSettingsService, serverSettings),

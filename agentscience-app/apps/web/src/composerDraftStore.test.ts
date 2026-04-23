@@ -1,11 +1,19 @@
 import * as Schema from "effect/Schema";
-import { ProjectId, ThreadId, type ModelSelection } from "@agentscience/contracts";
+import {
+  ProjectId,
+  ThreadId,
+  type ModelSelection,
+  type ServerProvider,
+  type ServerProviderModel,
+} from "@agentscience/contracts";
+import { DEFAULT_UNIFIED_SETTINGS } from "@agentscience/contracts/settings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
   clearPromotedDraftThread,
   clearPromotedDraftThreads,
+  deriveEffectiveComposerModelState,
   type ComposerImageAttachment,
   useComposerDraftStore,
 } from "./composerDraftStore";
@@ -85,6 +93,35 @@ function modelSelection(
     ...(options ? { options } : {}),
   } as ModelSelection;
 }
+
+const providerModel = (slug: string): ServerProviderModel => ({
+  slug,
+  name: slug,
+  isCustom: false,
+  capabilities: {
+    reasoningEffortLevels: [
+      { value: "xhigh", label: "Extra High" },
+      { value: "high", label: "High" },
+      { value: "medium", label: "Medium", isDefault: true },
+      { value: "low", label: "Low" },
+    ],
+    supportsFastMode: true,
+    supportsThinkingToggle: false,
+    contextWindowOptions: [],
+    promptInjectedEffortLevels: [],
+  },
+});
+
+const codexProvider = (models: ServerProviderModel[]): ServerProvider => ({
+  provider: "codex",
+  enabled: true,
+  installed: true,
+  version: null,
+  status: "ready",
+  auth: { status: "authenticated" },
+  checkedAt: "2026-04-23T12:00:00.000Z",
+  models,
+});
 
 describe("composerDraftStore addImages", () => {
   const threadId = ThreadId.makeUnsafe("thread-dedupe");
@@ -739,6 +776,64 @@ describe("composerDraftStore modelSelection", () => {
         fastMode: true,
       }),
     );
+  });
+});
+
+describe("deriveEffectiveComposerModelState", () => {
+  it("defaults first-run drafts to the latest available GPT model with medium fast settings", () => {
+    expect(
+      deriveEffectiveComposerModelState({
+        draft: null,
+        providers: [
+          codexProvider([
+            providerModel("gpt-5.4"),
+            providerModel("gpt-5.5"),
+            providerModel("gpt-5.4-mini"),
+          ]),
+        ],
+        selectedProvider: "codex",
+        threadModelSelection: null,
+        projectModelSelection: null,
+        settings: DEFAULT_UNIFIED_SETTINGS,
+      }),
+    ).toEqual({
+      selectedModel: "gpt-5.5",
+      modelOptions: {
+        codex: {
+          reasoningEffort: "medium",
+          fastMode: true,
+        },
+      },
+    });
+  });
+
+  it("keeps explicit recently-used model options ahead of defaults", () => {
+    expect(
+      deriveEffectiveComposerModelState({
+        draft: {
+          activeProvider: "codex",
+          modelSelectionByProvider: {
+            codex: modelSelection("codex", "gpt-5.4", {
+              reasoningEffort: "xhigh",
+              fastMode: false,
+            }),
+          },
+        },
+        providers: [codexProvider([providerModel("gpt-5.4"), providerModel("gpt-5.5")])],
+        selectedProvider: "codex",
+        threadModelSelection: null,
+        projectModelSelection: null,
+        settings: DEFAULT_UNIFIED_SETTINGS,
+      }),
+    ).toEqual({
+      selectedModel: "gpt-5.4",
+      modelOptions: {
+        codex: {
+          reasoningEffort: "xhigh",
+          fastMode: false,
+        },
+      },
+    });
   });
 });
 
