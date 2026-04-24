@@ -295,6 +295,13 @@ describe("buildCodexModeDeveloperInstructions", () => {
       );
       expect(instructions).toContain("agentscience.publish.json");
       expect(instructions).toContain("publishManifest");
+      expect(instructions).toContain("agentscience research template --out-dir");
+      expect(instructions).toContain("\\mainfigure{path}{caption}{label}");
+      expect(instructions).toContain("\\suppfigure{path}{caption}{label}");
+      expect(instructions).toContain("\\printsupplement");
+      expect(instructions).toContain("Can I submit this paper to AgentScience?");
+      expect(instructions).toContain("If yes, just say `yes`.");
+      expect(instructions).toContain("agentscience registry import");
     }
   });
 });

@@ -322,6 +322,22 @@ AgentScience desktop already performs the runtime/update health check at app sta
 - Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread. Start by helping with the user's actual message.
 </agentscience_desktop_app>`;
 
+export const CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS = `<agentscience_paper_template>
+When writing a scientific manuscript, seed the source with \`agentscience research template --out-dir <workspace>\` and keep using that template instead of hand-rolling a generic article preamble.
+
+- Use \`agentscience research compile --workspace <workspace>\` or \`latexmk -pdf -interaction=nonstopmode -halt-on-error paper.tex\` for builds.
+- Use the template helpers for structured content:
+  - \`main_figure\`: \`\\mainfigure{path}{caption}{label}\` or \`\\widemainfigure{path}{caption}{label}\`
+  - \`supp_figure\`: \`\\suppfigure{path}{caption}{label}\`
+  - \`main_table\`: \`\\maintable{caption}{label}{tabular/body}\`
+  - \`supp_table\`: \`\\supptable{caption}{label}{tabular/body}\`
+  - \`appendix_note\`: \`\\appendixnote{heading}{body}\`
+  - \`proof\`: \`\\proofblock{heading}{body}\`
+  - \`derivation\`: \`\\derivationblock{heading}{body}\`
+- Keep core narrative figures and tables in the body where they are referenced. Put QC plots, ablations, robustness checks, extended tables, proofs, derivations, and secondary analyses in the supplement helpers, then leave \`\\printsupplement\` near the end of the document.
+- Keep the PDF pure white, neutral, and print-friendly. Do not add decorative backgrounds, off-white page color, or flashy styling.
+</agentscience_paper_template>`;
+
 export const CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS = `<agentscience_paper_presentation>
 When you create or update a manuscript that should be reviewed in the desktop app, explicitly present it to the client instead of pasting the whole paper inline.
 
@@ -338,6 +354,12 @@ When you create or update a manuscript that should be reviewed in the desktop ap
   - \`publishManifest\`: the \`agentscience.publish.json\` path, if it exists
 - Paths may be absolute or relative to the current thread workspace, but they must point to the real files you just created.
 - Keep the visible prose outside the block short, for example: "The manuscript is ready for review on the right."
+- If the PDF built successfully, make the last visible sentence a publish consent question whenever you recommend submitting something:
+  - Paper and datasets are both strong: "Can I submit the paper to AgentScience and add the datasets to the registry? If yes, just say \`yes\`."
+  - Paper is strong but datasets should not be registered: "Can I submit this paper to AgentScience? If yes, just say \`yes\`."
+  - Paper is not ready but a dataset is useful and registry-eligible: "Can I add this dataset to the AgentScience registry? If yes, just say \`yes\`."
+- Do not ask for submit consent when neither the paper nor the dataset meets your bar. Briefly state what needs to improve instead.
+- Do not publish or write to the registry until the user gives explicit consent. A terse "yes" approves every action named in your question; after yes, run the approved \`agentscience papers publish\` or \`agentscience registry import\` command without asking the same question again.
 - Do not paste the full paper inline when the user is trying to review it in the app. Present the manuscript block instead so the review pane can open.
 </agentscience_paper_presentation>`;
 
@@ -347,8 +369,8 @@ export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version
 export const AGENTSCIENCE_PERSONALITY_CONTENT_HASH = AGENTSCIENCE_PERSONALITY.contentHash;
 
 const CODEX_MODE_DEVELOPER_INSTRUCTIONS = {
-  default: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "default" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS}`,
-  plan: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "plan" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS}`,
+  default: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "default" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS}`,
+  plan: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "plan" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS}`,
 } as const satisfies Record<"default" | "plan", string>;
 
 export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): string {

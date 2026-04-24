@@ -44,11 +44,91 @@ const MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION = "2026.04";
 const MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE = "TinyTeX";
 const MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG =
   `v${MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION}`;
+const MANAGED_PAPER_TOOLCHAIN_REQUIRED_LATEX_PACKAGES = [
+  "geometry",
+  "microtype",
+  "graphicx",
+  "booktabs",
+  "caption",
+  "subcaption",
+  "float",
+  "placeins",
+  "xcolor",
+  "hyperref",
+  "titlesec",
+  "enumitem",
+  "amsmath",
+  "amssymb",
+  "mathtools",
+  "amsthm",
+  "xparse",
+  "etoolbox",
+  "natbib",
+  "lmodern",
+] as const;
 const MANAGED_PAPER_TOOLCHAIN_SMOKE_TEX = String.raw`\documentclass[10pt]{article}
+\usepackage[margin=0.95in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\pagecolor{white}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
 \usepackage{booktabs}
 \usepackage{graphicx}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{xparse}
+\usepackage{etoolbox}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=blue!60!black]{hyperref}
+
+\captionsetup{font=small,labelfont=bf,labelsep=period,skip=4pt}
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection}{0.75em}{}
+\newtheorem{theorem}{Theorem}
+
+\NewDocumentCommand{\agentfigureinclude}{m m}{%
+  \IfFileExists{#2}{\includegraphics[width=#1]{#2}}{\fbox{\texttt{#2}}}%
+}
+\NewDocumentCommand{\mainfigure}{m +m m}{%
+  \begin{figure}[htbp]
+    \centering
+    \agentfigureinclude{0.75\textwidth}{#1}
+    \caption{#2}
+    \label{#3}
+  \end{figure}
+  \FloatBarrier
+}
+\newcommand{\supplementcontent}{}
+\NewDocumentCommand{\suppfigure}{m +m m}{%
+  \gappto{\supplementcontent}{%
+    \begin{figure}[htbp]
+      \centering
+      \agentfigureinclude{0.75\textwidth}{#1}
+      \caption{#2}
+      \label{#3}
+    \end{figure}
+    \FloatBarrier
+  }%
+}
+\newcommand{\printsupplement}{%
+  \ifstrempty{\supplementcontent}{}{%
+    \clearpage
+    \appendix
+    \setcounter{figure}{0}
+    \renewcommand{\thefigure}{S\arabic{figure}}
+    \section*{Supplementary Material}
+    \supplementcontent
+  }%
+}
 
 \begin{document}
 \begin{center}
@@ -75,6 +155,14 @@ Metric & Value \\
 Spearman $\rho$ & 0.94 \\
 \bottomrule
 \end{tabular}
+
+\begin{theorem}
+The managed TinyTeX bundle supports the AgentScience article template package set.
+\end{theorem}
+
+\mainfigure{figures/missing-main.png}{Template helper smoke-test figure.}{fig:main}
+\suppfigure{figures/missing-supp.png}{Supplement helper smoke-test figure.}{fig:supp}
+\printsupplement
 \end{document}
 `;
 const MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG = "20260414";
@@ -977,6 +1065,7 @@ function createDevManagedResourcesRecipe(
         engine: "tinytex",
         tinytexVersion: MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION,
         tinytexBundle: MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE,
+        requiredLatexPackages: [...MANAGED_PAPER_TOOLCHAIN_REQUIRED_LATEX_PACKAGES],
         targets: paperTargets.map((target) => ({ ...target })),
         wrapperScripts: {
           latexmk: managedTinyTeXWrapperScript("latexmk", "universal-darwin"),
