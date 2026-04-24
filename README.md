@@ -15,4 +15,4 @@ The workflow publishes GitHub Releases for the desktop installers and updater me
 
 ## Notes
 
-This repository originated from an MIT-licensed fork and now carries its own product identity and release process.
+This repository is a fork of the MIT-licensed T3 Code project (https://github.com/pingdotgg/t3code) and now carries its own product identity and release process.
