@@ -258,6 +258,44 @@ describe("OrchestrationEngine", () => {
     const readModelA = await system.run(engine.getReadModel());
     const readModelB = await system.run(engine.getReadModel());
     expect(readModelB).toEqual(readModelA);
+    expect(
+      readModelA.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"))
+        ?.resolvedWorkspacePath,
+    ).toBe("/tmp/AgentScience/Projects/project-1/papers/thread-1");
+    await system.dispose();
+  });
+
+  it("keeps managed workspace paths in memory for threads created after startup", async () => {
+    const createdAt = now();
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-local-create"),
+        threadId: ThreadId.makeUnsafe("thread-local"),
+        projectId: null,
+        folderSlug: "thread-local",
+        title: "Thread local",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const readModel = await system.run(engine.getReadModel());
+    expect(
+      readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-local"))
+        ?.resolvedWorkspacePath,
+    ).toBe("/tmp/AgentScience/Papers/thread-local");
+
     await system.dispose();
   });
 

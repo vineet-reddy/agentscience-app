@@ -76,6 +76,18 @@ function commandToAggregateRef(command: OrchestrationCommand): {
   }
 }
 
+function shouldRefreshReadModelFromProjection(event: OrchestrationEvent): boolean {
+  switch (event.type) {
+    case "thread.created":
+    case "thread.project-set":
+    case "paper.moved":
+    case "workspace.root-changed":
+      return true;
+    default:
+      return false;
+  }
+}
+
 const makeOrchestrationEngine = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const eventStore = yield* OrchestrationEventStore;
@@ -192,7 +204,30 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             ),
           );
 
-        readModel = committedCommand.nextReadModel;
+        const needsProjectionSnapshotRefresh = committedCommand.committedEvents.some(
+          shouldRefreshReadModelFromProjection,
+        );
+        readModel = needsProjectionSnapshotRefresh
+          ? yield* projectionSnapshotQuery.getSnapshot().pipe(
+              Effect.map((snapshot) =>
+                snapshot.snapshotSequence >= committedCommand.lastSequence
+                  ? snapshot
+                  : committedCommand.nextReadModel,
+              ),
+              Effect.catch((error) =>
+                Effect.logWarning(
+                  "failed to refresh orchestration read model from projection snapshot",
+                ).pipe(
+                  Effect.annotateLogs({
+                    commandId: envelope.command.commandId,
+                    snapshotSequence: committedCommand.lastSequence,
+                    error: String(error),
+                  }),
+                  Effect.as(committedCommand.nextReadModel),
+                ),
+              ),
+            )
+          : committedCommand.nextReadModel;
         for (const [
           index,
           event,
