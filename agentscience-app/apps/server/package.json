@@ -24,12 +24,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "agentscience": "^0.5.7",
-    "@agentscience/personality": "^1.0.5",
+    "@agentscience/personality": "1.1.2",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",
     "@pierre/diffs": "^1.1.0-beta.16",
+    "@vercel/blob": "^2.3.3",
+    "agentscience": "0.5.17",
     "effect": "catalog:",
     "node-pty": "^1.1.0",
     "open": "^10.1.0"

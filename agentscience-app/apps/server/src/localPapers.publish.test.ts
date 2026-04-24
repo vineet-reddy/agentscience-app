@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
 
 import { AgentScienceAuthService } from "./agentScienceAuth.ts";
@@ -149,17 +149,28 @@ async function makeService(input: {
 }
 
 describe("local paper publish flow", () => {
+  afterEach(() => {
+    __internal.resetBlobUploaderForTests();
+    __internal.resetBlobCleanerForTests();
+  });
+
   it("publishes a local paper bundle and persists the published metadata", async () => {
     const workspaceRoot = await makeTempWorkspaceRoot();
     const paperDir = await writePaperWorkspace({ workspaceRoot });
     const calls: Array<{ method: string; url: string; authorization: string | null }> = [];
+    __internal.setBlobUploaderForTests(async (input) => ({
+      url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+      pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+      downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+      sizeBytes: input.bytes.length,
+    }));
     const upstream = await startUpstreamServer((request) => {
       calls.push({
         method: request.method,
         url: request.url,
         authorization: request.authorization,
       });
-      expect(request.contentType).toContain("multipart/form-data");
+      expect(request.contentType).toContain("application/json");
       return {
         status: 200,
         body: {
@@ -212,6 +223,12 @@ describe("local paper publish flow", () => {
     const paperDir = await writePaperWorkspace({ workspaceRoot });
     const calls: string[] = [];
     let publishCount = 0;
+    __internal.setBlobUploaderForTests(async (input) => ({
+      url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+      pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+      downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+      sizeBytes: input.bytes.length,
+    }));
     const upstream = await startUpstreamServer((request) => {
       calls.push(`${request.method} ${request.url}`);
       publishCount += 1;
@@ -266,6 +283,12 @@ describe("local paper publish flow", () => {
     );
 
     const calls: string[] = [];
+    __internal.setBlobUploaderForTests(async (input) => ({
+      url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+      pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+      downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+      sizeBytes: input.bytes.length,
+    }));
     const upstream = await startUpstreamServer((request) => {
       calls.push(`${request.method} ${request.url}`);
       return {
@@ -290,6 +313,46 @@ describe("local paper publish flow", () => {
       await Effect.runPromise(service.publish(__internal.encodePaperId(paperDir)));
 
       expect(calls).toEqual(["POST /api/v1/papers"]);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("cleans up uploaded blobs when the publish API rejects the metadata", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    const cleanedPathnames: string[][] = [];
+    __internal.setBlobUploaderForTests(async (input) => ({
+      url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+      pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+      downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+      sizeBytes: input.bytes.length,
+    }));
+    __internal.setBlobCleanerForTests(async (input) => {
+      cleanedPathnames.push([...input.pathnames]);
+    });
+    const upstream = await startUpstreamServer(() => ({
+      status: 400,
+      body: { error: "Invalid uploaded file metadata." },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+
+      await expect(
+        Effect.runPromise(service.publish(__internal.encodePaperId(paperDir))),
+      ).rejects.toThrow("Invalid uploaded file metadata.");
+
+      expect(cleanedPathnames).toHaveLength(1);
+      expect(cleanedPathnames[0]).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("/pdf/paper.pdf"),
+          expect.stringContaining("/figures/figure-1.png"),
+        ]),
+      );
     } finally {
       await upstream.close();
     }

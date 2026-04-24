@@ -32,7 +32,9 @@ import {
   ThreadId,
   localPaperFileRoutePath,
 } from "@agentscience/contracts";
+import { upload as uploadBlob } from "@vercel/blob/client";
 import { Effect, Layer, ServiceMap } from "effect";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -170,6 +172,35 @@ type ArtifactUploadDescriptor = {
   readonly bytes: Buffer;
 };
 
+type UploadedBlobDescriptor = {
+  readonly url: string;
+  readonly pathname: string;
+  readonly downloadUrl?: string;
+  readonly sizeBytes: number;
+};
+
+type BlobUploaderInput = {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly userId: string;
+  readonly uploadId: string;
+  readonly role: "pdf" | "artifacts" | "figures";
+  readonly relativePath: string;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly bytes: Buffer;
+};
+
+type BlobUploader = (input: BlobUploaderInput) => Promise<UploadedBlobDescriptor>;
+
+type BlobCleanerInput = {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly pathnames: readonly string[];
+};
+
+type BlobCleaner = (input: BlobCleanerInput) => Promise<void>;
+
 // ── ID helpers ──────────────────────────────────────────────────────────
 
 function encodePaperId(absolutePath: string): string {
@@ -191,6 +222,84 @@ function decodePaperId(paperId: string): string | null {
 function joinUrl(base: string, pathname: string): string {
   return new URL(pathname, `${base.replace(/\/+$/, "")}/`).toString();
 }
+
+function sha256Hex(buffer: Buffer): string {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function safeBlobPathSegment(value: string): string {
+  return value
+    .replaceAll("\\", "/")
+    .split("/")
+    .filter(Boolean)
+    .join("/")
+    .replaceAll(/[^a-zA-Z0-9._/-]+/g, "-")
+    .replaceAll(/\/+/g, "/")
+    .replace(/^\/+/, "");
+}
+
+function isInlineTextContent(contentType: string, bytes: Buffer): boolean {
+  return (
+    bytes.length <= 256 * 1024 &&
+    (contentType.startsWith("text/") ||
+      contentType === "application/json" ||
+      contentType === "application/x-bibtex" ||
+      contentType === "application/x-latex" ||
+      contentType === "application/yaml" ||
+      contentType === "application/toml" ||
+      contentType === "application/typescript")
+  );
+}
+
+const defaultBlobUploader: BlobUploader = async (input) => {
+  const pathname = safeBlobPathSegment(
+    `papers/staged/${input.userId}/${input.uploadId}/${input.role}/${input.relativePath}`,
+  );
+  const blob = await uploadBlob(pathname, new Blob([input.bytes], { type: input.contentType }), {
+    access: "public",
+    contentType: input.contentType,
+    multipart: input.bytes.length > 8 * 1024 * 1024,
+    handleUploadUrl: joinUrl(input.baseUrl, "/api/v1/uploads/blob"),
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+    },
+    clientPayload: JSON.stringify({
+      role: input.role,
+      fileName: input.fileName,
+      sizeBytes: input.bytes.length,
+    }),
+  });
+
+  return {
+    url: blob.url,
+    pathname: blob.pathname,
+    downloadUrl: blob.downloadUrl,
+    sizeBytes: input.bytes.length,
+  };
+};
+
+let blobUploaderForTests: BlobUploader = defaultBlobUploader;
+
+const defaultBlobCleaner: BlobCleaner = async (input) => {
+  if (input.pathnames.length === 0) {
+    return;
+  }
+
+  const response = await fetch(joinUrl(input.baseUrl, "/api/v1/uploads/blob"), {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${input.token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ pathnames: input.pathnames }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Blob cleanup failed (${response.status}).`);
+  }
+};
+
+let blobCleanerForTests: BlobCleaner = defaultBlobCleaner;
 
 // ── Filesystem helpers ──────────────────────────────────────────────────
 
@@ -453,6 +562,10 @@ async function walkPublishBundle(
       continue;
     }
 
+    if (path.extname(relativePath).toLowerCase() === ".pdf") {
+      continue;
+    }
+
     const bytes = await readFileBuffer(absolutePath);
     if (isFigureFile(relativePath)) {
       figures.push({
@@ -511,10 +624,13 @@ function assertPublishablePaper(summary: LocalPaperSummary): asserts summary is 
   }
 }
 
-async function buildPublishFormData(input: {
+async function buildPublishBody(input: {
   readonly folderAbsolutePath: string;
   readonly summary: LocalPaperSummary;
-}): Promise<FormData> {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly userId: string;
+}): Promise<Record<string, unknown>> {
   assertPublishablePaper(input.summary);
   const abstract = input.summary.abstract?.trim();
   if (!abstract) {
@@ -540,57 +656,138 @@ async function buildPublishFormData(input: {
     collectPublishBundle(input.folderAbsolutePath),
   ]);
 
-  const form = new FormData();
-  form.set("title", input.summary.title.trim());
-  form.set("abstract", abstract);
-  form.set("latexSource", latexSource);
-  form.set(
-    "pdf",
-    new File([pdfBytes], path.basename(pdfAbsolutePath), {
-      type: guessBundleContentType(input.summary.pdf.relativePath) || "application/pdf",
-    }),
-  );
+  const uploadId = randomUUID();
+  const pdfContentType =
+    guessBundleContentType(input.summary.pdf.relativePath) || "application/pdf";
+  const body: Record<string, unknown> = {
+    title: input.summary.title.trim(),
+    abstract,
+    latexSource,
+    pdf: {
+      fileName: path.basename(pdfAbsolutePath),
+      mimeType: pdfContentType,
+      ...(await blobUploaderForTests({
+        baseUrl: input.baseUrl,
+        token: input.token,
+        userId: input.userId,
+        uploadId,
+        role: "pdf",
+        relativePath: path.basename(pdfAbsolutePath),
+        fileName: path.basename(pdfAbsolutePath),
+        contentType: pdfContentType,
+        bytes: pdfBytes,
+      })),
+    },
+  };
 
   if (bibMatch) {
     const bibSource = await readFileText(
       path.join(input.folderAbsolutePath, bibMatch.relativePath),
     ).catch(() => null);
     if (bibSource && bibSource.trim().length > 0) {
-      form.set("bibSource", bibSource);
+      body.bibSource = bibSource;
     }
   }
 
-  if (bundle.artifacts.length > 0) {
-    form.set(
-      "artifactManifest",
-      JSON.stringify(
-        bundle.artifacts.map((artifact, index) => ({
-          fieldName: `artifact_${index}`,
-          path: artifact.path,
-          contentType: artifact.contentType,
-        })),
-      ),
-    );
-    bundle.artifacts.forEach((artifact, index) => {
-      form.set(
-        `artifact_${index}`,
-        new File([artifact.bytes], path.basename(artifact.path), {
-          type: artifact.contentType,
-        }),
-      );
+  const artifacts = [];
+  for (const artifact of bundle.artifacts) {
+    artifacts.push({
+      path: artifact.path,
+      contentType: artifact.contentType,
+      sha256: sha256Hex(artifact.bytes),
+      ...(await blobUploaderForTests({
+        baseUrl: input.baseUrl,
+        token: input.token,
+        userId: input.userId,
+        uploadId,
+        role: "artifacts",
+        relativePath: artifact.path,
+        fileName: path.basename(artifact.path),
+        contentType: artifact.contentType,
+        bytes: artifact.bytes,
+      })),
+      textContent: isInlineTextContent(artifact.contentType, artifact.bytes)
+        ? artifact.bytes.toString("utf8")
+        : undefined,
     });
   }
+  body.artifacts = artifacts;
 
+  const figures = [];
   for (const figure of bundle.figures) {
-    form.append(
-      "figures",
-      new File([figure.bytes], figure.fileName, {
-        type: figure.contentType,
-      }),
-    );
+    figures.push({
+      fileName: figure.fileName,
+      mimeType: figure.contentType,
+      ...(await blobUploaderForTests({
+        baseUrl: input.baseUrl,
+        token: input.token,
+        userId: input.userId,
+        uploadId,
+        role: "figures",
+        relativePath: figure.fileName,
+        fileName: figure.fileName,
+        contentType: figure.contentType,
+        bytes: figure.bytes,
+      })),
+    });
+  }
+  body.figures = figures;
+
+  return body;
+}
+
+function collectBlobPathnamesFromPublishBody(body: Record<string, unknown>): string[] {
+  const pathnames: string[] = [];
+  const pushPathname = (value: unknown) => {
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      typeof (value as { pathname?: unknown }).pathname === "string"
+    ) {
+      pathnames.push((value as { pathname: string }).pathname);
+    }
+  };
+
+  pushPathname(body.pdf);
+
+  if (Array.isArray(body.artifacts)) {
+    for (const artifact of body.artifacts) {
+      pushPathname(artifact);
+    }
   }
 
-  return form;
+  if (Array.isArray(body.figures)) {
+    for (const figure of body.figures) {
+      pushPathname(figure);
+    }
+  }
+
+  return [...new Set(pathnames)];
+}
+
+async function cleanupPublishBodyBlobs(input: {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly body: Record<string, unknown>;
+}) {
+  const pathnames = collectBlobPathnamesFromPublishBody(input.body);
+  if (pathnames.length === 0) {
+    return;
+  }
+
+  try {
+    await blobCleanerForTests({
+      baseUrl: input.baseUrl,
+      token: input.token,
+      pathnames,
+    });
+  } catch (error) {
+    console.warn(
+      `Failed to clean up ${pathnames.length} uploaded AgentScience blob(s).`,
+      error,
+    );
+  }
 }
 
 function parsePublishedPaperResponse(
@@ -1373,23 +1570,39 @@ export const makeLocalPapersService = Effect.gen(function* () {
             existingPublication?.ownerUserId === signedInUser.id &&
             existingPublication.publication.slug.trim().length > 0;
 
-          const requestForm = () =>
-            buildPublishFormData({
+          const requestBody = () =>
+            buildPublishBody({
               folderAbsolutePath,
               summary,
+              baseUrl: config.agentScienceBaseUrl,
+              token,
+              userId: signedInUser.id,
             });
 
           const sendRequest = async (input: {
             readonly method: "POST" | "PATCH";
             readonly pathname: string;
           }) => {
-            const response = await fetch(joinUrl(config.agentScienceBaseUrl, input.pathname), {
-              method: input.method,
-              headers: {
-                authorization: `Bearer ${token}`,
-              },
-              body: await requestForm(),
-            });
+            const body = await requestBody();
+            let response: Response;
+
+            try {
+              response = await fetch(joinUrl(config.agentScienceBaseUrl, input.pathname), {
+                method: input.method,
+                headers: {
+                  authorization: `Bearer ${token}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify(body),
+              });
+            } catch (error) {
+              await cleanupPublishBodyBlobs({
+                baseUrl: config.agentScienceBaseUrl,
+                token,
+                body,
+              });
+              throw error;
+            }
 
             let payload: unknown = null;
             try {
@@ -1399,6 +1612,11 @@ export const makeLocalPapersService = Effect.gen(function* () {
             }
 
             if (!response.ok) {
+              await cleanupPublishBodyBlobs({
+                baseUrl: config.agentScienceBaseUrl,
+                token,
+                body,
+              });
               const message =
                 payload &&
                 typeof payload === "object" &&
@@ -1505,6 +1723,18 @@ export const __internal = {
   folderNameToTitle,
   normalizePublicationRecord,
   readPublicationRecord,
+  setBlobUploaderForTests: (uploader: BlobUploader) => {
+    blobUploaderForTests = uploader;
+  },
+  resetBlobUploaderForTests: () => {
+    blobUploaderForTests = defaultBlobUploader;
+  },
+  setBlobCleanerForTests: (cleaner: BlobCleaner) => {
+    blobCleanerForTests = cleaner;
+  },
+  resetBlobCleanerForTests: () => {
+    blobCleanerForTests = defaultBlobCleaner;
+  },
   PDF_FILENAME_CANDIDATES,
   TEX_FILENAME_CANDIDATES,
   MD_FILENAME_CANDIDATES,
