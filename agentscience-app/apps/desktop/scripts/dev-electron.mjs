@@ -17,16 +17,11 @@ const watchedDirectories = [
   { directory: "../server/dist", files: new Set(["bin.mjs"]) },
 ];
 const runtimeDir = join(desktopDir, ".electron-runtime");
+const serverDir = join(desktopDir, "../server");
 const launcherLockPath = join(runtimeDir, "dev-electron.lock.json");
 const forcedShutdownTimeoutMs = 1_500;
 const restartDebounceMs = 120;
 const childTreeGracePeriodMs = 1_200;
-
-await waitForResources({
-  baseDir: desktopDir,
-  files: requiredFiles,
-  tcpPort: port,
-});
 
 const childEnv = { ...process.env };
 delete childEnv.ELECTRON_RUN_AS_NODE;
@@ -34,6 +29,7 @@ delete childEnv.ELECTRON_RUN_AS_NODE;
 let shuttingDown = false;
 let restartTimer = null;
 let currentApp = null;
+let serverBundleWatcher = null;
 let restartQueue = Promise.resolve();
 const expectedExits = new WeakSet();
 const watchers = [];
@@ -156,6 +152,60 @@ function cleanupStaleDevApps() {
   spawnSync("pkill", ["-f", "--", `--agentscience-dev-root=${desktopDir}`], { stdio: "ignore" });
 }
 
+function runInitialServerBundleBuild() {
+  const result = spawnSync("bun", ["tsdown"], {
+    cwd: serverDir,
+    env: childEnv,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+function startServerBundleWatcher() {
+  if (serverBundleWatcher !== null) {
+    return;
+  }
+
+  const watcher = spawn("bun", ["tsdown", "--watch"], {
+    cwd: serverDir,
+    env: childEnv,
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+
+  serverBundleWatcher = watcher;
+
+  watcher.once("error", (error) => {
+    if (serverBundleWatcher === watcher) {
+      serverBundleWatcher = null;
+    }
+    console.error("[dev-electron] Server bundle watcher failed:", error);
+    if (!shuttingDown) {
+      void shutdown(1);
+    }
+  });
+
+  watcher.once("exit", (code, signal) => {
+    if (serverBundleWatcher === watcher) {
+      serverBundleWatcher = null;
+    }
+
+    if (!shuttingDown && (signal !== null || code !== 0)) {
+      console.error(
+        `[dev-electron] Server bundle watcher exited unexpectedly (${signal ?? code}).`,
+      );
+      void shutdown(code ?? 1);
+    }
+  });
+}
+
 function startApp() {
   if (shuttingDown || currentApp !== null) {
     return;
@@ -235,6 +285,42 @@ async function stopApp() {
   });
 }
 
+async function stopServerBundleWatcher() {
+  const watcher = serverBundleWatcher;
+  if (!watcher) {
+    return;
+  }
+
+  serverBundleWatcher = null;
+
+  await new Promise((resolve) => {
+    let settled = false;
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve();
+    };
+
+    watcher.once("exit", finish);
+    watcher.kill("SIGTERM");
+    killChildTreeByPid(watcher.pid, "TERM");
+
+    setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      watcher.kill("SIGKILL");
+      killChildTreeByPid(watcher.pid, "KILL");
+      finish();
+    }, forcedShutdownTimeoutMs).unref();
+  });
+}
+
 function scheduleRestart() {
   if (shuttingDown) {
     return;
@@ -297,6 +383,7 @@ async function shutdown(exitCode) {
     watcher.close();
   }
 
+  await stopServerBundleWatcher();
   await stopApp();
   killChildTree("TERM");
   await sleep(childTreeGracePeriodMs);
@@ -309,6 +396,13 @@ async function shutdown(exitCode) {
 await ensureExclusiveLauncher();
 process.once("exit", releaseLauncherLock);
 
+runInitialServerBundleBuild();
+startServerBundleWatcher();
+await waitForResources({
+  baseDir: desktopDir,
+  files: requiredFiles,
+  tcpPort: port,
+});
 startWatchers();
 cleanupStaleDevApps();
 startApp();
