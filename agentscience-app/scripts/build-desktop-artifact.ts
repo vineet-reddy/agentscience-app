@@ -1016,6 +1016,20 @@ function pruneManagedScienceRuntimeArtifacts(runtimeDir: string, verbose: boolea
   }
 }
 
+function pruneManagedPaperToolchainArtifacts(tinytexRoot: string): void {
+  const removablePaths = [
+    join(tinytexRoot, "texmf-dist", "doc"),
+    join(tinytexRoot, "texmf-dist", "source"),
+    join(tinytexRoot, "texmf-dist", "fonts", "source"),
+  ];
+
+  for (const removablePath of removablePaths) {
+    if (existsSync(removablePath)) {
+      rmSync(removablePath, { recursive: true, force: true });
+    }
+  }
+}
+
 function writeExecutableScript(filePath: string, contents: string): void {
   writeFileSync(filePath, `${contents}\n`, { mode: 0o755 });
   chmodSync(filePath, 0o755);
@@ -1856,6 +1870,7 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
           message: `Missing extracted TinyTeX runtime at ${extractedTinyTeXPath}.`,
         });
       }
+      pruneManagedPaperToolchainArtifacts(extractedTinyTeXPath);
 
       stageManagedPaperToolchainShims(targetBinDir, target);
       writeFileSync(smokeSourcePath, MANAGED_PAPER_TOOLCHAIN_SMOKE_TEX);
