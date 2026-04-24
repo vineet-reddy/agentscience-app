@@ -55,6 +55,13 @@ function isDirectory(candidatePath: string | undefined): candidatePath is string
   }
 }
 
+function managedPlatformKeys(): ReadonlyArray<string> {
+  return [
+    `${process.platform}-${process.arch}`,
+    ...(process.platform === "darwin" ? ["darwin-universal"] : []),
+  ];
+}
+
 function inferPaperToolchainBinDirFromScienceRuntimeDir(
   runtimeDir: string | undefined,
 ): string | undefined {
@@ -83,9 +90,10 @@ function resolveManagedPaperToolchainBinDir(envSource: NodeJS.ProcessEnv): strin
   }
 
   const managedToolchainRoot = normalizePathEnv(envSource[PAPER_TOOLCHAIN_DIR_ENV]);
-  const platformKey = `${process.platform}-${process.arch}`;
   const candidates = [
-    managedToolchainRoot ? join(managedToolchainRoot, platformKey, "bin") : undefined,
+    ...managedPlatformKeys().map((platformKey) =>
+      managedToolchainRoot ? join(managedToolchainRoot, platformKey, "bin") : undefined,
+    ),
     managedToolchainRoot ? join(managedToolchainRoot, "bin") : undefined,
     inferPaperToolchainBinDirFromScienceRuntimeDir(envSource[MANAGED_SCIENCE_RUNTIME_DIR_ENV]),
     inferPaperToolchainBinDirFromScienceRuntimeDir(

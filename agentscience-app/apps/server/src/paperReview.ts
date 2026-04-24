@@ -93,6 +93,13 @@ function platformArchKey(): string {
   return `${process.platform}-${process.arch}`;
 }
 
+function platformToolchainKeys(): string[] {
+  return unique([
+    platformArchKey(),
+    ...(process.platform === "darwin" ? ["darwin-universal"] : []),
+  ]);
+}
+
 function unique<T>(values: readonly T[]): T[] {
   return Array.from(new Set(values));
 }
@@ -129,16 +136,22 @@ function managedToolchainRoots(): string[] {
 }
 
 function managedToolchainBinDirs(): string[] {
-  const platformKey = platformArchKey();
+  const explicitBinDir = process.env[PAPER_TOOLCHAIN_ENV_BIN_DIR]?.trim() ?? "";
+  if (explicitBinDir.length > 0) {
+    return [explicitBinDir];
+  }
+
   return unique(
     [
-      process.env[PAPER_TOOLCHAIN_ENV_BIN_DIR]?.trim() ?? "",
-      ...managedToolchainRoots().flatMap((root) => [
-        path.join(root, platformKey, "bin"),
-        path.join(root, "bin"),
-        path.join(root, platformKey),
-        root,
-      ]),
+      ...managedToolchainRoots().flatMap((root) => {
+        const platformKeys = platformToolchainKeys();
+        return [
+          ...platformKeys.map((platformKey) => path.join(root, platformKey, "bin")),
+          path.join(root, "bin"),
+          ...platformKeys.map((platformKey) => path.join(root, platformKey)),
+          root,
+        ];
+      }),
     ].filter((candidate) => candidate.length > 0),
   );
 }

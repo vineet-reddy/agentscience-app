@@ -35,7 +35,7 @@ bun run dev:desktop
 
 `dev:desktop:resources` is idempotent. It writes
 `apps/desktop/managed-resources/.manifest.json` with a hash of the managed
-runtime recipe, including the Tectonic version, wrapper scripts, Python version,
+runtime recipe, including the TinyTeX version, wrapper scripts, Python version,
 package list, platform, arch, and checksums. If that manifest still matches and
 the expected binaries are present, it exits quickly without re-downloading. Run
 it again after changing the managed runtime/toolchain recipe; ordinary app and

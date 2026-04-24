@@ -350,7 +350,7 @@ describe("paper review helpers", () => {
     await fs.rm(threadWorkspaceRoot, { recursive: true, force: true });
   });
 
-  it("compiles with bundled Tectonic before LaTeX compatibility shims", async () => {
+  it("compiles with the bundled TinyTeX latexmk toolchain", async () => {
     const { PaperReviewServiceLive, PaperReviewService } = await importPaperReviewModule();
     const { Effect, Layer, Stream } = await import("effect");
     const { OrchestrationEngineService } =
@@ -358,31 +358,38 @@ describe("paper review helpers", () => {
 
     const previousPaperToolchainBinDir = process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
     const workspaceRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "agentscience-paper-review-tectonic-"),
+      path.join(os.tmpdir(), "agentscience-paper-review-tinytex-"),
     );
     const toolchainRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentscience-paper-toolchain-"));
 
     try {
       const toolchainBinDir = path.join(toolchainRoot, "bin");
-      const invocationLogPath = path.join(workspaceRoot, "tectonic-args.txt");
-      const tectonicPath = path.join(
+      const invocationLogPath = path.join(workspaceRoot, "latexmk-args.txt");
+      const latexmkPath = path.join(
         toolchainBinDir,
-        process.platform === "win32" ? "tectonic.exe" : "tectonic",
+        process.platform === "win32" ? "latexmk.exe" : "latexmk",
+      );
+      const pdflatexPath = path.join(
+        toolchainBinDir,
+        process.platform === "win32" ? "pdflatex.exe" : "pdflatex",
       );
       await fs.mkdir(toolchainBinDir, { recursive: true });
       await fs.writeFile(
-        tectonicPath,
+        latexmkPath,
         [
           "#!/bin/sh",
-          'if [ "${1:-}" = "--version" ]; then',
-          "  echo 'Tectonic test build'",
+          'if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--version" ]; then',
+          "  echo 'Latexmk test build'",
           "  exit 0",
           "fi",
           `printf '%s\\n' "$@" > ${JSON.stringify(invocationLogPath)}`,
-          "echo 'tectonic ok'",
+          "echo 'latexmk ok'",
         ].join("\n"),
         { mode: 0o755 },
       );
+      await fs.writeFile(pdflatexPath, "#!/bin/sh\necho 'pdfTeX test build'\n", {
+        mode: 0o755,
+      });
       process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR = toolchainBinDir;
 
       await fs.writeFile(path.join(workspaceRoot, "paper.tex"), "\\section{Intro}\n", "utf8");
@@ -400,7 +407,7 @@ describe("paper review helpers", () => {
                   projectId: null,
                   folderSlug: "thread-review-test",
                   resolvedWorkspacePath: workspaceRoot,
-                  title: "Tectonic draft",
+                  title: "TinyTeX draft",
                   modelSelection: { provider: "codex", model: "gpt-5.4" },
                   runtimeMode: "full-access",
                   interactionMode: "default",
@@ -434,10 +441,14 @@ describe("paper review helpers", () => {
       const snapshot = await Effect.runPromise(program);
       const invocationArgs = await fs.readFile(invocationLogPath, "utf8");
 
-      expect(snapshot.compile.compiler).toBe("managed-tectonic");
-      expect(snapshot.compile.compilerLabel).toBe("Bundled Tectonic");
-      expect(snapshot.compile.outputExcerpt).toContain("tectonic ok");
-      expect(invocationArgs.split("\n").filter(Boolean).slice(0, 2)).toEqual(["-X", "compile"]);
+      expect(snapshot.compile.compiler).toBe("managed-latexmk");
+      expect(snapshot.compile.compilerLabel).toBe("Bundled paper engine");
+      expect(snapshot.compile.outputExcerpt).toContain("latexmk ok");
+      expect(invocationArgs.split("\n").filter(Boolean).slice(0, 3)).toEqual([
+        "-pdf",
+        "-interaction=nonstopmode",
+        "-halt-on-error",
+      ]);
     } finally {
       if (previousPaperToolchainBinDir === undefined) {
         delete process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;

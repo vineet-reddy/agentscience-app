@@ -9,26 +9,19 @@ bun run dev:desktop:resources
 That command uses the same bundling logic as the desktop release artifact build
 and writes `../.manifest.json`. If the manifest hash still matches the release
 toolchain recipe and the expected binaries are present, the command exits
-without downloading anything. Run it again after changing the Tectonic version,
+without downloading anything. Run it again after changing the TinyTeX version,
 wrapper scripts, target checksums, or managed science runtime package list.
 
-Expected layout:
+Expected macOS layout:
 
-- `darwin-arm64/bin/tectonic`
-- `darwin-arm64/bin/tectonic-real`
-- `darwin-arm64/bin/latexmk`
-- `darwin-arm64/bin/pdflatex`
-- `darwin-arm64/bin/bibtex`
-- `darwin-arm64/cache/...`
-- `darwin-x64/bin/tectonic`
-- `darwin-x64/bin/...`
-- `linux-x64/bin/...`
-- `win32-x64/bin/...`
+- `darwin-universal/TinyTeX/...`
+- `darwin-universal/bin/latexmk`
+- `darwin-universal/bin/pdflatex`
+- `darwin-universal/bin/bibtex`
+- `darwin-universal/bin/biber`
 
-The server prefers the bundled `tectonic` wrapper over system LaTeX when present
-so paper review works without requiring scientists to install TeX manually. The
-wrapper seeds a bundled Tectonic cache into the workspace cache before invoking
-`tectonic-real`, so first-run PDF builds do not depend on automatic TeX resource
-downloads. The managed desktop build also stages lightweight compatibility shims
-for `latexmk`, `pdflatex`, and `bibtex` so older LaTeX-first flows continue to
-work without shipping a full user-managed TeX distribution.
+The server prefers the bundled TinyTeX `latexmk`/`pdflatex` wrappers over
+system LaTeX when present, so paper review works without requiring scientists to
+install TeX manually. The wrappers invoke the pinned TinyTeX runtime under this
+directory and keep workspace-specific TeX caches/configuration inside each paper
+workspace.

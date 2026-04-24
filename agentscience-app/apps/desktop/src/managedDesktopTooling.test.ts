@@ -94,6 +94,41 @@ describe("resolveManagedPlatformBinDir", () => {
       rmSync(repoRoot, { recursive: true, force: true });
     }
   });
+
+  it("supports a shared managed macOS universal toolchain", () => {
+    const resourcesRoot = createTempRoot("agentscience-managed-resources-");
+
+    try {
+      const packagedBinDir = path.join(
+        resourcesRoot,
+        "managed-resources",
+        "paper-toolchain",
+        "darwin-universal",
+        "bin",
+      );
+      mkdirSync(packagedBinDir, { recursive: true });
+
+      const resolved = resolveManagedPlatformBinDir({
+        resourceDirName: "paper-toolchain",
+        resourcesPath: resourcesRoot,
+        platform: "darwin",
+        arch: "arm64",
+      });
+
+      expect(resolved).toEqual({
+        rootDir: path.join(resourcesRoot, "managed-resources", "paper-toolchain"),
+        platformDir: path.join(
+          resourcesRoot,
+          "managed-resources",
+          "paper-toolchain",
+          "darwin-universal",
+        ),
+        binDir: packagedBinDir,
+      });
+    } finally {
+      rmSync(resourcesRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("resolveManagedScienceRuntime", () => {

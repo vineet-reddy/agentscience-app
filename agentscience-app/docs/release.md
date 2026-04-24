@@ -67,7 +67,7 @@ This is also the right thing to do when you are changing the release workflow it
 `bun run dev:desktop` launches the development app from the repo. It does not
 build the large managed paper/science runtimes on startup.
 
-Before testing behavior that depends on bundled Tectonic, bundled Python, or the
+Before testing behavior that depends on bundled TinyTeX, bundled Python, or the
 managed science packages, run:
 
 ```bash

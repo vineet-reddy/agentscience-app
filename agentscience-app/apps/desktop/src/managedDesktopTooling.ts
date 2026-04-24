@@ -43,6 +43,13 @@ function unique<T>(values: ReadonlyArray<T>): T[] {
   return Array.from(new Set(values));
 }
 
+function managedPlatformKeys(platform: NodeJS.Platform, arch: string): ReadonlyArray<string> {
+  return unique([
+    `${platform}-${arch}`,
+    ...(platform === "darwin" ? ["darwin-universal"] : []),
+  ]);
+}
+
 function managedResourceRoots(input: {
   readonly resourceDirName: string;
   readonly resourcesPath: string;
@@ -79,10 +86,11 @@ export function resolveManagedPlatformBinDir(input: {
   readonly platform: NodeJS.Platform;
   readonly arch: string;
 }): ManagedPlatformBinDir | null {
-  const platformKey = `${input.platform}-${input.arch}`;
-
   for (const rootDir of managedResourceRoots(input)) {
-    for (const binDir of [join(rootDir, platformKey, "bin"), join(rootDir, "bin")]) {
+    const platformBinDirs = managedPlatformKeys(input.platform, input.arch).map((platformKey) =>
+      join(rootDir, platformKey, "bin"),
+    );
+    for (const binDir of [...platformBinDirs, join(rootDir, "bin")]) {
       if (isDirectory(binDir)) {
         return { rootDir, platformDir: dirname(binDir), binDir };
       }

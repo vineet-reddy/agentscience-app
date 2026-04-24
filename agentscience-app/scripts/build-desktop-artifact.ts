@@ -40,28 +40,33 @@ const MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR = "paper-toolchain";
 const MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR = "science-runtime";
 const DEV_MANAGED_RESOURCES_MANIFEST_FILE = ".manifest.json";
 const DEV_MANAGED_RESOURCES_MANIFEST_VERSION = 1;
-const MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION = "0.16.9";
-const MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_TEX = String.raw`\documentclass[10pt]{article}
-\usepackage{graphicx}
+const MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION = "2026.04";
+const MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE = "TinyTeX";
+const MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG =
+  `v${MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION}`;
+const MANAGED_PAPER_TOOLCHAIN_SMOKE_TEX = String.raw`\documentclass[10pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{booktabs}
+\usepackage{graphicx}
 
 \begin{document}
 \begin{center}
-\textbf{AgentScience Managed Tectonic Cache Seed}
+\textbf{AgentScience Managed TinyTeX Smoke Test}
 \end{center}
 
 \begin{abstract}
-This abstract seeds the standard article-class small-font path used by generated manuscripts.
+This smoke test exercises standard article fonts, math symbols, and common
+scientific manuscript packages.
 \end{abstract}
 
 \section{Result}
-This document intentionally exercises common manuscript primitives: \textbf{bold},
-\emph{emphasis}, inline math $\rho = 0.94$, tables, and graphics package loading.
-
-\tiny Tiny \textbf{bold}. \scriptsize Scriptsize \textbf{bold}. \footnotesize Footnotesize
-\textbf{bold}. \small Small \textbf{bold}. \normalsize Normalsize \textbf{bold}.
-\large Large \textbf{bold}. \Large Larger \textbf{bold}. \LARGE Largest \textbf{bold}.
-\huge Huge \textbf{bold}. \Huge Huge display \textbf{bold}. \normalsize
+Inline math $a \leq b \geq c \neq d \in E \subset F \times G \pm H \to I$.
+\[
+  \sum_{i=1}^{n} \frac{x_{i_j}^2}{\sqrt{1 + y_i}} \leq
+  \int_0^1 \alpha_i\,d\beta
+\]
+Set notation $\mathbb{R} \subset \mathbb{C}$ and a table:
 
 \begin{tabular}{lr}
 \toprule
@@ -72,9 +77,6 @@ Spearman $\rho$ & 0.94 \\
 \end{tabular}
 \end{document}
 `;
-const MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_SHA256 = createHash("sha256")
-  .update(MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_TEX)
-  .digest("hex");
 const MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG = "20260414";
 const MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION = "3.12.13";
 const MANAGED_SCIENCE_RUNTIME_UV_VERSION = "0.11.7";
@@ -132,8 +134,9 @@ interface ManagedScienceRuntimeTarget {
 
 interface ManagedPaperToolchainTarget {
   readonly platformKey: string;
-  readonly tectonicArchiveName: string;
-  readonly tectonicSha256: string;
+  readonly tinytexArchiveName: string;
+  readonly tinytexSha256: string;
+  readonly tinytexBinSubdir: string;
 }
 
 const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
@@ -795,42 +798,19 @@ function resolveManagedScienceRuntimeTargets(
 
 function resolveManagedPaperToolchainTargets(
   platform: typeof BuildPlatform.Type,
-  arch: typeof BuildArch.Type,
+  _arch: typeof BuildArch.Type,
 ): ReadonlyArray<ManagedPaperToolchainTarget> {
   if (platform !== "mac") {
     return [];
   }
 
-  if (arch === "arm64") {
-    return [
-      {
-        platformKey: "darwin-arm64",
-        tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-aarch64-apple-darwin.tar.gz`,
-        tectonicSha256: "edb67c61aba768289f6da441c9e6f523cfaff4f8b2a5708523ef29c543f8e88e",
-      },
-    ];
-  }
-
-  if (arch === "x64") {
-    return [
-      {
-        platformKey: "darwin-x64",
-        tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-x86_64-apple-darwin.tar.gz`,
-        tectonicSha256: "79d8839fa3594bfea9b2bf2ac0a0455bcc4d0de956a5e5c403107e9a72f79e86",
-      },
-    ];
-  }
-
   return [
     {
-      platformKey: "darwin-arm64",
-      tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-aarch64-apple-darwin.tar.gz`,
-      tectonicSha256: "edb67c61aba768289f6da441c9e6f523cfaff4f8b2a5708523ef29c543f8e88e",
-    },
-    {
-      platformKey: "darwin-x64",
-      tectonicArchiveName: `tectonic-${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}-x86_64-apple-darwin.tar.gz`,
-      tectonicSha256: "79d8839fa3594bfea9b2bf2ac0a0455bcc4d0de956a5e5c403107e9a72f79e86",
+      platformKey: "darwin-universal",
+      tinytexArchiveName:
+        `${MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE}-darwin-${MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG}.tar.xz`,
+      tinytexSha256: "a23cfd01181dace693f1dce14ec7d2a4161ae5589c5455b1c37bc246949494fd",
+      tinytexBinSubdir: "universal-darwin",
     },
   ];
 }
@@ -945,143 +925,40 @@ function writeExecutableScript(filePath: string, contents: string): void {
   chmodSync(filePath, 0o755);
 }
 
-function managedTectonicWrapperScript(): string {
+function managedTinyTeXWrapperScript(executableName: string, tinytexBinSubdir: string): string {
   return [
     "#!/bin/sh",
     "set -eu",
     "",
     'SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
-    'TECTONIC_REAL="$SELF_DIR/tectonic-real"',
-    'SEED_CACHE="$SELF_DIR/../cache"',
-    `SEED_CACHE_VERSION="${MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_SHA256}"`,
+    'TOOLCHAIN_DIR=$(CDPATH= cd -- "$SELF_DIR/.." && pwd)',
+    'TINYTEX_ROOT="$TOOLCHAIN_DIR/TinyTeX"',
+    `TINYTEX_BIN="$TINYTEX_ROOT/bin/${tinytexBinSubdir}"`,
+    `TINYTEX_EXE="$TINYTEX_BIN/${executableName}"`,
     "",
-    'if [ ! -x "$TECTONIC_REAL" ]; then',
-    '  echo "Missing bundled tectonic binary at $TECTONIC_REAL" >&2',
+    'if [ ! -x "$TINYTEX_EXE" ]; then',
+    '  echo "Missing bundled TinyTeX executable at $TINYTEX_EXE" >&2',
     "  exit 1",
     "fi",
     "",
-    'if [ -d "$SEED_CACHE" ] && [ -n "${TECTONIC_CACHE_DIR:-}" ]; then',
-    '  SEED_CACHE_MARKER="$TECTONIC_CACHE_DIR/.agentscience-seed-cache-sha256"',
-    '  current_seed_cache_version=""',
-    '  if [ -f "$SEED_CACHE_MARKER" ]; then',
-    '    current_seed_cache_version=$(cat "$SEED_CACHE_MARKER" 2>/dev/null || true)',
-    "  fi",
-    '  if [ "$current_seed_cache_version" != "$SEED_CACHE_VERSION" ]; then',
-    '    mkdir -p "$TECTONIC_CACHE_DIR"',
-    '    cp -R "$SEED_CACHE/." "$TECTONIC_CACHE_DIR/"',
-    '    printf "%s\\n" "$SEED_CACHE_VERSION" > "$SEED_CACHE_MARKER"',
-    "  fi",
-    "fi",
+    'export PATH="$TINYTEX_BIN${PATH:+:$PATH}"',
+    'export TEXMFROOT="$TINYTEX_ROOT"',
+    'export TEXMFCNF="$TINYTEX_ROOT:"',
     "",
-    'case "${1:-}" in',
-    "  --version|-version|-v)",
-    '    exec "$TECTONIC_REAL" --version',
-    "    ;;",
-    "esac",
-    "",
-    'has_only_cached="0"',
-    'for arg in "$@"; do',
-    '  if [ "$arg" = "--only-cached" ]; then',
-    '    has_only_cached="1"',
-    "  fi",
-    "done",
-    "",
-    'if [ "${1:-}" = "-X" ] && [ "${2:-}" = "compile" ]; then',
-    "  shift 2",
-    '  if [ "$has_only_cached" = "1" ]; then',
-    '    exec "$TECTONIC_REAL" -X compile "$@"',
-    "  fi",
-    '  exec "$TECTONIC_REAL" -X compile --only-cached "$@"',
-    "fi",
-    "",
-    'if [ "$has_only_cached" = "1" ]; then',
-    '  exec "$TECTONIC_REAL" "$@"',
-    "fi",
-    'exec "$TECTONIC_REAL" --only-cached "$@"',
+    'exec "$TINYTEX_EXE" "$@"',
   ].join("\n");
 }
 
-function managedPaperCompileWrapperScript(): string {
-  return [
-    "#!/bin/sh",
-    "set -eu",
-    "",
-    'SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
-    'TECTONIC="$SELF_DIR/tectonic"',
-    "",
-    'if [ ! -x "$TECTONIC" ]; then',
-    '  echo "Missing bundled tectonic binary at $TECTONIC" >&2',
-    "  exit 1",
-    "fi",
-    "",
-    'outdir=""',
-    'input=""',
-    'while [ "$#" -gt 0 ]; do',
-    '  case "$1" in',
-    "    --version|-version|-v)",
-    '      exec "$TECTONIC" --version',
-    "      ;;",
-    "    -output-directory=*|-outdir=*)",
-    '      outdir=${1#*=}',
-    "      ;;",
-    "    -output-directory|-outdir)",
-    "      shift",
-    '      if [ "$#" -eq 0 ]; then',
-    '        echo "Missing output directory." >&2',
-    "        exit 2",
-    "      fi",
-    '      outdir="$1"',
-    "      ;;",
-    "    -interaction=*|-halt-on-error|-file-line-error|-pdf|-quiet|-cd|-f|-g|-shell-escape|-no-shell-escape|-recorder|-emulate-aux-dir|-aux-directory=*|-jobname=*|-synctex=*)",
-    "      ;;",
-    "    -*)",
-    "      ;;",
-    "    *)",
-    '      if [ -z "$input" ]; then',
-    '        input="$1"',
-    "      fi",
-    "      ;;",
-    "  esac",
-    "  shift",
-    "done",
-    "",
-    'if [ -z "$input" ]; then',
-    '  echo "No LaTeX source provided." >&2',
-    "  exit 2",
-    "fi",
-    "",
-    'if [ -n "$outdir" ]; then',
-    '  exec "$TECTONIC" -X compile --keep-intermediates --keep-logs --outdir "$outdir" "$input"',
-    "fi",
-    "",
-    'exec "$TECTONIC" -X compile --keep-intermediates --keep-logs "$input"',
-  ].join("\n");
-}
-
-function managedPaperBibtexWrapperScript(): string {
-  return [
-    "#!/bin/sh",
-    "set -eu",
-    "",
-    'SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
-    'TECTONIC="$SELF_DIR/tectonic"',
-    "",
-    'case "${1:-}" in',
-    "  --version|-version|-v)",
-    '    exec "$TECTONIC" --version',
-    "    ;;",
-    "esac",
-    "",
-    "# Tectonic already performs the necessary BibTeX passes during compile.",
-    "exit 0",
-  ].join("\n");
-}
-
-function stageManagedPaperToolchainShims(binDir: string): void {
-  writeExecutableScript(join(binDir, "tectonic"), managedTectonicWrapperScript());
-  writeExecutableScript(join(binDir, "latexmk"), managedPaperCompileWrapperScript());
-  writeExecutableScript(join(binDir, "pdflatex"), managedPaperCompileWrapperScript());
-  writeExecutableScript(join(binDir, "bibtex"), managedPaperBibtexWrapperScript());
+function stageManagedPaperToolchainShims(
+  binDir: string,
+  target: ManagedPaperToolchainTarget,
+): void {
+  for (const executableName of ["latexmk", "pdflatex", "bibtex", "biber", "kpsewhich"]) {
+    writeExecutableScript(
+      join(binDir, executableName),
+      managedTinyTeXWrapperScript(executableName, target.tinytexBinSubdir),
+    );
+  }
 }
 
 function createDevManagedResourcesRecipe(
@@ -1097,13 +974,14 @@ function createDevManagedResourcesRecipe(
     arch,
     resources: {
       [MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR]: {
-        tectonicVersion: MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION,
-        cacheSeedTexSha256: MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_SHA256,
+        engine: "tinytex",
+        tinytexVersion: MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION,
+        tinytexBundle: MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE,
         targets: paperTargets.map((target) => ({ ...target })),
         wrapperScripts: {
-          tectonic: managedTectonicWrapperScript(),
-          latexCompatibleCompile: managedPaperCompileWrapperScript(),
-          bibtex: managedPaperBibtexWrapperScript(),
+          latexmk: managedTinyTeXWrapperScript("latexmk", "universal-darwin"),
+          pdflatex: managedTinyTeXWrapperScript("pdflatex", "universal-darwin"),
+          bibtex: managedTinyTeXWrapperScript("bibtex", "universal-darwin"),
         },
       },
       [MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR]: {
@@ -1154,12 +1032,10 @@ function expectedDevManagedResourcePaths(
     );
     const binDir = join(targetDir, "bin");
     expectedPaths.push(
-      join(binDir, "tectonic"),
-      join(binDir, "tectonic-real"),
       join(binDir, "latexmk"),
       join(binDir, "pdflatex"),
       join(binDir, "bibtex"),
-      join(targetDir, "cache"),
+      join(targetDir, "TinyTeX"),
     );
   }
 
@@ -1819,9 +1695,20 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
 
   const toolchainRoot = path.join(stageManagedResourcesDir, MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR);
   yield* fs.makeDirectory(toolchainRoot, { recursive: true });
+  const existingToolchainEntries = yield* fs
+    .readDirectory(toolchainRoot, { recursive: false })
+    .pipe(Effect.catch(() => Effect.succeed([] as Array<string>)));
+  for (const entry of existingToolchainEntries) {
+    if (entry === "README.md") {
+      continue;
+    }
+    yield* fs.remove(path.join(toolchainRoot, entry), { recursive: true, force: true }).pipe(
+      Effect.ignore,
+    );
+  }
 
   const releaseBaseUrl =
-    `https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION}`;
+    `https://github.com/rstudio/tinytex-releases/releases/download/${MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG}`;
   const tempRoot = mkdtempSync(join(tmpdir(), "agentscience-managed-paper-toolchain-"));
 
   try {
@@ -1829,16 +1716,14 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
       const targetTempDir = path.join(tempRoot, target.platformKey);
       const targetToolchainDir = path.join(toolchainRoot, target.platformKey);
       const targetBinDir = path.join(targetToolchainDir, "bin");
-      const archivePath = path.join(targetTempDir, target.tectonicArchiveName);
-      const extractedBinaryPath = path.join(targetTempDir, "tectonic");
-      const packagedBinaryPath = path.join(targetBinDir, "tectonic");
-      const packagedRealBinaryPath = path.join(targetBinDir, "tectonic-real");
-      const packagedCacheDir = path.join(targetToolchainDir, "cache");
+      const archivePath = path.join(targetTempDir, target.tinytexArchiveName);
+      const extractedTinyTeXPath = path.join(targetToolchainDir, "TinyTeX");
+      const packagedLatexmkPath = path.join(targetBinDir, "latexmk");
       const smokeSourcePath = path.join(targetTempDir, "smoke.tex");
       const smokeOutDir = path.join(targetTempDir, "smoke-out");
-      const smokeRuntimeCacheDir = path.join(targetTempDir, "smoke-runtime-cache");
 
       yield* fs.makeDirectory(targetTempDir, { recursive: true });
+      yield* fs.makeDirectory(targetToolchainDir, { recursive: true });
 
       runCheckedCommand({
         command: "curl",
@@ -1849,52 +1734,44 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
           "3",
           "--output",
           archivePath,
-          `${releaseBaseUrl}/${target.tectonicArchiveName}`,
+          `${releaseBaseUrl}/${target.tinytexArchiveName}`,
         ],
         verbose,
       });
-      assertSha256(archivePath, target.tectonicSha256);
+      assertSha256(archivePath, target.tinytexSha256);
 
-      yield* fs.remove(targetToolchainDir, { recursive: true, force: true }).pipe(Effect.ignore);
       yield* fs.makeDirectory(targetBinDir, { recursive: true });
 
       runCheckedCommand({
         command: "tar",
-        args: ["-xzf", archivePath, "-C", targetTempDir],
+        args: ["-xJf", archivePath, "-C", targetToolchainDir],
         verbose,
       });
 
-      if (!(yield* fs.exists(extractedBinaryPath))) {
+      if (!(yield* fs.exists(path.join(extractedTinyTeXPath, "bin", target.tinytexBinSubdir)))) {
         return yield* new BuildScriptError({
-          message: `Missing extracted tectonic binary at ${extractedBinaryPath}.`,
+          message: `Missing extracted TinyTeX runtime at ${extractedTinyTeXPath}.`,
         });
       }
 
-      yield* fs.copyFile(extractedBinaryPath, packagedRealBinaryPath);
-      chmodSync(packagedRealBinaryPath, 0o755);
-
-      writeFileSync(
-        smokeSourcePath,
-        MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_TEX,
-      );
+      stageManagedPaperToolchainShims(targetBinDir, target);
+      writeFileSync(smokeSourcePath, MANAGED_PAPER_TOOLCHAIN_SMOKE_TEX);
       yield* fs.makeDirectory(smokeOutDir, { recursive: true });
-      runCheckedCommand({
-        command: packagedRealBinaryPath,
-        args: ["-X", "compile", "--keep-logs", "--outdir", smokeOutDir, smokeSourcePath],
-        env: { ...process.env, TECTONIC_CACHE_DIR: packagedCacheDir },
-        verbose,
-      });
-      stageManagedPaperToolchainShims(targetBinDir);
 
       runCheckedCommand({
-        command: packagedBinaryPath,
-        args: ["--version"],
+        command: packagedLatexmkPath,
+        args: ["-v"],
         verbose,
       });
       runCheckedCommand({
-        command: packagedBinaryPath,
-        args: ["-X", "compile", "--keep-logs", "--outdir", smokeOutDir, smokeSourcePath],
-        env: { ...process.env, TECTONIC_CACHE_DIR: smokeRuntimeCacheDir },
+        command: packagedLatexmkPath,
+        args: [
+          "-pdf",
+          "-interaction=nonstopmode",
+          "-halt-on-error",
+          `-outdir=${smokeOutDir}`,
+          smokeSourcePath,
+        ],
         verbose,
       });
     }

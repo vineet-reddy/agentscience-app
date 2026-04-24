@@ -1020,8 +1020,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         reviewRecommended: true,
         compile: {
           status: "ready",
-          compiler: "managed-tectonic",
-          compilerLabel: "Bundled Tectonic",
+          compiler: "managed-latexmk",
+          compilerLabel: "Bundled paper engine",
           canCompile: true,
           needsBuild: false,
           lastBuiltAt: "2026-04-15T12:05:00.000Z",

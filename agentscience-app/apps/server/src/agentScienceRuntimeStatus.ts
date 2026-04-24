@@ -347,7 +347,7 @@ export function hasManagedPaperToolchain(
     return false;
   }
   return (
-    isFile(join(binDir, resolveManagedToolExecutableName("tectonic"))) &&
+    isFile(join(binDir, resolveManagedToolExecutableName("latexmk"))) &&
     isFile(join(binDir, resolveManagedToolExecutableName("pdflatex")))
   );
 }
