@@ -396,6 +396,12 @@ describe("isContextMenuPointerDown", () => {
 });
 
 describe("resolveThreadStatusPill", () => {
+  // Shared session-boot timestamp for tests that don't care about the
+  // session gate; chosen *before* the default turn's completedAt
+  // (10:05 UTC) so completions are considered "in-session" unless a test
+  // overrides it to exercise relaunch behavior.
+  const SESSION_BOOT_AT = "2026-03-09T09:00:00.000Z";
+
   const baseThread = {
     hasActionableProposedPlan: false,
     hasPendingApprovals: false,
@@ -420,6 +426,7 @@ describe("resolveThreadStatusPill", () => {
           hasPendingApprovals: true,
           hasPendingUserInput: true,
         },
+        sessionBootAt: SESSION_BOOT_AT,
       }),
     ).toMatchObject({ label: "Pending Approval", pulse: false });
   });
@@ -436,6 +443,7 @@ describe("resolveThreadStatusPill", () => {
             lastError: "The provider failed.",
           },
         },
+        sessionBootAt: SESSION_BOOT_AT,
       }),
     ).toMatchObject({ label: "Error", pulse: false });
   });
@@ -447,6 +455,7 @@ describe("resolveThreadStatusPill", () => {
           ...baseThread,
           hasPendingUserInput: true,
         },
+        sessionBootAt: SESSION_BOOT_AT,
       }),
     ).toMatchObject({ label: "Awaiting Input", pulse: false });
   });
@@ -455,6 +464,7 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
+        sessionBootAt: SESSION_BOOT_AT,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
   });
@@ -472,6 +482,7 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "ready",
           },
         },
+        sessionBootAt: SESSION_BOOT_AT,
       }),
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
@@ -488,6 +499,7 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "ready",
           },
         },
+        sessionBootAt: SESSION_BOOT_AT,
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
   });
@@ -506,8 +518,92 @@ describe("resolveThreadStatusPill", () => {
             orchestrationStatus: "ready",
           },
         },
+        sessionBootAt: SESSION_BOOT_AT,
       }),
     ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("shows completed even when the user already visited the thread after it finished", () => {
+    // The sidebar dot is a state indicator, not a notification. A thread
+    // that the user sat on through completion should still show green so
+    // the row is glanceable as "done".
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          latestTurn: makeLatestTurn(),
+          lastVisitedAt: "2026-03-09T11:00:00.000Z",
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            orchestrationStatus: "ready",
+          },
+        },
+        sessionBootAt: SESSION_BOOT_AT,
+      }),
+    ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("does not show completed when the latest turn was interrupted", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          latestTurn: {
+            ...makeLatestTurn(),
+            state: "interrupted",
+          },
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            orchestrationStatus: "ready",
+          },
+        },
+        sessionBootAt: SESSION_BOOT_AT,
+      }),
+    ).toBeNull();
+  });
+
+  it("shows completed when the turn finished after the current session started", () => {
+    // Green is scoped to in-session completions: a turn that finished at
+    // 10:05 during a session booted at 10:00 deserves to glow emerald.
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          latestTurn: makeLatestTurn(),
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            orchestrationStatus: "ready",
+          },
+        },
+        sessionBootAt: "2026-03-09T10:00:00.000Z",
+      }),
+    ).toMatchObject({ label: "Completed", pulse: false });
+  });
+
+  it("does not show completed for turns that finished before the current session", () => {
+    // Relaunching the app resets the baseline: a thread that finished last
+    // week should not light up green just because the user opened the app.
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "default",
+          latestTurn: makeLatestTurn(),
+          session: {
+            ...baseThread.session,
+            status: "ready",
+            orchestrationStatus: "ready",
+          },
+        },
+        sessionBootAt: "2026-03-09T12:00:00.000Z",
+      }),
+    ).toBeNull();
   });
 });
 

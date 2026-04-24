@@ -22,6 +22,7 @@ import {
   useState,
 } from "react";
 import { BrandMark } from "./BrandMark";
+import { APP_SESSION_BOOT_AT } from "../appSession";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
 import { useDesktopFullScreen } from "../hooks/useDesktopFullScreen";
@@ -260,6 +261,7 @@ export default function Sidebar() {
         ...thread,
         lastVisitedAt: threadLastVisitedAtById[threadId],
       },
+      sessionBootAt: APP_SESSION_BOOT_AT,
     });
   };
 
@@ -273,6 +275,7 @@ export default function Sidebar() {
           ...thread,
           lastVisitedAt: threadLastVisitedAtById[thread.id],
         },
+        sessionBootAt: APP_SESSION_BOOT_AT,
       });
       if (status?.startedAt) {
         return true;
