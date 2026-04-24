@@ -71,3 +71,32 @@ export function formatRelativeTimeLabel(isoDate: string) {
   const relative = formatRelativeTime(isoDate);
   return relative.suffix ? `${relative.value} ${relative.suffix}` : relative.value;
 }
+
+/**
+ * Format a live-updating duration between two ISO timestamps. Used for
+ * present-tense "Working for 6m 28s" indicators — saying "6m ago" there is
+ * semantically wrong because the action is still in progress. Returns null
+ * when either timestamp is invalid.
+ */
+export function formatWorkingDuration(startIso: string, endIso: string): string | null {
+  const startedAtMs = Date.parse(startIso);
+  const endedAtMs = Date.parse(endIso);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+    return null;
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((endedAtMs - startedAtMs) / 1000));
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds}s`;
+  }
+
+  const hours = Math.floor(elapsedSeconds / 3600);
+  const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+  const seconds = elapsedSeconds % 60;
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
