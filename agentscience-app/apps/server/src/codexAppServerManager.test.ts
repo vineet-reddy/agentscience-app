@@ -30,7 +30,7 @@ function createSendTurnHarness() {
       status: "ready",
       threadId: "thread_1",
       runtimeMode: "full-access",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       cwd: "/tmp/workspace",
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
@@ -75,7 +75,7 @@ function createThreadControlHarness() {
       status: "ready",
       threadId: "thread_1",
       runtimeMode: "full-access",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       cwd: "/tmp/workspace",
       resumeCursor: { threadId: "thread_1" },
       createdAt: "2026-02-10T00:00:00.000Z",
@@ -299,6 +299,9 @@ describe("buildCodexModeDeveloperInstructions", () => {
       expect(instructions).toContain("\\mainfigure{path}{caption}{label}");
       expect(instructions).toContain("\\suppfigure{path}{caption}{label}");
       expect(instructions).toContain("\\printsupplement");
+      expect(instructions).toContain("code/agentscience_figures.py");
+      expect(instructions).toContain("agentscience research check-figures --workspace");
+      expect(instructions).toContain("Do not use `--skip-figure-check`");
       expect(instructions).toContain("Can I submit this paper to AgentScience?");
       expect(instructions).toContain("If yes, just say `yes`.");
       expect(instructions).toContain("agentscience registry import");
@@ -407,7 +410,7 @@ describe("resolveCodexModelForAccount", () => {
         planType: "plus",
         sparkEnabled: false,
       }),
-    ).toBe("gpt-5.3-codex");
+    ).toBe("gpt-5.4");
   });
 
   it("keeps spark for supported plans", () => {
@@ -427,7 +430,7 @@ describe("resolveCodexModelForAccount", () => {
         planType: null,
         sparkEnabled: false,
       }),
-    ).toBe("gpt-5.3-codex");
+    ).toBe("gpt-5.4");
   });
 });
 
@@ -634,7 +637,7 @@ describe("sendTurn", () => {
         },
       ],
       cwd: "/tmp/workspace",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
@@ -686,7 +689,7 @@ describe("sendTurn", () => {
         },
       ],
       cwd: "/tmp/workspace",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
@@ -716,7 +719,7 @@ describe("sendTurn", () => {
         },
       ],
       cwd: "/tmp/workspace",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
@@ -727,7 +730,7 @@ describe("sendTurn", () => {
       collaborationMode: {
         mode: "plan",
         settings: {
-          model: "gpt-5.3-codex",
+          model: "gpt-5.4",
           reasoning_effort: "medium",
           developer_instructions: buildCodexModeDeveloperInstructions("plan"),
         },
@@ -754,7 +757,7 @@ describe("sendTurn", () => {
         },
       ],
       cwd: "/tmp/workspace",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
@@ -765,7 +768,7 @@ describe("sendTurn", () => {
       collaborationMode: {
         mode: "default",
         settings: {
-          model: "gpt-5.3-codex",
+          model: "gpt-5.4",
           reasoning_effort: "medium",
           developer_instructions: buildCodexModeDeveloperInstructions("default"),
         },

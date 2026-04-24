@@ -34,7 +34,7 @@ import { getCodexModelCapabilities } from "../../provider/Layers/CodexProvider.t
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { normalizeCodexModelOptionsWithCapabilities } from "@agentscience/shared/model";
 
-const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
+const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "medium";
 const CODEX_GIT_TEXT_GENERATION_FAST_MODE = true;
 const CODEX_TIMEOUT_MS = 180_000;
 const makeCodexTextGeneration = Effect.gen(function* () {

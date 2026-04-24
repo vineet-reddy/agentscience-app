@@ -31,6 +31,7 @@ import {
 import {
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
+  CODEX_DEFAULT_MODEL,
   CODEX_SPARK_MODEL,
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
@@ -338,6 +339,17 @@ When writing a scientific manuscript, seed the source with \`agentscience resear
 - Keep the PDF pure white, neutral, and print-friendly. Do not add decorative backgrounds, off-white page color, or flashy styling.
 </agentscience_paper_template>`;
 
+export const CODEX_AGENTSCIENCE_FIGURE_QA_INSTRUCTIONS = `<agentscience_figure_qa>
+When generating figures for an AgentScience manuscript, treat figure layout as a checked artifact, not a visual afterthought.
+
+- For Matplotlib or Seaborn figures, use the workspace helper at \`code/agentscience_figures.py\` when it exists:
+  \`from agentscience_figures import apply_labels, figure_size_for, save_figure, subplots\`
+- Prefer \`subplots(...)\` or Matplotlib \`layout="constrained"\`, wrap long titles and axis labels, and save through \`save_figure(fig, "figures/<name>.png")\` so a source-aware QA sidecar is written.
+- If \`save_figure\` raises a layout error, fix the figure code and rerun it. Do not accept figures with clipped text, text overlap, or title collisions.
+- Before presenting or publishing a manuscript with figures, run \`agentscience research check-figures --workspace <workspace>\`.
+- If the check fails, regenerate the affected figure code and rerun the check until it passes. Do not use \`--skip-figure-check\` unless the user explicitly asks to bypass figure QA.
+</agentscience_figure_qa>`;
+
 export const CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS = `<agentscience_paper_presentation>
 When you create or update a manuscript that should be reviewed in the desktop app, explicitly present it to the client instead of pasting the whole paper inline.
 
@@ -369,8 +381,8 @@ export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version
 export const AGENTSCIENCE_PERSONALITY_CONTENT_HASH = AGENTSCIENCE_PERSONALITY.contentHash;
 
 const CODEX_MODE_DEVELOPER_INSTRUCTIONS = {
-  default: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "default" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS}`,
-  plan: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "plan" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS}`,
+  default: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "default" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_FIGURE_QA_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS}`,
+  plan: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "plan" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_FIGURE_QA_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS}`,
 } as const satisfies Record<"default" | "plan", string>;
 
 export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): string {
@@ -512,7 +524,7 @@ function buildCodexCollaborationMode(input: {
   if (input.interactionMode === undefined) {
     return undefined;
   }
-  const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";
+  const model = normalizeCodexModelSlug(input.model) ?? CODEX_DEFAULT_MODEL;
   return {
     mode: input.interactionMode,
     settings: {

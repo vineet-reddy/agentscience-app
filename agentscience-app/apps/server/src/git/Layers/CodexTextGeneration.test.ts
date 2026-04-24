@@ -11,7 +11,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 
 const DEFAULT_TEST_MODEL_SELECTION = {
   provider: "codex" as const,
-  model: "gpt-5.4-mini",
+  model: "gpt-5.4",
 };
 
 const CodexTextGenerationTestLayer = CodexTextGenerationLive.pipe(
@@ -257,14 +257,14 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
       ),
   );
 
-  it.effect("defaults git text generation codex effort to low and fast service tier", () =>
+  it.effect("defaults git text generation codex effort to medium and fast service tier", () =>
     withFakeCodexEnv(
       {
         output: JSON.stringify({
           subject: "Add important change",
           body: "",
         }),
-        requireReasoningEffort: "low",
+        requireReasoningEffort: "medium",
         requireFastServiceTier: true,
       },
       Effect.gen(function* () {

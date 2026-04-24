@@ -72,7 +72,7 @@ export const DEFAULT_TEXT_GENERATION_MODEL_SELECTION: ModelSelection = {
   provider: "codex",
   model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
   options: {
-    reasoningEffort: "low",
+    reasoningEffort: "medium",
     fastMode: true,
   },
 };
