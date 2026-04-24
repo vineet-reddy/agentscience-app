@@ -697,6 +697,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ...sessionOverrides,
         config: workspaceWriteConfig,
         experimentalRawEvents: false,
+        persistExtendedHistory: false,
       };
       const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(
@@ -722,6 +723,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           threadOpenResponse = await this.sendRequest(context, "thread/resume", {
             ...sessionOverrides,
             threadId: resumeThreadId,
+            persistExtendedHistory: false,
           });
         } catch (error) {
           if (!isRecoverableThreadResumeError(error)) {

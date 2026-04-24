@@ -41,18 +41,19 @@ export const ModelCapabilities = Schema.Struct({
 export type ModelCapabilities = typeof ModelCapabilities.Type;
 
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
-  codex: "gpt-5.4",
+  codex: "gpt-5.5",
 };
 
 export const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.codex;
 
 /** Per-provider text generation model defaults. */
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
-  codex: "gpt-5.4",
+  codex: "gpt-5.5",
 };
 
 export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string, string>> = {
   codex: {
+    "5.5": "gpt-5.5",
     "5.4": "gpt-5.4",
     "5.3": "gpt-5.3-codex",
     "gpt-5.3": "gpt-5.3-codex",

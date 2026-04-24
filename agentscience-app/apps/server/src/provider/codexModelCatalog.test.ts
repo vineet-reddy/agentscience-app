@@ -22,7 +22,7 @@ const model = (
 
 describe("codex model catalog", () => {
   it("filters ChatGPT-only models out of API key accounts", () => {
-    const models = [model("gpt-5.3-codex-spark", ["chatgpt"]), model("gpt-5.4")];
+    const models = [model("gpt-5.5"), model("gpt-5.3-codex-spark", ["chatgpt"]), model("gpt-5.4")];
 
     expect(
       modelsForCodexAccount(models, {
@@ -30,7 +30,7 @@ describe("codex model catalog", () => {
         planType: null,
         sparkEnabled: false,
       }).map((entry) => entry.slug),
-    ).toEqual(["gpt-5.4"]);
+    ).toEqual(["gpt-5.5", "gpt-5.4"]);
 
     expect(
       modelsForCodexAccount(models, {
@@ -38,7 +38,7 @@ describe("codex model catalog", () => {
         planType: "plus",
         sparkEnabled: false,
       }).map((entry) => entry.slug),
-    ).toEqual(["gpt-5.3-codex-spark", "gpt-5.4"]);
+    ).toEqual(["gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4"]);
   });
 
   it("lets the remote catalog replace and prepend bundled models", () => {

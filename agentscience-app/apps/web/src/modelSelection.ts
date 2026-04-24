@@ -16,7 +16,7 @@ import {
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 const REMOVED_BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
-  codex: new Set(["gpt-5.5"]),
+  codex: new Set(),
 };
 
 export type ProviderCustomModelConfig = {
@@ -167,7 +167,8 @@ export function resolveAppModelSelectionState(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
 ): ModelSelection {
-  const selection = settings.textGenerationModelSelection ?? DEFAULT_TEXT_GENERATION_MODEL_SELECTION;
+  const selection =
+    settings.textGenerationModelSelection ?? DEFAULT_TEXT_GENERATION_MODEL_SELECTION;
   const provider = resolveSelectableProvider(providers, selection.provider);
 
   // When the provider changed due to fallback (e.g. selected provider was disabled),

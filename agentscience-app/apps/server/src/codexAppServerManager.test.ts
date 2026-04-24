@@ -410,7 +410,7 @@ describe("resolveCodexModelForAccount", () => {
         planType: "plus",
         sparkEnabled: false,
       }),
-    ).toBe("gpt-5.4");
+    ).toBe("gpt-5.5");
   });
 
   it("keeps spark for supported plans", () => {
@@ -430,7 +430,7 @@ describe("resolveCodexModelForAccount", () => {
         planType: null,
         sparkEnabled: false,
       }),
-    ).toBe("gpt-5.4");
+    ).toBe("gpt-5.5");
   });
 });
 
@@ -689,7 +689,7 @@ describe("sendTurn", () => {
         },
       ],
       cwd: "/tmp/workspace",
-      model: "gpt-5.4",
+      model: "gpt-5.5",
       sandboxPolicy: {
         type: "workspaceWrite",
         writableRoots: ["/tmp/workspace"],
