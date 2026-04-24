@@ -64,9 +64,15 @@ export interface BranchNameGenerationResult {
 export interface ThreadTitleGenerationInput {
   cwd: string;
   message: string;
+  conversation?: ReadonlyArray<ThreadTitleConversationMessage> | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
   /** What model and provider to use for generation. */
   modelSelection: ModelSelection;
+}
+
+export interface ThreadTitleConversationMessage {
+  role: "user" | "assistant";
+  text: string;
 }
 
 export interface ThreadTitleGenerationResult {

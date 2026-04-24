@@ -273,7 +273,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
             turns: [],
           },
           turnCount: 0,
-          queuedResponses: queuedResponsesForNextSession.splice(0),
+          queuedResponses: queuedResponsesForNextSession.splice(0, 1),
           rollbackCalls: [],
         });
 

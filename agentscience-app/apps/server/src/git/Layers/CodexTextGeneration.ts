@@ -35,6 +35,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { normalizeCodexModelOptionsWithCapabilities } from "@agentscience/shared/model";
 
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "low";
+const CODEX_GIT_TEXT_GENERATION_FAST_MODE = true;
 const CODEX_TIMEOUT_MS = 180_000;
 const makeCodexTextGeneration = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
@@ -157,12 +158,16 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     ).pipe(Effect.catch(() => Effect.undefined));
 
     const runCodexCommand = Effect.fn("runCodexJson.runCodexCommand")(function* () {
+      const capabilities = getCodexModelCapabilities(modelSelection.model);
       const normalizedOptions = normalizeCodexModelOptionsWithCapabilities(
-        getCodexModelCapabilities(modelSelection.model),
+        capabilities,
         modelSelection.options,
       );
       const reasoningEffort =
         modelSelection.options?.reasoningEffort ?? CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT;
+      const fastMode =
+        capabilities.supportsFastMode &&
+        (normalizedOptions?.fastMode ?? CODEX_GIT_TEXT_GENERATION_FAST_MODE);
       const binaryPath = codexSettings?.binaryPath ?? "codex";
       const command = ChildProcess.make(
         binaryPath,
@@ -175,7 +180,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           modelSelection.model,
           "--config",
           `model_reasoning_effort="${reasoningEffort}"`,
-          ...(normalizedOptions?.fastMode ? ["--config", `service_tier="fast"`] : []),
+          ...(fastMode ? ["--config", `service_tier="fast"`] : []),
           "--output-schema",
           schemaPath,
           "--output-last-message",
@@ -385,7 +390,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     );
     const { prompt, outputSchema } = buildThreadTitlePrompt({
       message: input.message,
-      attachments: input.attachments,
+      ...(input.conversation !== undefined ? { conversation: input.conversation } : {}),
+      ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
     });
 
     if (input.modelSelection.provider !== "codex") {

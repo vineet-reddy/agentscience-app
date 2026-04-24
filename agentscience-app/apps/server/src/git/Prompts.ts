@@ -178,22 +178,65 @@ export function buildBranchNamePrompt(input: BranchNamePromptInput) {
 
 export interface ThreadTitlePromptInput {
   message: string;
+  conversation?: ReadonlyArray<{
+    role: "user" | "assistant";
+    text: string;
+  }> | undefined;
   attachments?: ReadonlyArray<ChatAttachment> | undefined;
 }
 
+function formatThreadTitleConversation(
+  conversation: NonNullable<ThreadTitlePromptInput["conversation"]>,
+): string {
+  return conversation
+    .map((entry) => `${entry.role === "user" ? "User" : "Assistant"}: ${entry.text.trim()}`)
+    .filter((line) => line.length > 0)
+    .join("\n\n");
+}
+
 export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
-  const prompt = buildPromptFromMessage({
-    instruction: "You write concise thread titles for coding conversations.",
-    responseShape: "Return a JSON object with key: title.",
-    rules: [
-      "Title should summarize the user's request, not restate it verbatim.",
-      "Keep it short and specific (3-8 words).",
-      "Avoid quotes, filler, prefixes, and trailing punctuation.",
-      "If images are attached, use them as primary context for visual/UI issues.",
-    ],
-    message: input.message,
-    attachments: input.attachments,
-  });
+  const conversation = (input.conversation ?? []).filter((entry) => entry.text.trim().length > 0);
+  const prompt =
+    conversation.length > 0
+      ? (() => {
+          const attachmentLines = (input.attachments ?? []).map(
+            (attachment) =>
+              `- ${attachment.name} (${attachment.mimeType}, ${attachment.sizeBytes} bytes)`,
+          );
+          const promptSections = [
+            "You write concise thread titles for coding conversations.",
+            "Return a JSON object with key: title.",
+            "Rules:",
+            "- Title should summarize the user's request, not restate it verbatim.",
+            "- Keep it short and specific (3-8 words).",
+            "- Avoid quotes, filler, prefixes, and trailing punctuation.",
+            "- Prefer the user's goal over implementation chatter.",
+            "- If images are attached, use them as primary context for visual/UI issues.",
+            "",
+            "Conversation context:",
+            limitSection(formatThreadTitleConversation(conversation), 10_000),
+          ];
+          if (attachmentLines.length > 0) {
+            promptSections.push(
+              "",
+              "Attachment metadata:",
+              limitSection(attachmentLines.join("\n"), 4_000),
+            );
+          }
+          return promptSections.join("\n");
+        })()
+      : buildPromptFromMessage({
+          instruction: "You write concise thread titles for coding conversations.",
+          responseShape: "Return a JSON object with key: title.",
+          rules: [
+            "Title should summarize the user's request, not restate it verbatim.",
+            "Keep it short and specific (3-8 words).",
+            "Avoid quotes, filler, prefixes, and trailing punctuation.",
+            "If images are attached, use them as primary context for visual/UI issues.",
+          ],
+          message: input.message,
+          attachments: input.attachments,
+        });
   const outputSchema = Schema.Struct({
     title: Schema.String,
   });

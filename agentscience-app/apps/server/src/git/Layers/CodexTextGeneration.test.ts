@@ -257,7 +257,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
       ),
   );
 
-  it.effect("defaults git text generation codex effort to low", () =>
+  it.effect("defaults git text generation codex effort to low and fast service tier", () =>
     withFakeCodexEnv(
       {
         output: JSON.stringify({
@@ -265,6 +265,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
           body: "",
         }),
         requireReasoningEffort: "low",
+        requireFastServiceTier: true,
       },
       Effect.gen(function* () {
         const textGeneration = yield* TextGeneration;
@@ -372,6 +373,12 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
         const generated = yield* textGeneration.generateThreadTitle({
           cwd: process.cwd(),
           message: "Please investigate websocket reconnect regressions after a worktree restore.",
+          conversation: [
+            {
+              role: "user",
+              text: "Please investigate websocket reconnect regressions after a worktree restore.",
+            },
+          ],
           modelSelection: DEFAULT_TEST_MODEL_SELECTION,
         });
 

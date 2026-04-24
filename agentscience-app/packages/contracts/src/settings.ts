@@ -68,6 +68,15 @@ export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
 export const DEFAULT_WORKSPACE_ROOT = "~/AgentScience";
 
+export const DEFAULT_TEXT_GENERATION_MODEL_SELECTION: ModelSelection = {
+  provider: "codex",
+  model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
+  options: {
+    reasoningEffort: "low",
+    fastMode: true,
+  },
+};
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   workspaceRoot: TrimmedNonEmptyString.pipe(
@@ -77,10 +86,7 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(() => "local" as const satisfies ThreadEnvMode),
   ),
   textGenerationModelSelection: ModelSelection.pipe(
-    Schema.withDecodingDefault(() => ({
-      provider: "codex" as const,
-      model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
-    })),
+    Schema.withDecodingDefault(() => DEFAULT_TEXT_GENERATION_MODEL_SELECTION),
   ),
 
   // Provider specific settings

@@ -1,5 +1,5 @@
 import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
   type ModelSelection,
   type ProviderKind,
   type ServerProvider,
@@ -167,10 +167,7 @@ export function resolveAppModelSelectionState(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
 ): ModelSelection {
-  const selection = settings.textGenerationModelSelection ?? {
-    provider: "codex" as const,
-    model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER.codex,
-  };
+  const selection = settings.textGenerationModelSelection ?? DEFAULT_TEXT_GENERATION_MODEL_SELECTION;
   const provider = resolveSelectableProvider(providers, selection.provider);
 
   // When the provider changed due to fallback (e.g. selected provider was disabled),

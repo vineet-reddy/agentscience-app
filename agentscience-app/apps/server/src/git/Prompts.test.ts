@@ -134,6 +134,20 @@ describe("buildThreadTitlePrompt", () => {
     expect(result.prompt).toContain("image/png");
     expect(result.prompt).toContain("67890 bytes");
   });
+
+  it("uses conversation context when provided", () => {
+    const result = buildThreadTitlePrompt({
+      message: "Can you fix this?",
+      conversation: [
+        { role: "user", text: "Can you fix the flaky sidebar title generation?" },
+        { role: "assistant", text: "I will inspect the thread creation path." },
+      ],
+    });
+
+    expect(result.prompt).toContain("Conversation context:");
+    expect(result.prompt).toContain("User: Can you fix the flaky sidebar title generation?");
+    expect(result.prompt).toContain("Assistant: I will inspect the thread creation path.");
+  });
 });
 
 describe("sanitizeThreadTitle", () => {

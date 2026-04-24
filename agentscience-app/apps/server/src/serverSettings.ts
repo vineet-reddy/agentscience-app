@@ -14,6 +14,7 @@
 import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
   type ModelSelection,
   type ProviderKind,
   ServerSettings,
@@ -115,6 +116,7 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
   return {
     ...settings,
     textGenerationModelSelection: {
+      ...DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
       provider: fallback,
       model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallback],
     } as ModelSelection,
