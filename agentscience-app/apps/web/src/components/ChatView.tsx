@@ -100,18 +100,17 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  CircleAlertIcon,
   HandIcon,
   ListIcon,
   ListTodoIcon,
   PenLineIcon,
+  PlusIcon,
   XIcon,
   ZapIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { cn, randomUUID } from "~/lib/utils";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import { nextProjectScriptId } from "~/projectScripts";
@@ -665,7 +664,6 @@ export default function ChatView({
       }),
     [composerImages.length, composerTerminalContexts, prompt],
   );
-  const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
@@ -780,6 +778,7 @@ export default function ChatView({
   } | null>(null);
   const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
+  const composerFileInputRef = useRef<HTMLInputElement>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerFormHeightRef = useRef(0);
   const composerFooterRef = useRef<HTMLDivElement>(null);
@@ -1640,10 +1639,6 @@ export default function ChatView({
   composerMenuOpenRef.current = composerMenuOpen;
   composerMenuItemsRef.current = composerMenuItems;
   activeComposerMenuItemRef.current = activeComposerMenuItem;
-  const nonPersistedComposerImageIdSet = useMemo(
-    () => new Set(nonPersistedComposerImageIds),
-    [nonPersistedComposerImageIds],
-  );
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === selectedProvider) ?? null,
     [selectedProvider, providerStatuses],
@@ -2850,6 +2845,17 @@ export default function ChatView({
       addComposerImagesToDraft(nextImages);
     }
     setThreadError(activeThreadId, error);
+  };
+
+  const openComposerFilePicker = () => {
+    composerFileInputRef.current?.click();
+  };
+
+  const onComposerFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    event.currentTarget.value = "";
+    addComposerImages(files);
+    focusComposer();
   };
 
   const removeComposerImage = (imageId: string) => {
@@ -4230,6 +4236,15 @@ export default function ChatView({
               className="mx-auto w-full min-w-0 max-w-208"
               data-chat-composer-form="true"
             >
+              <input
+                ref={composerFileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                tabIndex={-1}
+                onChange={onComposerFileInputChange}
+              />
               <div
                 className={cn(
                   "group rounded-[22px] p-px transition-colors duration-200",
@@ -4331,28 +4346,6 @@ export default function ChatView({
                                   {image.name}
                                 </div>
                               )}
-                              {nonPersistedComposerImageIdSet.has(image.id) && (
-                                <Tooltip>
-                                  <TooltipTrigger
-                                    render={
-                                      <span
-                                        role="img"
-                                        aria-label="Draft attachment may not persist"
-                                        className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
-                                      >
-                                        <CircleAlertIcon className="size-3" />
-                                      </span>
-                                    }
-                                  />
-                                  <TooltipPopup
-                                    side="top"
-                                    className="max-w-64 whitespace-normal leading-tight"
-                                  >
-                                    Draft attachment could not be saved locally and may be lost on
-                                    navigation.
-                                  </TooltipPopup>
-                                </Tooltip>
-                              )}
                               <Button
                                 variant="ghost"
                                 size="icon-xs"
@@ -4431,6 +4424,24 @@ export default function ChatView({
                             : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
                         )}
                       >
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          className="shrink-0 px-2 text-muted-foreground/70 hover:text-foreground/80"
+                          onClick={openComposerFilePicker}
+                          disabled={isConnecting || isComposerApprovalState}
+                          title="Attach images"
+                          aria-label="Attach images"
+                        >
+                          <PlusIcon />
+                        </Button>
+
+                        <Separator
+                          orientation="vertical"
+                          className="mx-0.5 hidden h-4 sm:block"
+                        />
+
                         {/* Provider/model picker */}
                         <ProviderModelPicker
                           compact={isComposerFooterCompact}
