@@ -36,6 +36,8 @@ const DEV_MANAGED_RESOURCES_MANIFEST_VERSION = 1;
 const MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION = "2026.04";
 const MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE = "TinyTeX";
 const MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG = `v${MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION}`;
+const MANAGED_PAPER_TOOLCHAIN_PACKAGED_ARCHIVE_FILE = "TinyTeX.tar.gz";
+const MANAGED_PAPER_TOOLCHAIN_PACKAGED_ARCHIVE_SHA256_FILE = "TinyTeX.tar.gz.sha256";
 const MANAGED_PAPER_TOOLCHAIN_REQUIRED_LATEX_PACKAGES = [
   "geometry",
   "microtype",
@@ -1016,20 +1018,6 @@ function pruneManagedScienceRuntimeArtifacts(runtimeDir: string, verbose: boolea
   }
 }
 
-function pruneManagedPaperToolchainArtifacts(tinytexRoot: string): void {
-  const removablePaths = [
-    join(tinytexRoot, "texmf-dist", "doc"),
-    join(tinytexRoot, "texmf-dist", "source"),
-    join(tinytexRoot, "texmf-dist", "fonts", "source"),
-  ];
-
-  for (const removablePath of removablePaths) {
-    if (existsSync(removablePath)) {
-      rmSync(removablePath, { recursive: true, force: true });
-    }
-  }
-}
-
 function writeExecutableScript(filePath: string, contents: string): void {
   writeFileSync(filePath, `${contents}\n`, { mode: 0o755 });
   chmodSync(filePath, 0o755);
@@ -1042,7 +1030,39 @@ function managedTinyTeXWrapperScript(executableName: string, tinytexBinSubdir: s
     "",
     'SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
     'TOOLCHAIN_DIR=$(CDPATH= cd -- "$SELF_DIR/.." && pwd)',
-    'TINYTEX_ROOT="$TOOLCHAIN_DIR/TinyTeX"',
+    `TINYTEX_ARCHIVE="$TOOLCHAIN_DIR/${MANAGED_PAPER_TOOLCHAIN_PACKAGED_ARCHIVE_FILE}"`,
+    `TINYTEX_ARCHIVE_SHA_FILE="$TOOLCHAIN_DIR/${MANAGED_PAPER_TOOLCHAIN_PACKAGED_ARCHIVE_SHA256_FILE}"`,
+    'if [ ! -f "$TINYTEX_ARCHIVE" ] || [ ! -f "$TINYTEX_ARCHIVE_SHA_FILE" ]; then',
+    '  echo "Missing bundled TinyTeX archive at $TINYTEX_ARCHIVE" >&2',
+    "  exit 1",
+    "fi",
+    'TINYTEX_ARCHIVE_SHA=$(cut -d " " -f 1 "$TINYTEX_ARCHIVE_SHA_FILE" | tr -d "\\r\\n")',
+    'if [ -z "$TINYTEX_ARCHIVE_SHA" ]; then',
+    '  echo "Missing bundled TinyTeX archive checksum at $TINYTEX_ARCHIVE_SHA_FILE" >&2',
+    "  exit 1",
+    "fi",
+    "",
+    'if [ -n "${AGENTSCIENCE_TINYTEX_CACHE_DIR:-}" ]; then',
+    '  TINYTEX_CACHE_PARENT="$AGENTSCIENCE_TINYTEX_CACHE_DIR"',
+    'elif [ "$(uname -s)" = "Darwin" ] && [ -n "${HOME:-}" ]; then',
+    '  TINYTEX_CACHE_PARENT="$HOME/Library/Application Support/AgentScience/TinyTeX"',
+    "else",
+    '  TINYTEX_CACHE_PARENT="${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/agentscience/TinyTeX"',
+    "fi",
+    'TINYTEX_CACHE_DIR="$TINYTEX_CACHE_PARENT/$TINYTEX_ARCHIVE_SHA"',
+    'TINYTEX_ROOT="$TINYTEX_CACHE_DIR/TinyTeX"',
+    "",
+    'if [ ! -x "$TINYTEX_ROOT/bin/' + tinytexBinSubdir + "/" + executableName + '" ]; then',
+    '  TINYTEX_EXTRACT_TMP="$TINYTEX_CACHE_PARENT/.extract-$TINYTEX_ARCHIVE_SHA-$$"',
+    '  rm -rf "$TINYTEX_EXTRACT_TMP"',
+    '  mkdir -p "$TINYTEX_EXTRACT_TMP" "$TINYTEX_CACHE_DIR"',
+    '  tar -xzf "$TINYTEX_ARCHIVE" -C "$TINYTEX_EXTRACT_TMP"',
+    '  if [ ! -d "$TINYTEX_ROOT" ]; then',
+    '    mv "$TINYTEX_EXTRACT_TMP/TinyTeX" "$TINYTEX_ROOT" 2>/dev/null || true',
+    "  fi",
+    '  rm -rf "$TINYTEX_EXTRACT_TMP"',
+    "fi",
+    "",
     `TINYTEX_BIN="$TINYTEX_ROOT/bin/${tinytexBinSubdir}"`,
     `TINYTEX_EXE="$TINYTEX_BIN/${executableName}"`,
     "",
@@ -1069,6 +1089,37 @@ function stageManagedPaperToolchainShims(
       managedTinyTeXWrapperScript(executableName, target.tinytexBinSubdir),
     );
   }
+}
+
+function packageManagedTinyTeX(input: {
+  readonly tinytexRoot: string;
+  readonly targetToolchainDir: string;
+  readonly verbose: boolean;
+}): void {
+  const archivePath = join(input.targetToolchainDir, MANAGED_PAPER_TOOLCHAIN_PACKAGED_ARCHIVE_FILE);
+  const checksumPath = join(
+    input.targetToolchainDir,
+    MANAGED_PAPER_TOOLCHAIN_PACKAGED_ARCHIVE_SHA256_FILE,
+  );
+
+  rmSync(archivePath, { force: true });
+  runCheckedCommand({
+    command: "tar",
+    args: [
+      "-czf",
+      archivePath,
+      "-C",
+      input.targetToolchainDir,
+      MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE,
+    ],
+    verbose: input.verbose,
+  });
+
+  writeFileSync(
+    checksumPath,
+    `${sha256File(archivePath)}  ${MANAGED_PAPER_TOOLCHAIN_PACKAGED_ARCHIVE_FILE}\n`,
+  );
+  rmSync(input.tinytexRoot, { recursive: true, force: true });
 }
 
 function createDevManagedResourcesRecipe(
@@ -1870,9 +1921,13 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
           message: `Missing extracted TinyTeX runtime at ${extractedTinyTeXPath}.`,
         });
       }
-      pruneManagedPaperToolchainArtifacts(extractedTinyTeXPath);
 
       stageManagedPaperToolchainShims(targetBinDir, target);
+      packageManagedTinyTeX({
+        tinytexRoot: extractedTinyTeXPath,
+        targetToolchainDir,
+        verbose,
+      });
       writeFileSync(smokeSourcePath, MANAGED_PAPER_TOOLCHAIN_SMOKE_TEX);
       yield* fs.makeDirectory(smokeOutDir, { recursive: true });
 
