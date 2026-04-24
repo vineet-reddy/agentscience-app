@@ -14,8 +14,8 @@ function formatPercentage(value: number | null): string | null {
 
 export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
   const { usage } = props;
-  const usedPercentage = formatPercentage(usage.usedPercentage);
-  const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
+  const remainingPercentage = formatPercentage(usage.remainingPercentage);
+  const normalizedPercentage = Math.max(0, Math.min(100, usage.remainingPercentage ?? 0));
   const radius = 9.75;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (normalizedPercentage / 100) * circumference;
@@ -31,8 +31,8 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
             type="button"
             className="group inline-flex items-center justify-center rounded-full transition-opacity hover:opacity-85"
             aria-label={
-              usage.maxTokens !== null && usedPercentage
-                ? `Context window ${usedPercentage} used`
+              usage.remainingTokens !== null && remainingPercentage
+                ? `Context window ${remainingPercentage} left`
                 : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
             }
           >
@@ -69,8 +69,8 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
                   "text-muted-foreground",
                 )}
               >
-                {usage.usedPercentage !== null
-                  ? Math.round(usage.usedPercentage)
+                {usage.remainingPercentage !== null
+                  ? Math.round(usage.remainingPercentage)
                   : formatContextWindowTokens(usage.usedTokens)}
               </span>
             </span>
@@ -82,13 +82,13 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Context window
           </div>
-          {usage.maxTokens !== null && usedPercentage ? (
+          {usage.maxTokens !== null && usage.remainingTokens !== null && remainingPercentage ? (
             <div className="whitespace-nowrap text-xs font-medium text-foreground">
-              <span>{usedPercentage}</span>
+              <span>{remainingPercentage}</span>
               <span className="mx-1">⋅</span>
-              <span>{formatContextWindowTokens(usage.usedTokens)}</span>
+              <span>{formatContextWindowTokens(usage.remainingTokens)}</span>
               <span>/</span>
-              <span>{formatContextWindowTokens(usage.maxTokens ?? null)} context used</span>
+              <span>{formatContextWindowTokens(usage.maxTokens ?? null)} context left</span>
             </div>
           ) : (
             <div className="text-sm text-foreground">
