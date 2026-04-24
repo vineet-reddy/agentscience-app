@@ -84,6 +84,24 @@ const PAPER_TOOLCHAIN_ENV_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_DIR";
 const PAPER_TOOLCHAIN_ENV_BIN_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR";
 const PAPER_TOOLCHAIN_DIRNAME = "paper-toolchain";
 const BUILD_OUTPUT_EXCERPT_MAX_CHARS = 6_000;
+const GENERATED_LATEX_ARTIFACT_SUFFIXES = [
+  ".aux",
+  ".bbl",
+  ".bcf",
+  ".blg",
+  ".fdb_latexmk",
+  ".fls",
+  ".lof",
+  ".log",
+  ".lot",
+  ".nav",
+  ".out",
+  ".run.xml",
+  ".snm",
+  ".synctex.gz",
+  ".toc",
+  ".vrb",
+] as const;
 
 function managedExecutableName(name: string): string {
   return process.platform === "win32" ? `${name}.exe` : name;
@@ -750,17 +768,113 @@ async function newestFigureInputTime(workspaceRoot: string): Promise<number | nu
   return latest;
 }
 
+function sourceRelativeOutputPath(source: ExistingArtifact, extension: string): string {
+  const normalizedSourcePath = source.relativePath.replaceAll("\\", "/");
+  const sourceDir = path.posix.dirname(normalizedSourcePath);
+  const sourceBase = path.posix.basename(
+    normalizedSourcePath,
+    path.posix.extname(normalizedSourcePath),
+  );
+  return sourceDir === "." ? `${sourceBase}${extension}` : `${sourceDir}/${sourceBase}${extension}`;
+}
+
+function workspaceRelativePath(workspaceRoot: string, candidate: string): string | null {
+  const absolutePath = path.isAbsolute(candidate)
+    ? path.resolve(candidate)
+    : path.resolve(workspaceRoot, candidate);
+  const relativePath = path.relative(workspaceRoot, absolutePath).replaceAll("\\", "/");
+  if (
+    relativePath.length === 0 ||
+    relativePath === "." ||
+    relativePath === ".." ||
+    relativePath.startsWith("../") ||
+    path.isAbsolute(relativePath)
+  ) {
+    return null;
+  }
+  return relativePath;
+}
+
+function isGeneratedLatexArtifact(relativePath: string, source: ExistingArtifact): boolean {
+  const normalized = relativePath.replaceAll("\\", "/").toLowerCase();
+  if (normalized === sourceRelativeOutputPath(source, ".pdf").toLowerCase()) {
+    return true;
+  }
+  return GENERATED_LATEX_ARTIFACT_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
+
+async function newestRecorderInputTime(input: {
+  readonly workspaceRoot: string;
+  readonly source: ExistingArtifact;
+}): Promise<number | null> {
+  const flsPath = path.join(input.workspaceRoot, sourceRelativeOutputPath(input.source, ".fls"));
+  let raw: string;
+  try {
+    raw = await fs.readFile(flsPath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let latest: number | null = null;
+  const seen = new Set<string>();
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.startsWith("INPUT ")) {
+      continue;
+    }
+    const recordedPath = line.slice("INPUT ".length).trim();
+    if (!recordedPath) {
+      continue;
+    }
+    const relativePath = workspaceRelativePath(input.workspaceRoot, recordedPath);
+    if (
+      !relativePath ||
+      seen.has(relativePath) ||
+      isGeneratedLatexArtifact(relativePath, input.source)
+    ) {
+      continue;
+    }
+    seen.add(relativePath);
+    const stat = await statIfFile(path.join(input.workspaceRoot, relativePath));
+    if (!stat) {
+      continue;
+    }
+    latest = latest === null ? stat.updatedAtMs : Math.max(latest, stat.updatedAtMs);
+  }
+
+  return latest;
+}
+
+async function newestLatexInputTime(input: {
+  readonly workspaceRoot: string;
+  readonly source: ExistingArtifact | null;
+}): Promise<number | null> {
+  if (!input.source || input.source.kind !== "latex") {
+    return null;
+  }
+
+  const recorderInputTime = await newestRecorderInputTime({
+    workspaceRoot: input.workspaceRoot,
+    source: input.source,
+  });
+  if (recorderInputTime !== null) {
+    return recorderInputTime;
+  }
+
+  return newestFigureInputTime(input.workspaceRoot);
+}
+
 async function newestSourceDependencyTime(input: {
   readonly workspaceRoot: string;
   readonly source: ExistingArtifact | null;
   readonly bibliography: ExistingArtifact | null;
-  readonly notes: ExistingArtifact | null;
 }): Promise<number | null> {
   const candidateTimes = [
     input.source?.updatedAtMs ?? null,
     input.bibliography?.updatedAtMs ?? null,
-    input.notes?.updatedAtMs ?? null,
-    await newestFigureInputTime(input.workspaceRoot),
+    await newestLatexInputTime({
+      workspaceRoot: input.workspaceRoot,
+      source: input.source,
+    }),
   ].filter((value): value is number => value !== null);
 
   if (candidateTimes.length === 0) {
@@ -893,7 +1007,6 @@ async function inspectThreadWorkspace(
     workspaceRoot: manuscriptWorkspaceRoot,
     source,
     bibliography,
-    notes,
   });
   const parsedLastBuildAttemptAtMs = compileState?.lastBuiltAt
     ? Date.parse(compileState.lastBuiltAt)
@@ -901,9 +1014,15 @@ async function inspectThreadWorkspace(
   const lastBuildAttemptAtMs = Number.isFinite(parsedLastBuildAttemptAtMs)
     ? parsedLastBuildAttemptAtMs
     : null;
-  const needsBuild =
+  const successfulBuildCoversDependencies =
+    compileState?.lastError === null &&
+    dependencyTime !== null &&
+    lastBuildAttemptAtMs !== null &&
+    dependencyTime <= lastBuildAttemptAtMs;
+  const rawNeedsBuild =
     source?.kind === "latex" &&
     (pdf === null || (dependencyTime !== null && pdf.updatedAtMs < dependencyTime));
+  const needsBuild = rawNeedsBuild && !successfulBuildCoversDependencies;
   const shouldShowBuildError =
     Boolean(compileState?.lastError) &&
     needsBuild &&
@@ -1000,7 +1119,13 @@ async function runLatexBuild(input: {
   if (input.compiler.kind === "managed-latexmk" || input.compiler.kind === "system-latexmk") {
     const result = await runProcess(
       input.compiler.command,
-      ["-pdf", "-interaction=nonstopmode", "-halt-on-error", input.source.relativePath],
+      [
+        "-pdf",
+        "-interaction=nonstopmode",
+        "-halt-on-error",
+        "-recorder",
+        input.source.relativePath,
+      ],
       {
         cwd: input.workspaceRoot,
         env,
@@ -1013,7 +1138,12 @@ async function runLatexBuild(input: {
     };
   }
 
-  const baseArgs = ["-interaction=nonstopmode", "-halt-on-error", input.source.relativePath];
+  const baseArgs = [
+    "-interaction=nonstopmode",
+    "-halt-on-error",
+    "-recorder",
+    input.source.relativePath,
+  ];
   const firstPass = await runProcess(input.compiler.command, baseArgs, {
     cwd: input.workspaceRoot,
     env,

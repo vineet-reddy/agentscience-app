@@ -12,6 +12,44 @@ async function importPaperReviewModule() {
   return import("./paperReview");
 }
 
+async function installFakeManagedLatexmkToolchain(input: {
+  readonly toolchainRoot: string;
+  readonly invocationLogPath: string;
+}): Promise<string> {
+  const toolchainBinDir = path.join(input.toolchainRoot, "bin");
+  const latexmkPath = path.join(
+    toolchainBinDir,
+    process.platform === "win32" ? "latexmk.exe" : "latexmk",
+  );
+  const pdflatexPath = path.join(
+    toolchainBinDir,
+    process.platform === "win32" ? "pdflatex.exe" : "pdflatex",
+  );
+  await fs.mkdir(toolchainBinDir, { recursive: true });
+  await fs.writeFile(
+    latexmkPath,
+    [
+      "#!/bin/sh",
+      'if [ "${1:-}" = "-v" ] || [ "${1:-}" = "--version" ]; then',
+      "  echo 'Latexmk test build'",
+      "  exit 0",
+      "fi",
+      `printf '%s\\n' "$@" >> ${JSON.stringify(input.invocationLogPath)}`,
+      "echo 'latexmk ok'",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  await fs.writeFile(pdflatexPath, "#!/bin/sh\necho 'pdfTeX test build'\n", {
+    mode: 0o755,
+  });
+  return toolchainBinDir;
+}
+
+async function setFileMtime(absolutePath: string, mtimeMs: number): Promise<void> {
+  const date = new Date(mtimeMs);
+  await fs.utimes(absolutePath, date, date);
+}
+
 describe("paper review helpers", () => {
   it("builds stable file URLs for thread artifacts", () => {
     expect(paperReviewFileRoutePath(TEST_THREAD_ID, "figures/plot 1.png")).toBe(
@@ -83,6 +121,96 @@ describe("paper review helpers", () => {
     expect(snapshot.reviewRecommended).toBe(true);
 
     await fs.rm(workspaceRoot, { recursive: true, force: true });
+  });
+
+  it("does not rebuild when only review notes are newer than a compiled PDF", async () => {
+    const { PaperReviewServiceLive, PaperReviewService } = await importPaperReviewModule();
+    const { Effect, Layer, Stream } = await import("effect");
+    const { OrchestrationEngineService } =
+      await import("./orchestration/Services/OrchestrationEngine");
+
+    const previousPaperToolchainBinDir = process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
+    const workspaceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "agentscience-paper-review-notes-"),
+    );
+    const toolchainRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentscience-paper-toolchain-"));
+    const invocationLogPath = path.join(workspaceRoot, "latexmk-args.txt");
+
+    try {
+      process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR = await installFakeManagedLatexmkToolchain({
+        toolchainRoot,
+        invocationLogPath,
+      });
+
+      const sourcePath = path.join(workspaceRoot, "paper.tex");
+      const pdfPath = path.join(workspaceRoot, "paper.pdf");
+      const notesPath = path.join(workspaceRoot, "figure-descriptions.md");
+      const now = Date.now();
+      await fs.writeFile(sourcePath, "\\section{Intro}\n", "utf8");
+      await fs.writeFile(pdfPath, "pdf", "utf8");
+      await fs.writeFile(notesPath, "Figure 1 notes\n", "utf8");
+      await setFileMtime(sourcePath, now - 30_000);
+      await setFileMtime(pdfPath, now - 20_000);
+      await setFileMtime(notesPath, now - 10_000);
+
+      const OrchestrationEngineTest = Layer.succeed(
+        OrchestrationEngineService,
+        OrchestrationEngineService.of({
+          getReadModel: () =>
+            Effect.succeed({
+              snapshotSequence: 0,
+              projects: [],
+              threads: [
+                {
+                  id: TEST_THREAD_ID,
+                  projectId: null,
+                  folderSlug: "thread-review-test",
+                  resolvedWorkspacePath: workspaceRoot,
+                  title: "Review draft",
+                  modelSelection: { provider: "codex", model: "gpt-5.4" },
+                  runtimeMode: "full-access",
+                  interactionMode: "default",
+                  branch: null,
+                  worktreePath: null,
+                  latestTurn: null,
+                  createdAt: "2026-04-15T12:00:00.000Z",
+                  updatedAt: "2026-04-15T12:00:00.000Z",
+                  archivedAt: null,
+                  deletedAt: null,
+                  messages: [],
+                  proposedPlans: [],
+                  activities: [],
+                  checkpoints: [],
+                  session: null,
+                },
+              ],
+              updatedAt: "2026-04-15T12:00:00.000Z",
+            }),
+          dispatch: () => Effect.die("not implemented"),
+          readEvents: () => Stream.empty,
+          streamDomainEvents: Stream.empty,
+        }),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PaperReviewService;
+        return yield* service.getSnapshot(TEST_THREAD_ID);
+      }).pipe(Effect.provide(PaperReviewServiceLive.pipe(Layer.provide(OrchestrationEngineTest))));
+
+      const snapshot = await Effect.runPromise(program);
+      expect(snapshot.notes?.relativePath).toBe("figure-descriptions.md");
+      expect(snapshot.compile.status).toBe("ready");
+      expect(snapshot.compile.needsBuild).toBe(false);
+      await expect(fs.access(invocationLogPath)).rejects.toThrow();
+    } finally {
+      if (previousPaperToolchainBinDir === undefined) {
+        delete process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
+      } else {
+        process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR = previousPaperToolchainBinDir;
+      }
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(toolchainRoot, { recursive: true, force: true });
+    }
   });
 
   it("finds manuscripts in nested research workspaces", async () => {
@@ -449,6 +577,94 @@ describe("paper review helpers", () => {
         "-interaction=nonstopmode",
         "-halt-on-error",
       ]);
+    } finally {
+      if (previousPaperToolchainBinDir === undefined) {
+        delete process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
+      } else {
+        process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR = previousPaperToolchainBinDir;
+      }
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(toolchainRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not leave a successful no-op latexmk build stuck in compiling state", async () => {
+    const { PaperReviewServiceLive, PaperReviewService } = await importPaperReviewModule();
+    const { Effect, Layer, Stream } = await import("effect");
+    const { OrchestrationEngineService } =
+      await import("./orchestration/Services/OrchestrationEngine");
+
+    const previousPaperToolchainBinDir = process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
+    const workspaceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "agentscience-paper-review-noop-"),
+    );
+    const toolchainRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentscience-paper-toolchain-"));
+    const invocationLogPath = path.join(workspaceRoot, "latexmk-args.txt");
+
+    try {
+      process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR = await installFakeManagedLatexmkToolchain({
+        toolchainRoot,
+        invocationLogPath,
+      });
+
+      const sourcePath = path.join(workspaceRoot, "paper.tex");
+      const pdfPath = path.join(workspaceRoot, "paper.pdf");
+      const now = Date.now();
+      await fs.writeFile(sourcePath, "\\section{Intro}\n", "utf8");
+      await fs.writeFile(pdfPath, "pdf", "utf8");
+      await setFileMtime(pdfPath, now - 20_000);
+      await setFileMtime(sourcePath, now - 10_000);
+
+      const OrchestrationEngineTest = Layer.succeed(
+        OrchestrationEngineService,
+        OrchestrationEngineService.of({
+          getReadModel: () =>
+            Effect.succeed({
+              snapshotSequence: 0,
+              projects: [],
+              threads: [
+                {
+                  id: TEST_THREAD_ID,
+                  projectId: null,
+                  folderSlug: "thread-review-test",
+                  resolvedWorkspacePath: workspaceRoot,
+                  title: "Review draft",
+                  modelSelection: { provider: "codex", model: "gpt-5.4" },
+                  runtimeMode: "full-access",
+                  interactionMode: "default",
+                  branch: null,
+                  worktreePath: null,
+                  latestTurn: null,
+                  createdAt: "2026-04-15T12:00:00.000Z",
+                  updatedAt: "2026-04-15T12:00:00.000Z",
+                  archivedAt: null,
+                  deletedAt: null,
+                  messages: [],
+                  proposedPlans: [],
+                  activities: [],
+                  checkpoints: [],
+                  session: null,
+                },
+              ],
+              updatedAt: "2026-04-15T12:00:00.000Z",
+            }),
+          dispatch: () => Effect.die("not implemented"),
+          readEvents: () => Stream.empty,
+          streamDomainEvents: Stream.empty,
+        }),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PaperReviewService;
+        return yield* service.compile(TEST_THREAD_ID);
+      }).pipe(Effect.provide(PaperReviewServiceLive.pipe(Layer.provide(OrchestrationEngineTest))));
+
+      const snapshot = await Effect.runPromise(program);
+      const invocationArgs = await fs.readFile(invocationLogPath, "utf8");
+      expect(invocationArgs).toContain("-recorder");
+      expect(snapshot.compile.outputExcerpt).toContain("latexmk ok");
+      expect(snapshot.compile.status).toBe("ready");
+      expect(snapshot.compile.needsBuild).toBe(false);
     } finally {
       if (previousPaperToolchainBinDir === undefined) {
         delete process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
