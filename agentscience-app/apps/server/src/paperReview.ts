@@ -81,6 +81,7 @@ const NOTES_PRIORITY = ["figure-descriptions.md", "experiment-log.md"] as const;
 const BIB_PRIORITY = ["references.bib"] as const;
 const FIGURES_DIRNAME = "figures";
 const PAPER_TOOLCHAIN_ENV_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_DIR";
+const PAPER_TOOLCHAIN_ENV_BIN_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR";
 const PAPER_TOOLCHAIN_DIRNAME = "paper-toolchain";
 const BUILD_OUTPUT_EXCERPT_MAX_CHARS = 6_000;
 
@@ -127,32 +128,50 @@ function managedToolchainRoots(): string[] {
   );
 }
 
+function managedToolchainBinDirs(): string[] {
+  const platformKey = platformArchKey();
+  return unique(
+    [
+      process.env[PAPER_TOOLCHAIN_ENV_BIN_DIR]?.trim() ?? "",
+      ...managedToolchainRoots().flatMap((root) => [
+        path.join(root, platformKey, "bin"),
+        path.join(root, "bin"),
+        path.join(root, platformKey),
+        root,
+      ]),
+    ].filter((candidate) => candidate.length > 0),
+  );
+}
+
+function shouldUseOnlyManagedPaperToolchain(): boolean {
+  const processWithResourcesPath = process as NodeJS.Process & {
+    resourcesPath?: string;
+  };
+  return Boolean(
+    process.env[PAPER_TOOLCHAIN_ENV_BIN_DIR]?.trim() ||
+    process.env[PAPER_TOOLCHAIN_ENV_DIR]?.trim() ||
+    processWithResourcesPath.resourcesPath,
+  );
+}
+
 function resolveManagedBinary(name: string): { command: string; pathDir: string } | null {
   const executableName = managedExecutableName(name);
-  const platformKey = platformArchKey();
 
-  for (const root of managedToolchainRoots()) {
-    for (const candidateDir of [
-      path.join(root, platformKey, "bin"),
-      path.join(root, "bin"),
-      path.join(root, platformKey),
-      root,
-    ]) {
-      const command = path.join(candidateDir, executableName);
-      try {
-        const result = spawnSync(command, ["--version"], {
-          stdio: "ignore",
-          shell: process.platform === "win32",
-        });
-        if (!result.error) {
-          return {
-            command,
-            pathDir: candidateDir,
-          };
-        }
-      } catch {
-        // Ignore missing or invalid managed binaries and fall back.
+  for (const candidateDir of managedToolchainBinDirs()) {
+    const command = path.join(candidateDir, executableName);
+    try {
+      const result = spawnSync(command, ["--version"], {
+        stdio: "ignore",
+        shell: process.platform === "win32",
+      });
+      if (!result.error) {
+        return {
+          command,
+          pathDir: candidateDir,
+        };
       }
+    } catch {
+      // Ignore missing or invalid managed binaries and fall back.
     }
   }
 
@@ -172,9 +191,19 @@ function systemCommandExists(command: string, versionArg: string): boolean {
 }
 
 function resolveCompiler(): ResolvedCompiler {
+  const managedTectonic = resolveManagedBinary("tectonic");
   const managedLatexmk = resolveManagedBinary("latexmk");
   const managedPdflatex = resolveManagedBinary("pdflatex");
   const managedBibtex = resolveManagedBinary("bibtex");
+
+  if (managedTectonic) {
+    return {
+      kind: "managed-tectonic",
+      label: "Bundled Tectonic",
+      command: managedTectonic.command,
+      pathDir: managedTectonic.pathDir,
+    };
+  }
 
   if (managedLatexmk && managedPdflatex) {
     return {
@@ -192,6 +221,13 @@ function resolveCompiler(): ResolvedCompiler {
       command: managedPdflatex.command,
       pathDir: managedPdflatex.pathDir,
       ...(managedBibtex ? { bibtexCommand: managedBibtex.command } : {}),
+    };
+  }
+
+  if (shouldUseOnlyManagedPaperToolchain()) {
+    return {
+      kind: "none",
+      label: null,
     };
   }
 
@@ -316,7 +352,8 @@ async function discoverSourceArtifact(
   const markdownCandidate = topLevelEntries
     .filter(
       (entry) =>
-        entry.toLowerCase().endsWith(".md") && !NOTES_PRIORITY.includes(entry as (typeof NOTES_PRIORITY)[number]),
+        entry.toLowerCase().endsWith(".md") &&
+        !NOTES_PRIORITY.includes(entry as (typeof NOTES_PRIORITY)[number]),
     )
     .sort((left, right) => left.localeCompare(right))[0];
   if (markdownCandidate) {
@@ -337,7 +374,9 @@ async function discoverPdfArtifact(
   const topLevelEntries = await readTopLevelEntries(workspaceRoot);
   const candidates = unique(
     [
-      sourceArtifact ? `${path.basename(sourceArtifact.relativePath, path.extname(sourceArtifact.relativePath))}.pdf` : "",
+      sourceArtifact
+        ? `${path.basename(sourceArtifact.relativePath, path.extname(sourceArtifact.relativePath))}.pdf`
+        : "",
       "paper.pdf",
       ...topLevelEntries.filter((entry) => entry.toLowerCase().endsWith(".pdf")).sort(),
     ].filter((candidate) => candidate.length > 0),
@@ -417,11 +456,7 @@ function resolveDescendantPathWithinRoot(input: {
   if (relativePath.length === 0 || relativePath === ".") {
     return input.allowRoot ? absolutePath : null;
   }
-  if (
-    relativePath === ".." ||
-    relativePath.startsWith("../") ||
-    path.isAbsolute(relativePath)
-  ) {
+  if (relativePath === ".." || relativePath.startsWith("../") || path.isAbsolute(relativePath)) {
     return null;
   }
 
@@ -434,8 +469,7 @@ function relativePathWithinRoot(root: string, absolutePath: string): string | nu
       root,
       candidate: absolutePath,
       allowRoot: false,
-    }) &&
-    path.relative(root, absolutePath).replaceAll("\\", "/")
+    }) && path.relative(root, absolutePath).replaceAll("\\", "/")
   );
 }
 
@@ -546,16 +580,13 @@ async function resolvePresentedWorkspaceArtifacts(input: {
   readonly threadId: ThreadId;
   readonly threadWorkspaceRoot: string;
   readonly presentation: PresentedManuscriptManifest;
-}): Promise<
-  | {
-      readonly workspaceRoot: string;
-      readonly source: ExistingArtifact | null;
-      readonly pdf: ExistingArtifact | null;
-      readonly bibliography: ExistingArtifact | null;
-      readonly notes: ExistingArtifact | null;
-    }
-  | null
-> {
+}): Promise<{
+  readonly workspaceRoot: string;
+  readonly source: ExistingArtifact | null;
+  readonly pdf: ExistingArtifact | null;
+  readonly bibliography: ExistingArtifact | null;
+  readonly notes: ExistingArtifact | null;
+} | null> {
   const workspaceRoot = await resolvePresentedWorkspaceRoot({
     threadWorkspaceRoot: input.threadWorkspaceRoot,
     presentation: input.presentation,
@@ -649,16 +680,17 @@ async function candidateManuscriptWorkspaceRoots(
   );
 }
 
-async function resolveManuscriptWorkspaceRoot(
-  input: {
-    readonly threadId: ThreadId;
-    readonly threadWorkspaceRoot: string;
-  },
-): Promise<string> {
+async function resolveManuscriptWorkspaceRoot(input: {
+  readonly threadId: ThreadId;
+  readonly threadWorkspaceRoot: string;
+}): Promise<string> {
   for (const candidateWorkspaceRoot of await candidateManuscriptWorkspaceRoots(
     input.threadWorkspaceRoot,
   )) {
-    const candidateArtifacts = await discoverWorkspaceArtifacts(input.threadId, candidateWorkspaceRoot);
+    const candidateArtifacts = await discoverWorkspaceArtifacts(
+      input.threadId,
+      candidateWorkspaceRoot,
+    );
     if (candidateArtifacts.source || candidateArtifacts.pdf) {
       return candidateWorkspaceRoot;
     }
@@ -827,7 +859,8 @@ async function inspectThreadWorkspace(
     }));
 
   const source =
-    resolvedPresentedWorkspace?.source ?? (await discoverSourceArtifact(thread.id, manuscriptWorkspaceRoot));
+    resolvedPresentedWorkspace?.source ??
+    (await discoverSourceArtifact(thread.id, manuscriptWorkspaceRoot));
   const bibliography =
     resolvedPresentedWorkspace?.bibliography ??
     (await discoverPriorityArtifact(thread.id, manuscriptWorkspaceRoot, BIB_PRIORITY, {
@@ -906,10 +939,7 @@ async function inspectThreadWorkspace(
   };
 }
 
-function compileEnv(
-  workspaceRoot: string,
-  pathDir: string | undefined,
-): NodeJS.ProcessEnv {
+function compileEnv(workspaceRoot: string, pathDir: string | undefined): NodeJS.ProcessEnv {
   const cacheRoot = path.join(workspaceRoot, ".cache");
   const configRoot = path.join(workspaceRoot, ".config");
   const tmpRoot = path.join(workspaceRoot, ".tmp");
@@ -937,6 +967,22 @@ async function runLatexBuild(input: {
   readonly compiler: ResolvedCompiler & { kind: Exclude<PaperReviewCompilerKind, "none"> };
 }): Promise<{ outputExcerpt: string | null }> {
   const env = compileEnv(input.workspaceRoot, input.compiler.pathDir);
+
+  if (input.compiler.kind === "managed-tectonic") {
+    const result = await runProcess(
+      input.compiler.command,
+      ["-X", "compile", "--keep-intermediates", "--keep-logs", input.source.relativePath],
+      {
+        cwd: input.workspaceRoot,
+        env,
+        maxBufferBytes: 2 * 1024 * 1024,
+        outputMode: "truncate",
+      },
+    );
+    return {
+      outputExcerpt: trimExcerpt(`${result.stdout}\n${result.stderr}`),
+    };
+  }
 
   if (input.compiler.kind === "managed-latexmk" || input.compiler.kind === "system-latexmk") {
     const result = await runProcess(
@@ -1072,7 +1118,7 @@ const makePaperReviewService = Effect.gen(function* () {
         state.lastError =
           error instanceof Error ? error.message : "Paper build failed unexpectedly.";
         state.outputExcerpt = trimExcerpt(
-          `${state.outputExcerpt ?? ""}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+          `${state.outputExcerpt ?? ""}\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
         );
       })
       .finally(() => {
@@ -1147,7 +1193,10 @@ const makePaperReviewService = Effect.gen(function* () {
         return inspect(threadId);
       }
 
-      const initialSnapshot = await inspectThreadWorkspace(thread, compileSessions.get(threadId) ?? null);
+      const initialSnapshot = await inspectThreadWorkspace(
+        thread,
+        compileSessions.get(threadId) ?? null,
+      );
       const startedCompile = await startCompile({
         thread,
         snapshot: initialSnapshot,

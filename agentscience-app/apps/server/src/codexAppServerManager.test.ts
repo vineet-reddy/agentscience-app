@@ -283,6 +283,7 @@ describe("buildCodexModeDeveloperInstructions", () => {
       const instructions = buildCodexModeDeveloperInstructions(mode);
       expect(instructions).toContain("outbound network access is available");
       expect(instructions).toContain("AGENTSCIENCE_MANAGED_PYTHON_PATH");
+      expect(instructions).toContain("AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR");
       expect(instructions).toContain(
         "AgentScience desktop already performs the runtime/update health check at app startup.",
       );

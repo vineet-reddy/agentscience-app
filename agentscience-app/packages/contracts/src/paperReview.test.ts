@@ -38,8 +38,8 @@ describe("PaperReviewSnapshot", () => {
       },
       compile: {
         status: "ready",
-        compiler: "system-latexmk",
-        compilerLabel: "System LaTeX",
+        compiler: "managed-tectonic",
+        compilerLabel: "Bundled Tectonic",
         canCompile: true,
         needsBuild: false,
         lastBuiltAt: "2026-04-15T12:00:10.000Z",
@@ -50,6 +50,6 @@ describe("PaperReviewSnapshot", () => {
     });
 
     expect(decoded.preview.kind).toBe("pdf");
-    expect(decoded.compile.compiler).toBe("system-latexmk");
+    expect(decoded.compile.compiler).toBe("managed-tectonic");
   });
 });

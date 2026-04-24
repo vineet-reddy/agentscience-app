@@ -27,6 +27,20 @@ describe("paperPresentation", () => {
     expect(parsePresentedManuscriptPayload("{not json}")).toBeNull();
   });
 
+  it("accepts source-only manuscript presentations before a PDF exists", () => {
+    expect(
+      parsePresentedManuscriptPayload({
+        workspaceRoot: "/tmp/manuscript",
+        source: "paper.tex",
+        bibliography: "references.bib",
+      }),
+    ).toEqual({
+      workspaceRoot: "/tmp/manuscript",
+      source: "paper.tex",
+      bibliography: "references.bib",
+    });
+  });
+
   it("extracts and strips the presentation block from assistant text", () => {
     const result = extractPresentedManuscriptFromText({
       text: [

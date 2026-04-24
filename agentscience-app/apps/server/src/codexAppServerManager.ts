@@ -309,7 +309,9 @@ AgentScience keeps command execution inside the current repo/worktree, but outbo
 
 - It is okay to search the web, call APIs, and download datasets when the task requires it.
 - Keep downloads, caches, and temporary files inside the current workspace.
-- If \`pdflatex\`, \`latexmk\`, or \`bibtex\` are already on PATH, prefer them over asking the user to install TeX.
+- If \`AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR\` is set, prefer the bundled \`tectonic\` wrapper in that directory for PDF builds before checking for \`pdflatex\`, \`latexmk\`, or host-machine TeX.
+- For direct Tectonic commands, use \`tectonic -X compile --only-cached ...\` so builds use the bundled paper cache instead of downloading TeX resources during a scientist's first run.
+- Treat \`pdflatex\`, \`latexmk\`, and \`bibtex\` in \`AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR\` as compatibility shims, not the primary paper compiler.
 - Only ask for host-level installs when the bundled/runtime-local option is unavailable and there is no high-quality in-workspace fallback.
 </agentscience_sandbox>`;
 

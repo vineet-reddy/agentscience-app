@@ -56,6 +56,7 @@ export const PaperReviewPreview = Schema.Struct({
 export type PaperReviewPreview = typeof PaperReviewPreview.Type;
 
 export const PaperReviewCompilerKind = Schema.Literals([
+  "managed-tectonic",
   "managed-latexmk",
   "managed-pdflatex",
   "system-latexmk",

@@ -1,3 +1,7 @@
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { buildCodexSpawnEnv } from "./codexCli";
@@ -31,6 +35,48 @@ describe("buildCodexSpawnEnv", () => {
       `/opt/science/bin:/opt/tex/bin:/opt/managed/bin:${expectedManagedDesktopBasePath()}`,
     );
     expect(env.PYTHONHOME).toBe("/opt/science");
+  });
+
+  it("infers the bundled paper toolchain from the managed science runtime tree", () => {
+    const resourcesRoot = mkdtempSync(path.join(os.tmpdir(), "agentscience-codex-env-"));
+
+    try {
+      const platformKey = `${process.platform}-${process.arch}`;
+      const scienceRuntimeDir = path.join(
+        resourcesRoot,
+        "managed-resources",
+        "science-runtime",
+        platformKey,
+      );
+      const scienceBinDir = path.join(scienceRuntimeDir, "bin");
+      const paperBinDir = path.join(
+        resourcesRoot,
+        "managed-resources",
+        "paper-toolchain",
+        platformKey,
+        "bin",
+      );
+      mkdirSync(scienceBinDir, { recursive: true });
+      mkdirSync(paperBinDir, { recursive: true });
+
+      const env = buildCodexSpawnEnv({
+        binaryPath: "/opt/managed/codex",
+        processEnv: {
+          PATH: "/usr/bin:/bin",
+          AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH: "/opt/managed/codex",
+          AGENTSCIENCE_MANAGED_CODEX_PATH_DIR: "/opt/managed/bin",
+          AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_DIR: scienceRuntimeDir,
+          AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR: scienceBinDir,
+        },
+      });
+
+      expect(env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR).toBe(paperBinDir);
+      expect(env.PATH).toBe(
+        `${scienceBinDir}:${paperBinDir}:/opt/managed/bin:${expectedManagedDesktopBasePath()}`,
+      );
+    } finally {
+      rmSync(resourcesRoot, { recursive: true, force: true });
+    }
   });
 
   it("injects workspace-local cache, temp, and TeX env defaults when a cwd is provided", () => {

@@ -39,6 +39,12 @@ describe("resolveManagedPlatformBinDir", () => {
 
       expect(resolved).toEqual({
         rootDir: path.join(resourcesRoot, "managed-resources", "paper-toolchain"),
+        platformDir: path.join(
+          resourcesRoot,
+          "managed-resources",
+          "paper-toolchain",
+          "darwin-arm64",
+        ),
         binDir: packagedBinDir,
       });
     } finally {
@@ -73,6 +79,14 @@ describe("resolveManagedPlatformBinDir", () => {
 
       expect(resolved).toEqual({
         rootDir: path.join(repoRoot, "apps", "desktop", "managed-resources", "paper-toolchain"),
+        platformDir: path.join(
+          repoRoot,
+          "apps",
+          "desktop",
+          "managed-resources",
+          "paper-toolchain",
+          "linux-x64",
+        ),
         binDir: repoBinDir,
       });
     } finally {
@@ -106,6 +120,7 @@ describe("resolveManagedScienceRuntime", () => {
 
       expect(runtime).toEqual({
         rootDir: path.join(resourcesRoot, "managed-resources", "science-runtime"),
+        platformDir: path.join(resourcesRoot, "managed-resources", "science-runtime", "linux-x64"),
         binDir,
         pythonPath: path.join(binDir, "python3"),
         uvPath: path.join(binDir, "uv"),
@@ -157,6 +172,7 @@ describe("buildManagedDesktopServerEnv", () => {
           resourcesRoot,
           "managed-resources",
           "science-runtime",
+          "linux-x64",
         ),
         AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR: scienceBinDir,
         AGENTSCIENCE_MANAGED_PYTHON_PATH: path.join(scienceBinDir, "python3"),

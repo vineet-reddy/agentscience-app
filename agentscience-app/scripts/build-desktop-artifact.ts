@@ -38,7 +38,43 @@ const PACKAGED_PINNED_DEPENDENCIES = {
 const MANAGED_CODEX_RESOURCE_DIR = "codex-runtime";
 const MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR = "paper-toolchain";
 const MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR = "science-runtime";
+const DEV_MANAGED_RESOURCES_MANIFEST_FILE = ".manifest.json";
+const DEV_MANAGED_RESOURCES_MANIFEST_VERSION = 1;
 const MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION = "0.16.9";
+const MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_TEX = String.raw`\documentclass[10pt]{article}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+\begin{document}
+\begin{center}
+\textbf{AgentScience Managed Tectonic Cache Seed}
+\end{center}
+
+\begin{abstract}
+This abstract seeds the standard article-class small-font path used by generated manuscripts.
+\end{abstract}
+
+\section{Result}
+This document intentionally exercises common manuscript primitives: \textbf{bold},
+\emph{emphasis}, inline math $\rho = 0.94$, tables, and graphics package loading.
+
+\tiny Tiny \textbf{bold}. \scriptsize Scriptsize \textbf{bold}. \footnotesize Footnotesize
+\textbf{bold}. \small Small \textbf{bold}. \normalsize Normalsize \textbf{bold}.
+\large Large \textbf{bold}. \Large Larger \textbf{bold}. \LARGE Largest \textbf{bold}.
+\huge Huge \textbf{bold}. \Huge Huge display \textbf{bold}. \normalsize
+
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Spearman $\rho$ & 0.94 \\
+\bottomrule
+\end{tabular}
+\end{document}
+`;
+const MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_SHA256 = createHash("sha256")
+  .update(MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_TEX)
+  .digest("hex");
 const MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG = "20260414";
 const MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION = "3.12.13";
 const MANAGED_SCIENCE_RUNTIME_UV_VERSION = "0.11.7";
@@ -130,6 +166,7 @@ interface BuildCliInput {
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<string>;
+  readonly devManagedResources: Option.Option<boolean>;
 }
 
 function detectHostBuildPlatform(hostPlatform: string): typeof BuildPlatform.Type | undefined {
@@ -220,6 +257,7 @@ interface ResolvedBuildOptions {
   readonly verbose: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: string | undefined;
+  readonly devManagedResources: boolean;
 }
 
 interface StagePackageJson {
@@ -265,6 +303,9 @@ const BuildEnvConfig = Config.all({
   mockUpdates: Config.boolean("AGENTSCIENCE_DESKTOP_MOCK_UPDATES").pipe(Config.withDefault(false)),
   mockUpdateServerPort: Config.string("AGENTSCIENCE_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(
     Config.option,
+  ),
+  devManagedResources: Config.boolean("AGENTSCIENCE_DESKTOP_DEV_MANAGED_RESOURCES").pipe(
+    Config.withDefault(false),
   ),
 });
 
@@ -312,6 +353,10 @@ const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (input: B
     env.mockUpdateServerPort,
     undefined,
   );
+  const devManagedResources = resolveBooleanFlag(
+    input.devManagedResources,
+    env.devManagedResources,
+  );
 
   return {
     platform,
@@ -325,6 +370,7 @@ const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (input: B
     verbose,
     mockUpdates,
     mockUpdateServerPort,
+    devManagedResources,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -874,15 +920,6 @@ function pruneManagedScienceRuntimeArtifacts(runtimeDir: string, verbose: boolea
         "__pycache__",
         "-o",
         "-name",
-        "tests",
-        "-o",
-        "-name",
-        "test",
-        "-o",
-        "-name",
-        "testing",
-        "-o",
-        "-name",
         "benchmarks",
         ")",
         ")",
@@ -906,6 +943,62 @@ function pruneManagedScienceRuntimeArtifacts(runtimeDir: string, verbose: boolea
 function writeExecutableScript(filePath: string, contents: string): void {
   writeFileSync(filePath, `${contents}\n`, { mode: 0o755 });
   chmodSync(filePath, 0o755);
+}
+
+function managedTectonicWrapperScript(): string {
+  return [
+    "#!/bin/sh",
+    "set -eu",
+    "",
+    'SELF_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
+    'TECTONIC_REAL="$SELF_DIR/tectonic-real"',
+    'SEED_CACHE="$SELF_DIR/../cache"',
+    `SEED_CACHE_VERSION="${MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_SHA256}"`,
+    "",
+    'if [ ! -x "$TECTONIC_REAL" ]; then',
+    '  echo "Missing bundled tectonic binary at $TECTONIC_REAL" >&2',
+    "  exit 1",
+    "fi",
+    "",
+    'if [ -d "$SEED_CACHE" ] && [ -n "${TECTONIC_CACHE_DIR:-}" ]; then',
+    '  SEED_CACHE_MARKER="$TECTONIC_CACHE_DIR/.agentscience-seed-cache-sha256"',
+    '  current_seed_cache_version=""',
+    '  if [ -f "$SEED_CACHE_MARKER" ]; then',
+    '    current_seed_cache_version=$(cat "$SEED_CACHE_MARKER" 2>/dev/null || true)',
+    "  fi",
+    '  if [ "$current_seed_cache_version" != "$SEED_CACHE_VERSION" ]; then',
+    '    mkdir -p "$TECTONIC_CACHE_DIR"',
+    '    cp -R "$SEED_CACHE/." "$TECTONIC_CACHE_DIR/"',
+    '    printf "%s\\n" "$SEED_CACHE_VERSION" > "$SEED_CACHE_MARKER"',
+    "  fi",
+    "fi",
+    "",
+    'case "${1:-}" in',
+    "  --version|-version|-v)",
+    '    exec "$TECTONIC_REAL" --version',
+    "    ;;",
+    "esac",
+    "",
+    'has_only_cached="0"',
+    'for arg in "$@"; do',
+    '  if [ "$arg" = "--only-cached" ]; then',
+    '    has_only_cached="1"',
+    "  fi",
+    "done",
+    "",
+    'if [ "${1:-}" = "-X" ] && [ "${2:-}" = "compile" ]; then',
+    "  shift 2",
+    '  if [ "$has_only_cached" = "1" ]; then',
+    '    exec "$TECTONIC_REAL" -X compile "$@"',
+    "  fi",
+    '  exec "$TECTONIC_REAL" -X compile --only-cached "$@"',
+    "fi",
+    "",
+    'if [ "$has_only_cached" = "1" ]; then',
+    '  exec "$TECTONIC_REAL" "$@"',
+    "fi",
+    'exec "$TECTONIC_REAL" --only-cached "$@"',
+  ].join("\n");
 }
 
 function managedPaperCompileWrapperScript(): string {
@@ -985,9 +1078,143 @@ function managedPaperBibtexWrapperScript(): string {
 }
 
 function stageManagedPaperToolchainShims(binDir: string): void {
+  writeExecutableScript(join(binDir, "tectonic"), managedTectonicWrapperScript());
   writeExecutableScript(join(binDir, "latexmk"), managedPaperCompileWrapperScript());
   writeExecutableScript(join(binDir, "pdflatex"), managedPaperCompileWrapperScript());
   writeExecutableScript(join(binDir, "bibtex"), managedPaperBibtexWrapperScript());
+}
+
+function createDevManagedResourcesRecipe(
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+) {
+  const paperTargets = resolveManagedPaperToolchainTargets(platform, arch);
+  const scienceTargets = resolveManagedScienceRuntimeTargets(platform, arch);
+
+  return {
+    manifestVersion: DEV_MANAGED_RESOURCES_MANIFEST_VERSION,
+    platform,
+    arch,
+    resources: {
+      [MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR]: {
+        tectonicVersion: MANAGED_PAPER_TOOLCHAIN_TECTONIC_VERSION,
+        cacheSeedTexSha256: MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_SHA256,
+        targets: paperTargets.map((target) => ({ ...target })),
+        wrapperScripts: {
+          tectonic: managedTectonicWrapperScript(),
+          latexCompatibleCompile: managedPaperCompileWrapperScript(),
+          bibtex: managedPaperBibtexWrapperScript(),
+        },
+      },
+      [MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR]: {
+        pythonBuildStandaloneTag: MANAGED_SCIENCE_RUNTIME_PYTHON_BUILD_STANDALONE_TAG,
+        pythonVersion: MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION,
+        uvVersion: MANAGED_SCIENCE_RUNTIME_UV_VERSION,
+        packageSpecs: [...MANAGED_SCIENCE_RUNTIME_PACKAGE_SPECS],
+        targets: scienceTargets.map((target) => ({
+          ...target,
+          pythonArchiveName: resolveManagedSciencePythonArchiveName(target),
+          uvArchiveName: resolveManagedScienceUvArchiveName(target),
+        })),
+      },
+    },
+  };
+}
+
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function readDevManagedResourcesManifest(manifestPath: string): {
+  readonly schemaVersion?: unknown;
+  readonly recipeHash?: unknown;
+} | null {
+  try {
+    return JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      readonly schemaVersion?: unknown;
+      readonly recipeHash?: unknown;
+    };
+  } catch {
+    return null;
+  }
+}
+
+function expectedDevManagedResourcePaths(
+  managedResourcesDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+): ReadonlyArray<string> {
+  const expectedPaths: string[] = [];
+
+  for (const target of resolveManagedPaperToolchainTargets(platform, arch)) {
+    const targetDir = join(
+      managedResourcesDir,
+      MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR,
+      target.platformKey,
+    );
+    const binDir = join(targetDir, "bin");
+    expectedPaths.push(
+      join(binDir, "tectonic"),
+      join(binDir, "tectonic-real"),
+      join(binDir, "latexmk"),
+      join(binDir, "pdflatex"),
+      join(binDir, "bibtex"),
+      join(targetDir, "cache"),
+    );
+  }
+
+  for (const target of resolveManagedScienceRuntimeTargets(platform, arch)) {
+    const binDir = join(
+      managedResourcesDir,
+      MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR,
+      target.platformKey,
+      "bin",
+    );
+    expectedPaths.push(join(binDir, "python3"), join(binDir, "uv"));
+  }
+
+  return expectedPaths;
+}
+
+function devManagedResourcesAreCurrent(input: {
+  readonly manifestPath: string;
+  readonly recipeHash: string;
+  readonly expectedPaths: ReadonlyArray<string>;
+}): boolean {
+  const manifest = readDevManagedResourcesManifest(input.manifestPath);
+  if (
+    manifest?.schemaVersion !== DEV_MANAGED_RESOURCES_MANIFEST_VERSION ||
+    manifest.recipeHash !== input.recipeHash
+  ) {
+    return false;
+  }
+
+  return input.expectedPaths.every((expectedPath) => existsSync(expectedPath));
+}
+
+function writeDevManagedResourcesManifest(input: {
+  readonly manifestPath: string;
+  readonly recipeHash: string;
+  readonly recipe: unknown;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly arch: typeof BuildArch.Type;
+}): void {
+  writeFileSync(
+    input.manifestPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: DEV_MANAGED_RESOURCES_MANIFEST_VERSION,
+        generatedAt: new Date().toISOString(),
+        command: "bun run dev:desktop:resources",
+        platform: input.platform,
+        arch: input.arch,
+        recipeHash: input.recipeHash,
+        recipe: input.recipe,
+      },
+      null,
+      2,
+    )}\n`,
+  );
 }
 
 function toBunInstallTargetOs(platform: typeof BuildPlatform.Type): "darwin" | "linux" | "win32" {
@@ -1200,6 +1427,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const repoRoot = yield* RepoRoot;
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
+
+  if (options.devManagedResources) {
+    yield* buildDevManagedDesktopResources(options);
+    return;
+  }
 
   const platformConfig = PLATFORM_CONFIG[options.platform];
   if (!platformConfig) {
@@ -1459,6 +1691,80 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   );
 });
 
+const buildDevManagedDesktopResources = Effect.fn("buildDevManagedDesktopResources")(function* (
+  options: ResolvedBuildOptions,
+) {
+  const repoRoot = yield* RepoRoot;
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const managedResourcesDir = path.join(repoRoot, "apps/desktop/managed-resources");
+  const manifestPath = path.join(managedResourcesDir, DEV_MANAGED_RESOURCES_MANIFEST_FILE);
+  const recipe = createDevManagedResourcesRecipe(options.platform, options.arch);
+  const recipeHash = hashJson(recipe);
+  const expectedPaths = expectedDevManagedResourcePaths(
+    managedResourcesDir,
+    options.platform,
+    options.arch,
+  );
+
+  if (
+    devManagedResourcesAreCurrent({
+      manifestPath,
+      recipeHash,
+      expectedPaths,
+    })
+  ) {
+    yield* Effect.log("[desktop-artifact] Dev managed desktop resources are current.").pipe(
+      Effect.annotateLogs({
+        platform: options.platform,
+        arch: options.arch,
+        recipeHash,
+        managedResourcesDir,
+      }),
+    );
+    return;
+  }
+
+  yield* fs.makeDirectory(managedResourcesDir, { recursive: true });
+  yield* Effect.log("[desktop-artifact] Populating dev managed desktop resources...").pipe(
+    Effect.annotateLogs({
+      platform: options.platform,
+      arch: options.arch,
+      recipeHash,
+      managedResourcesDir,
+    }),
+  );
+
+  yield* bundleManagedPaperToolchain(
+    managedResourcesDir,
+    options.platform,
+    options.arch,
+    options.verbose,
+  );
+  yield* bundleManagedScienceRuntime(
+    managedResourcesDir,
+    options.platform,
+    options.arch,
+    options.verbose,
+  );
+  writeDevManagedResourcesManifest({
+    manifestPath,
+    recipeHash,
+    recipe,
+    platform: options.platform,
+    arch: options.arch,
+  });
+
+  yield* Effect.log("[desktop-artifact] Dev managed desktop resources ready.").pipe(
+    Effect.annotateLogs({
+      platform: options.platform,
+      arch: options.arch,
+      recipeHash,
+      managedResourcesDir,
+    }),
+  );
+});
+
 const bundleManagedCodexRuntime = Effect.fn("bundleManagedCodexRuntime")(function* (
   stageAppDir: string,
   stageManagedResourcesDir: string,
@@ -1526,6 +1832,11 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
       const archivePath = path.join(targetTempDir, target.tectonicArchiveName);
       const extractedBinaryPath = path.join(targetTempDir, "tectonic");
       const packagedBinaryPath = path.join(targetBinDir, "tectonic");
+      const packagedRealBinaryPath = path.join(targetBinDir, "tectonic-real");
+      const packagedCacheDir = path.join(targetToolchainDir, "cache");
+      const smokeSourcePath = path.join(targetTempDir, "smoke.tex");
+      const smokeOutDir = path.join(targetTempDir, "smoke-out");
+      const smokeRuntimeCacheDir = path.join(targetTempDir, "smoke-runtime-cache");
 
       yield* fs.makeDirectory(targetTempDir, { recursive: true });
 
@@ -1559,13 +1870,31 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
         });
       }
 
-      yield* fs.copyFile(extractedBinaryPath, packagedBinaryPath);
-      chmodSync(packagedBinaryPath, 0o755);
+      yield* fs.copyFile(extractedBinaryPath, packagedRealBinaryPath);
+      chmodSync(packagedRealBinaryPath, 0o755);
+
+      writeFileSync(
+        smokeSourcePath,
+        MANAGED_PAPER_TOOLCHAIN_CACHE_SEED_TEX,
+      );
+      yield* fs.makeDirectory(smokeOutDir, { recursive: true });
+      runCheckedCommand({
+        command: packagedRealBinaryPath,
+        args: ["-X", "compile", "--keep-logs", "--outdir", smokeOutDir, smokeSourcePath],
+        env: { ...process.env, TECTONIC_CACHE_DIR: packagedCacheDir },
+        verbose,
+      });
       stageManagedPaperToolchainShims(targetBinDir);
 
       runCheckedCommand({
         command: packagedBinaryPath,
         args: ["--version"],
+        verbose,
+      });
+      runCheckedCommand({
+        command: packagedBinaryPath,
+        args: ["-X", "compile", "--keep-logs", "--outdir", smokeOutDir, smokeSourcePath],
+        env: { ...process.env, TECTONIC_CACHE_DIR: smokeRuntimeCacheDir },
         verbose,
       });
     }
@@ -1689,6 +2018,7 @@ const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(fun
         env: pythonEnv,
         verbose,
       });
+      pruneManagedScienceRuntimeArtifacts(targetRuntimeDir, verbose);
       runCheckedCommand({
         command: path.join(targetRuntimeDir, "bin", "python3"),
         args: [
@@ -1698,7 +2028,6 @@ const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(fun
         env: pythonEnv,
         verbose,
       });
-      pruneManagedScienceRuntimeArtifacts(targetRuntimeDir, verbose);
     }
   } catch (cause) {
     return yield* new BuildScriptError({
@@ -1762,6 +2091,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   mockUpdateServerPort: Flag.string("mock-update-server-port").pipe(
     Flag.withDescription(
       "Mock update server port (env: AGENTSCIENCE_DESKTOP_MOCK_UPDATE_SERVER_PORT).",
+    ),
+    Flag.optional,
+  ),
+  devManagedResources: Flag.boolean("dev-managed-resources").pipe(
+    Flag.withDescription(
+      "Populate apps/desktop/managed-resources for bun run dev:desktop and exit.",
     ),
     Flag.optional,
   ),

@@ -1,11 +1,12 @@
 import { statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const PAPER_TOOLCHAIN_DIRNAME = "paper-toolchain";
 const SCIENCE_RUNTIME_DIRNAME = "science-runtime";
 
 export interface ManagedPlatformBinDir {
   readonly rootDir: string;
+  readonly platformDir: string;
   readonly binDir: string;
 }
 
@@ -83,7 +84,7 @@ export function resolveManagedPlatformBinDir(input: {
   for (const rootDir of managedResourceRoots(input)) {
     for (const binDir of [join(rootDir, platformKey, "bin"), join(rootDir, "bin")]) {
       if (isDirectory(binDir)) {
-        return { rootDir, binDir };
+        return { rootDir, platformDir: dirname(binDir), binDir };
       }
     }
   }
@@ -108,7 +109,10 @@ export function resolveManagedScienceRuntime(input: {
     return null;
   }
 
-  const pythonPath = resolveManagedExecutable(runtime.binDir, managedPythonCandidates(input.platform));
+  const pythonPath = resolveManagedExecutable(
+    runtime.binDir,
+    managedPythonCandidates(input.platform),
+  );
   const uvPath = resolveManagedExecutable(runtime.binDir, managedUvCandidates(input.platform));
 
   return {
@@ -140,7 +144,7 @@ export function buildManagedDesktopServerEnv(input: {
 
   const scienceRuntime = resolveManagedScienceRuntime(input);
   if (scienceRuntime) {
-    env.AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_DIR = scienceRuntime.rootDir;
+    env.AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_DIR = scienceRuntime.platformDir;
     env.AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR = scienceRuntime.binDir;
     if (scienceRuntime.pythonPath) {
       env.AGENTSCIENCE_MANAGED_PYTHON_PATH = scienceRuntime.pythonPath;

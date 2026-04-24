@@ -1,12 +1,17 @@
 import type { CodexSettings } from "@agentscience/contracts";
-import { join } from "node:path";
+import { statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 const DEFAULT_CODEX_BINARY_PATH = "codex";
 const MANAGED_BINARY_ENV = "AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH";
 const MANAGED_PATH_DIR_ENV = "AGENTSCIENCE_MANAGED_CODEX_PATH_DIR";
+const PAPER_TOOLCHAIN_DIR_ENV = "AGENTSCIENCE_PAPER_TOOLCHAIN_DIR";
 const PAPER_TOOLCHAIN_BIN_DIR_ENV = "AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR";
 const MANAGED_SCIENCE_RUNTIME_DIR_ENV = "AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_DIR";
 const MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV = "AGENTSCIENCE_MANAGED_SCIENCE_RUNTIME_BIN_DIR";
+const MANAGED_PYTHON_PATH_ENV = "AGENTSCIENCE_MANAGED_PYTHON_PATH";
+const PAPER_TOOLCHAIN_DIRNAME = "paper-toolchain";
+const SCIENCE_RUNTIME_DIRNAME = "science-runtime";
 const SAFE_MANAGED_DESKTOP_PATHS: Partial<Record<NodeJS.Platform, string>> = {
   darwin: "/usr/bin:/bin:/usr/sbin:/sbin",
   linux: "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin",
@@ -28,8 +33,74 @@ function prependPath(pathValue: string | undefined, extraDirs: ReadonlyArray<str
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 
-  return [...normalizedExtraDirs, ...entries.filter((entry) => !normalizedExtraDirs.includes(entry))]
-    .join(separator);
+  return [
+    ...normalizedExtraDirs,
+    ...entries.filter((entry) => !normalizedExtraDirs.includes(entry)),
+  ].join(separator);
+}
+
+function normalizePathEnv(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function isDirectory(candidatePath: string | undefined): candidatePath is string {
+  if (!candidatePath) {
+    return false;
+  }
+  try {
+    return statSync(candidatePath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function inferPaperToolchainBinDirFromScienceRuntimeDir(
+  runtimeDir: string | undefined,
+): string | undefined {
+  const normalizedRuntimeDir = normalizePathEnv(runtimeDir);
+  if (!normalizedRuntimeDir) {
+    return undefined;
+  }
+
+  const runtimeDirName = basename(normalizedRuntimeDir);
+  if (runtimeDirName === SCIENCE_RUNTIME_DIRNAME) {
+    return join(dirname(normalizedRuntimeDir), PAPER_TOOLCHAIN_DIRNAME, "bin");
+  }
+
+  const runtimeRoot = dirname(normalizedRuntimeDir);
+  if (basename(runtimeRoot) === SCIENCE_RUNTIME_DIRNAME) {
+    return join(dirname(runtimeRoot), PAPER_TOOLCHAIN_DIRNAME, runtimeDirName, "bin");
+  }
+
+  return undefined;
+}
+
+function resolveManagedPaperToolchainBinDir(envSource: NodeJS.ProcessEnv): string | undefined {
+  const explicitBinDir = normalizePathEnv(envSource[PAPER_TOOLCHAIN_BIN_DIR_ENV]);
+  if (explicitBinDir) {
+    return explicitBinDir;
+  }
+
+  const managedToolchainRoot = normalizePathEnv(envSource[PAPER_TOOLCHAIN_DIR_ENV]);
+  const platformKey = `${process.platform}-${process.arch}`;
+  const candidates = [
+    managedToolchainRoot ? join(managedToolchainRoot, platformKey, "bin") : undefined,
+    managedToolchainRoot ? join(managedToolchainRoot, "bin") : undefined,
+    inferPaperToolchainBinDirFromScienceRuntimeDir(envSource[MANAGED_SCIENCE_RUNTIME_DIR_ENV]),
+    inferPaperToolchainBinDirFromScienceRuntimeDir(
+      envSource[MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV]
+        ? dirname(envSource[MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV]!)
+        : undefined,
+    ),
+    inferPaperToolchainBinDirFromScienceRuntimeDir(
+      envSource[MANAGED_PYTHON_PATH_ENV]
+        ? dirname(dirname(envSource[MANAGED_PYTHON_PATH_ENV]!))
+        : undefined,
+    ),
+  ];
+
+  return candidates.find(isDirectory);
 }
 
 function buildWorkspaceLocalExecutionEnv(cwd: string): NodeJS.ProcessEnv {
@@ -91,16 +162,19 @@ export function buildCodexSpawnEnv(input: {
     ...(input.cwd ? buildWorkspaceLocalExecutionEnv(input.cwd) : {}),
   };
 
+  const managedPaperToolchainBinDir = resolveManagedPaperToolchainBinDir(envSource);
+  if (managedPaperToolchainBinDir) {
+    env[PAPER_TOOLCHAIN_BIN_DIR_ENV] = managedPaperToolchainBinDir;
+  }
+
   const managedPathEntries = [
-    envSource[MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV]?.trim() ?? "",
-    envSource[PAPER_TOOLCHAIN_BIN_DIR_ENV]?.trim() ?? "",
+    normalizePathEnv(envSource[MANAGED_SCIENCE_RUNTIME_BIN_DIR_ENV]) ?? "",
+    managedPaperToolchainBinDir ?? "",
   ].filter((entry) => entry.length > 0);
   const managedBinaryPath = envSource[MANAGED_BINARY_ENV]?.trim();
   const managedPathDir = envSource[MANAGED_PATH_DIR_ENV]?.trim();
   const isManagedDesktopCodex =
-    managedBinaryPath &&
-    managedBinaryPath.length > 0 &&
-    input.binaryPath === managedBinaryPath;
+    managedBinaryPath && managedBinaryPath.length > 0 && input.binaryPath === managedBinaryPath;
   if (
     managedBinaryPath &&
     managedPathDir &&

@@ -1,5 +1,17 @@
 Bundled scientific Python runtimes live here for packaged desktop builds.
 
+For local desktop development, populate this directory with:
+
+```sh
+bun run dev:desktop:resources
+```
+
+That command uses the same bundling logic as the desktop release artifact build
+and writes `../.manifest.json`. If the manifest hash still matches the release
+runtime recipe and the expected binaries are present, the command exits without
+downloading anything. Run it again after changing the Python version, uv
+version, package list, target checksums, or paper toolchain wrapper scripts.
+
 Expected layout:
 
 - `darwin-arm64/bin/python3`

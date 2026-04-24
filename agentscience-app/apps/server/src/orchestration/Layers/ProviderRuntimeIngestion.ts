@@ -656,6 +656,7 @@ const make = Effect.fn("make")(function* () {
     commandTag: string;
     finalDeltaCommandTag: string;
     fallbackText?: string;
+    presentationFallbackText?: string;
   }) {
     const bufferedText = yield* takeBufferedAssistantText(input.messageId);
     const rawText =
@@ -667,6 +668,12 @@ const make = Effect.fn("make")(function* () {
     const manuscriptPresentation = extractPresentedManuscriptFromText({
       text: rawText,
     });
+    const fallbackPresentation =
+      !manuscriptPresentation.presentation && input.presentationFallbackText
+        ? extractPresentedManuscriptFromText({
+            text: input.presentationFallbackText,
+          }).presentation
+        : null;
     const text = manuscriptPresentation.sanitizedText;
 
     if (text.length > 0) {
@@ -690,7 +697,8 @@ const make = Effect.fn("make")(function* () {
       createdAt: input.createdAt,
     });
 
-    if (manuscriptPresentation.presentation) {
+    const presentation = manuscriptPresentation.presentation ?? fallbackPresentation;
+    if (presentation) {
       yield* orchestrationEngine.dispatch({
         type: "thread.activity.append",
         commandId: providerCommandId(input.event, "paper-presented"),
@@ -701,7 +709,7 @@ const make = Effect.fn("make")(function* () {
           tone: "info",
           kind: PAPER_PRESENTED_ACTIVITY_KIND,
           summary: "Paper ready to review",
-          payload: manuscriptPresentation.presentation,
+          payload: presentation,
           turnId: input.turnId ?? null,
         },
         createdAt: input.createdAt,
@@ -1111,6 +1119,9 @@ const make = Effect.fn("make")(function* () {
         finalDeltaCommandTag: "assistant-delta-finalize",
         ...(assistantCompletion.fallbackText !== undefined && shouldApplyFallbackCompletionText
           ? { fallbackText: assistantCompletion.fallbackText }
+          : {}),
+        ...(assistantCompletion.fallbackText !== undefined
+          ? { presentationFallbackText: assistantCompletion.fallbackText }
           : {}),
       });
 

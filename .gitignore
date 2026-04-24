@@ -24,3 +24,7 @@ __screenshots__/
 .tanstack
 .vite/
 agent-memory/
+agentscience-app/apps/desktop/managed-resources/.manifest.json
+agentscience-app/apps/desktop/managed-resources/*/darwin-*/
+agentscience-app/apps/desktop/managed-resources/*/linux-*/
+agentscience-app/apps/desktop/managed-resources/*/win32-*/

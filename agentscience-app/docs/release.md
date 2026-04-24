@@ -62,6 +62,39 @@ Then check the resulting GitHub Release, download both Mac artifacts, and instal
 
 This is also the right thing to do when you are changing the release workflow itself. Do not test release pipeline changes by cutting a real release.
 
+## Local desktop runtime parity
+
+`bun run dev:desktop` launches the development app from the repo. It does not
+build the large managed paper/science runtimes on startup.
+
+Before testing behavior that depends on bundled Tectonic, bundled Python, or the
+managed science packages, run:
+
+```bash
+bun run dev:desktop:resources
+```
+
+Then launch:
+
+```bash
+bun run dev:desktop
+```
+
+`dev:desktop:resources` uses the same managed resource bundling code as the
+release artifact builder, but writes into
+`apps/desktop/managed-resources`. It is idempotent: it hashes the managed
+runtime recipe, writes `apps/desktop/managed-resources/.manifest.json`, and
+skips work when the hash and expected binaries still match.
+
+To build a non-default target, pass artifact-builder flags after `--`, for
+example `bun run dev:desktop:resources -- --platform mac --arch x64`.
+
+Use this rule of thumb:
+
+- app/server/web code changed: `Ctrl-C`, then `bun run dev:desktop`
+- managed runtime/toolchain recipe changed: `bun run dev:desktop:resources`, then `bun run dev:desktop`
+- final pre-release smoke test: build and install the actual DMG
+
 ## Signing
 
 Signing is strictly optional. The release path has an unsigned fallback, which is useful because it means a broken cert or expired key never blocks a release, it just downgrades quality. The workflow decides at runtime whether macOS signing is enabled based on whether the Apple secrets exist and are non-empty.
