@@ -103,7 +103,8 @@ const BACKEND_READY_REQUEST_TIMEOUT_MS = 1_500;
 const BACKEND_READY_TIMEOUT_MS = 45_000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
-const AGENTSCIENCE_RELEASES_URL = "https://github.com/vineet-reddy/agentscience-app/releases/latest";
+const AGENTSCIENCE_RELEASES_URL =
+  "https://github.com/vineet-reddy/agentscience-app/releases/latest";
 const MAC_APP_ICON_BASENAME = "app-icon";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
@@ -721,14 +722,15 @@ function handleCheckForUpdatesMenuClick(): void {
     console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
     void dialog
       .showMessageBox({
-      type: "info",
-      title: "Updates unavailable",
-      message: "Automatic updates are not available right now.",
-      detail: disabledReason,
-      buttons:
-        /download the latest release/i.test(disabledReason) ? ["Open latest release", "OK"] : ["OK"],
-      defaultId: 0,
-      cancelId: 1,
+        type: "info",
+        title: "Updates unavailable",
+        message: "Automatic updates are not available right now.",
+        detail: disabledReason,
+        buttons: /download the latest release/i.test(disabledReason)
+          ? ["Open latest release", "OK"]
+          : ["OK"],
+        defaultId: 0,
+        cancelId: 1,
       })
       .then(({ response }) => {
         if (/download the latest release/i.test(disabledReason) && response === 0) {
@@ -744,6 +746,43 @@ function handleCheckForUpdatesMenuClick(): void {
   void checkForUpdatesFromMenu();
 }
 
+async function promptToInstallDownloadedUpdateFromMenu(): Promise<void> {
+  const version = updateState.downloadedVersion ?? updateState.availableVersion ?? "update";
+  const { response } = await dialog.showMessageBox({
+    type: "info",
+    title: "Restart to finish update?",
+    message: `AgentScience ${version} has downloaded.`,
+    detail:
+      "Restart now to install it. If you choose Later, AgentScience will install the update automatically the next time you quit and reopen the app.",
+    buttons: ["Restart Now", "Later"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (response === 0) {
+    await installDownloadedUpdate();
+  }
+}
+
+async function downloadUpdateFromMenu(): Promise<void> {
+  const version = updateState.availableVersion ?? "update";
+  console.info(`[desktop-updater] Manual update check found ${version}; downloading now.`);
+  const result = await downloadAvailableUpdate();
+  if (result.accepted && result.completed && updateState.status === "downloaded") {
+    await promptToInstallDownloadedUpdateFromMenu();
+    return;
+  }
+
+  if (updateState.status === "error" || updateState.errorContext === "download") {
+    void dialog.showMessageBox({
+      type: "warning",
+      title: "Update download failed",
+      message: `Could not download AgentScience ${version}.`,
+      detail: updateState.message ?? "An unknown error occurred. Please try again later.",
+      buttons: ["OK"],
+    });
+  }
+}
+
 async function checkForUpdatesFromMenu(): Promise<void> {
   await checkForUpdates("menu");
 
@@ -755,28 +794,21 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       buttons: ["OK"],
     });
   } else if (updateState.status === "available") {
-    dispatchMenuAction("open-updates");
+    await downloadUpdateFromMenu();
+  } else if (updateState.status === "downloading") {
+    const progress =
+      typeof updateState.downloadPercent === "number"
+        ? ` (${Math.floor(updateState.downloadPercent)}%)`
+        : "";
     void dialog.showMessageBox({
       type: "info",
-      title: "Update available",
-      message: `AgentScience ${updateState.availableVersion ?? "update"} is ready to download.`,
-      detail:
-        "Open Settings to download the latest app bundle. App updates include the bundled CLI and shared personality.",
+      title: "Update downloading",
+      message: `AgentScience ${updateState.availableVersion ?? "update"} is downloading${progress}.`,
+      detail: "AgentScience will ask to restart when the update is ready.",
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloaded") {
-    const { response } = await dialog.showMessageBox({
-      type: "info",
-      title: "Update ready to install",
-      message: `AgentScience ${updateState.downloadedVersion ?? "update"} has finished downloading.`,
-      detail: "Restart AgentScience to finish installing the new app bundle.",
-      buttons: ["Install and Restart", "Later"],
-      defaultId: 0,
-      cancelId: 1,
-    });
-    if (response === 0) {
-      await installDownloadedUpdate();
-    }
+    await promptToInstallDownloadedUpdateFromMenu();
   } else if (updateState.status === "error") {
     void dialog.showMessageBox({
       type: "warning",
@@ -1100,7 +1132,7 @@ function configureAutoUpdater(): void {
   }
 
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.autoInstallOnAppQuit = true;
   // Production builds always read from the stable AgentScience release channel.
   autoUpdater.channel = DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
@@ -1389,9 +1421,7 @@ function registerIpcHandlers(): void {
   ipcMain.removeAllListeners(IS_FULL_SCREEN_CHANNEL);
   ipcMain.on(IS_FULL_SCREEN_CHANNEL, (event) => {
     const owner =
-      BrowserWindow.fromWebContents(event.sender) ??
-      BrowserWindow.getFocusedWindow() ??
-      mainWindow;
+      BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? mainWindow;
     event.returnValue = owner?.isFullScreen() ?? false;
   });
 
@@ -1561,7 +1591,9 @@ function getIconOption(): { icon: string } | Record<string, never> {
 }
 
 function resolveAppShellUrl(): string {
-  return isDevelopment ? (process.env.VITE_DEV_SERVER_URL as string) : `${DESKTOP_SCHEME}://app/index.html`;
+  return isDevelopment
+    ? (process.env.VITE_DEV_SERVER_URL as string)
+    : `${DESKTOP_SCHEME}://app/index.html`;
 }
 
 function resolveDesktopBootUrl(): string {
