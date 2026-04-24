@@ -1,9 +1,13 @@
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  resolveManagedAgentScienceCliLaunch,
+  resolveManagedAgentScienceCliPathDirs,
+} from "../managedAgentScienceCli";
 import { buildCodexSpawnEnv } from "./codexCli";
 
 function expectedManagedDesktopBasePath(): string {
@@ -15,6 +19,14 @@ function expectedManagedDesktopBasePath(): string {
     default:
       return "/usr/bin:/bin";
   }
+}
+
+function expectedManagedPath(entries: readonly string[]): string {
+  return [
+    ...entries,
+    ...resolveManagedAgentScienceCliPathDirs(),
+    expectedManagedDesktopBasePath(),
+  ].join(path.delimiter);
 }
 
 describe("buildCodexSpawnEnv", () => {
@@ -32,7 +44,7 @@ describe("buildCodexSpawnEnv", () => {
     });
 
     expect(env.PATH).toBe(
-      `/opt/science/bin:/opt/tex/bin:/opt/managed/bin:${expectedManagedDesktopBasePath()}`,
+      expectedManagedPath(["/opt/science/bin", "/opt/tex/bin", "/opt/managed/bin"]),
     );
     expect(env.PYTHONHOME).toBe("/opt/science");
   });
@@ -72,7 +84,7 @@ describe("buildCodexSpawnEnv", () => {
 
       expect(env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR).toBe(paperBinDir);
       expect(env.PATH).toBe(
-        `${scienceBinDir}:${paperBinDir}:/opt/managed/bin:${expectedManagedDesktopBasePath()}`,
+        expectedManagedPath([scienceBinDir, paperBinDir, "/opt/managed/bin"]),
       );
     } finally {
       rmSync(resourcesRoot, { recursive: true, force: true });
@@ -113,6 +125,37 @@ describe("buildCodexSpawnEnv", () => {
       },
     });
 
-    expect(env.PATH).toBe(`/opt/managed/bin:${expectedManagedDesktopBasePath()}`);
+    expect(env.PATH).toBe(expectedManagedPath(["/opt/managed/bin"]));
+  });
+
+  it("adds the bundled agentscience CLI to managed Codex PATH", () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "agentscience-codex-cli-shim-"));
+    const cliPathDirs = resolveManagedAgentScienceCliPathDirs();
+    const cliLaunch = resolveManagedAgentScienceCliLaunch(["--version"]);
+
+    try {
+      const env = buildCodexSpawnEnv({
+        binaryPath: "/opt/managed/codex",
+        cwd,
+        processEnv: {
+          PATH: "/usr/bin:/bin",
+          AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH: "/opt/managed/codex",
+          AGENTSCIENCE_MANAGED_CODEX_PATH_DIR: "/opt/managed/bin",
+        },
+      });
+      const shimDir = path.join(cwd, ".cache", "agentscience", "bin");
+      const shimPath = path.join(shimDir, "agentscience");
+
+      expect(cliPathDirs.length).toBeGreaterThan(0);
+      expect(cliLaunch?.args.at(-1)).toBe("--version");
+      expect(existsSync(shimPath)).toBe(true);
+      expect(readFileSync(shimPath, "utf8")).toContain("ELECTRON_RUN_AS_NODE=1");
+      expect(env.PATH?.split(path.delimiter)).toContain(shimDir);
+      for (const cliPathDir of cliPathDirs) {
+        expect(env.PATH?.split(path.delimiter)).toContain(cliPathDir);
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

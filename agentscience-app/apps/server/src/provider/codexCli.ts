@@ -1,6 +1,7 @@
 import type { CodexSettings } from "@agentscience/contracts";
 import { statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { resolveManagedAgentScienceCliPathDirs } from "../managedAgentScienceCli";
 
 const DEFAULT_CODEX_BINARY_PATH = "codex";
 const MANAGED_BINARY_ENV = "AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH";
@@ -191,6 +192,12 @@ export function buildCodexSpawnEnv(input: {
   ) {
     managedPathEntries.push(managedPathDir);
   }
+  managedPathEntries.push(
+    ...resolveManagedAgentScienceCliPathDirs({
+      ...(input.cwd ? { shimRoot: join(input.cwd, ".cache", "agentscience", "bin") } : {}),
+      runtimeCommand: process.execPath,
+    }),
+  );
 
   const basePath = isManagedDesktopCodex
     ? resolveSafeManagedDesktopBasePath(process.platform, env.PATH)
