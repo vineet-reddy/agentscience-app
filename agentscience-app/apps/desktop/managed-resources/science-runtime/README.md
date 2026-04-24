@@ -10,4 +10,4 @@ Expected layout:
 
 The intent is to ship a pinned, relocatable scientific stack so AgentScience can
 run high-quality data analysis out of the box without relying on host-level
-Python, NumPy, pandas, matplotlib, or ad-hoc user installs.
+Python, NumPy, pandas, matplotlib, Excel readers, or ad-hoc user installs.

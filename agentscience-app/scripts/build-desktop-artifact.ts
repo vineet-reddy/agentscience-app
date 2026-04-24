@@ -45,6 +45,10 @@ const MANAGED_SCIENCE_RUNTIME_UV_VERSION = "0.11.7";
 const MANAGED_SCIENCE_RUNTIME_PACKAGE_SPECS = [
   "numpy==2.4.4",
   "pandas==2.3.3",
+  "openpyxl==3.1.5",
+  "xlrd==2.0.2",
+  "lxml==6.1.0",
+  "requests==2.32.5",
   "matplotlib==3.10.7",
   "scipy==1.16.3",
   "scikit-learn==1.7.2",
@@ -1689,7 +1693,7 @@ const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(fun
         command: path.join(targetRuntimeDir, "bin", "python3"),
         args: [
           "-c",
-          "import numpy, pandas, matplotlib, scipy, sklearn, seaborn, statsmodels; print('managed science runtime ready')",
+          "import numpy, pandas, openpyxl, xlrd, lxml, requests, matplotlib, scipy, sklearn, seaborn, statsmodels; print('managed science runtime ready')",
         ],
         env: pythonEnv,
         verbose,
