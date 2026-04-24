@@ -32,6 +32,13 @@ export interface ThreadStatusPill {
   colorClass: string;
   dotClass: string;
   pulse: boolean;
+  /**
+   * ISO timestamp for when the current state began. Only set for states that
+   * are present-tense / live, so the caller can render a ticking duration
+   * ("Working · 6m 28s") instead of a past-tense relative time ("Working · 6m
+   * ago"), which is semantically wrong while the work is still happening.
+   */
+  startedAt?: string | null;
 }
 
 export interface SidebarThreadEntryRecord<
@@ -363,6 +370,13 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-orange-600 dark:text-orange-300/80",
       dotClass: "bg-orange-500 dark:bg-orange-300/80",
       pulse: true,
+      // Present-tense state: render a live duration ("Working · 6m 28s")
+      // rather than stamping a misleading "Xm ago" on something still
+      // happening. `startedAt` is when the turn actually started executing;
+      // `requestedAt` is the fallback for the race where the server has
+      // ack'd the turn but hasn't marked it started yet.
+      startedAt:
+        thread.latestTurn?.startedAt ?? thread.latestTurn?.requestedAt ?? null,
     };
   }
 

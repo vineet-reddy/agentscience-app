@@ -31,7 +31,10 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { cn, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
-import { formatRelativeTimeLabel } from "../timestampFormat";
+import {
+  formatRelativeTimeLabel,
+  formatWorkingDuration,
+} from "../timestampFormat";
 import { useUiStateStore } from "../uiStateStore";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
@@ -43,6 +46,7 @@ import {
 import { dispatchCommandAndSyncSnapshot } from "./Sidebar.rename";
 import { toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
+import { StatusDot } from "./ui/status-dot";
 import {
   Dialog,
   DialogDescription,
@@ -90,10 +94,10 @@ function ThreadStatusDot({ status }: { status: ThreadStatusPill | null }) {
   }
 
   return (
-    <span
-      aria-label={status.label}
-      title={status.label}
-      className={cn("mt-1 size-2 shrink-0 rounded-full", status.dotClass, status.pulse && "animate-pulse")}
+    <StatusDot
+      dotClass={status.dotClass}
+      pulse={status.pulse}
+      label={status.label}
     />
   );
 }
@@ -258,6 +262,38 @@ export default function Sidebar() {
       },
     });
   };
+
+  // While at least one thread is actively working we tick a 1 Hz clock so the
+  // sidebar can render a live "Working · 6m 28s" duration. The interval only
+  // runs when there's something to show, so idle sidebars don't pay the cost.
+  const hasLiveWork = useMemo(() => {
+    for (const thread of visibleThreadsById.values()) {
+      const status = resolveThreadStatusPill({
+        thread: {
+          ...thread,
+          lastVisitedAt: threadLastVisitedAtById[thread.id],
+        },
+      });
+      if (status?.startedAt) {
+        return true;
+      }
+    }
+    return false;
+  }, [visibleThreadsById, threadLastVisitedAtById]);
+
+  const [nowIso, setNowIso] = useState(() => new Date().toISOString());
+  useEffect(() => {
+    if (!hasLiveWork) {
+      return;
+    }
+    setNowIso(new Date().toISOString());
+    const timer = window.setInterval(() => {
+      setNowIso(new Date().toISOString());
+    }, 1000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [hasLiveWork]);
 
   useEffect(() => {
     if (!contextMenu) {
@@ -657,14 +693,27 @@ export default function Sidebar() {
                               />
                             ) : (
                               <>
-                                <div className="flex items-start gap-2">
-                                  <div className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
-                                    {thread.title}
-                                  </div>
-                                  <ThreadStatusDot status={threadStatus} />
+                                <div className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
+                                  {thread.title}
                                 </div>
-                                <div className="mt-1 text-xs text-sidebar-foreground/60">
-                                  {formatRelativeTimeLabel(thread.timestamp)}
+                                <div
+                                  className={cn(
+                                    "mt-1 flex items-center gap-1.5 text-xs",
+                                    threadStatus
+                                      ? threadStatus.colorClass
+                                      : "text-sidebar-foreground/60",
+                                  )}
+                                >
+                                  <ThreadStatusDot status={threadStatus} />
+                                  <span className="truncate tabular-nums">
+                                    {threadStatus ? `${threadStatus.label} · ` : ""}
+                                    {threadStatus?.startedAt
+                                      ? (formatWorkingDuration(
+                                          threadStatus.startedAt,
+                                          nowIso,
+                                        ) ?? "0s")
+                                      : formatRelativeTimeLabel(thread.timestamp)}
+                                  </span>
                                 </div>
                               </>
                             )}
@@ -919,30 +968,33 @@ export default function Sidebar() {
                                     />
                                   ) : (
                                     <>
-                                      <div className="flex items-start gap-2">
-                                        <div
-                                          className={cn(
-                                            "min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em]",
-                                            routeThreadId === thread.id
-                                              ? "text-sidebar-foreground"
-                                              : "text-sidebar-foreground",
-                                          )}
-                                        >
-                                          {thread.title}
-                                        </div>
-                                        <ThreadStatusDot status={threadStatus} />
+                                      <div className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
+                                        {thread.title}
                                       </div>
                                       <div
                                         className={cn(
-                                          "mt-1 text-xs",
-                                          routeThreadId === thread.id
-                                            ? "text-sidebar-foreground/75"
-                                            : "text-sidebar-foreground/60",
+                                          "mt-1 flex items-center gap-1.5 text-xs",
+                                          threadStatus
+                                            ? threadStatus.colorClass
+                                            : routeThreadId === thread.id
+                                              ? "text-sidebar-foreground/75"
+                                              : "text-sidebar-foreground/60",
                                         )}
                                       >
-                                        {formatRelativeTimeLabel(
-                                          thread.timestamp,
-                                        )}
+                                        <ThreadStatusDot status={threadStatus} />
+                                        <span className="truncate tabular-nums">
+                                          {threadStatus
+                                            ? `${threadStatus.label} · `
+                                            : ""}
+                                          {threadStatus?.startedAt
+                                            ? (formatWorkingDuration(
+                                                threadStatus.startedAt,
+                                                nowIso,
+                                              ) ?? "0s")
+                                            : formatRelativeTimeLabel(
+                                                thread.timestamp,
+                                              )}
+                                        </span>
                                       </div>
                                     </>
                                   )}
