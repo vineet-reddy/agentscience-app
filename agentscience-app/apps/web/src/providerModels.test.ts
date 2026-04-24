@@ -37,10 +37,10 @@ describe("provider model defaults", () => {
   it("uses the latest available GPT model instead of relying on list order", () => {
     expect(
       getDefaultServerModel(
-        [provider([model("gpt-5.4"), model("gpt-5.5"), model("gpt-5.3-codex")])],
+        [provider([model("gpt-5.2"), model("gpt-5.4"), model("gpt-5.3-codex")])],
         "codex",
       ),
-    ).toBe("gpt-5.5");
+    ).toBe("gpt-5.4");
   });
 
   it("prefers the flagship model over variants for the same GPT version", () => {
@@ -53,7 +53,7 @@ describe("provider model defaults", () => {
   });
 
   it("defaults supported reasoning models to medium effort and fast mode", () => {
-    expect(getDefaultProviderModelOptions([model("gpt-5.5")], "codex", "gpt-5.5")).toEqual({
+    expect(getDefaultProviderModelOptions([model("gpt-5.4")], "codex", "gpt-5.4")).toEqual({
       reasoningEffort: "medium",
       fastMode: true,
     });

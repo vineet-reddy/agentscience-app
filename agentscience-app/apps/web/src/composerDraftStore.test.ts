@@ -786,8 +786,8 @@ describe("deriveEffectiveComposerModelState", () => {
         draft: null,
         providers: [
           codexProvider([
+            providerModel("gpt-5.2"),
             providerModel("gpt-5.4"),
-            providerModel("gpt-5.5"),
             providerModel("gpt-5.4-mini"),
           ]),
         ],
@@ -797,7 +797,7 @@ describe("deriveEffectiveComposerModelState", () => {
         settings: DEFAULT_UNIFIED_SETTINGS,
       }),
     ).toEqual({
-      selectedModel: "gpt-5.5",
+      selectedModel: "gpt-5.4",
       modelOptions: {
         codex: {
           reasoningEffort: "medium",
@@ -819,7 +819,7 @@ describe("deriveEffectiveComposerModelState", () => {
             }),
           },
         },
-        providers: [codexProvider([providerModel("gpt-5.4"), providerModel("gpt-5.5")])],
+        providers: [codexProvider([providerModel("gpt-5.4"), providerModel("gpt-5.4-mini")])],
         selectedProvider: "codex",
         threadModelSelection: null,
         projectModelSelection: null,
@@ -834,6 +834,24 @@ describe("deriveEffectiveComposerModelState", () => {
         },
       },
     });
+  });
+
+  it("falls back when a saved draft references a removed model", () => {
+    expect(
+      deriveEffectiveComposerModelState({
+        draft: {
+          activeProvider: "codex",
+          modelSelectionByProvider: {
+            codex: modelSelection("codex", "gpt-5.5"),
+          },
+        },
+        providers: [codexProvider([providerModel("gpt-5.4"), providerModel("gpt-5.4-mini")])],
+        selectedProvider: "codex",
+        threadModelSelection: null,
+        projectModelSelection: null,
+        settings: DEFAULT_UNIFIED_SETTINGS,
+      }).selectedModel,
+    ).toBe("gpt-5.4");
   });
 });
 

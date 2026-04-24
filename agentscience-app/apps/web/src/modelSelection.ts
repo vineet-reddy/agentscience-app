@@ -15,6 +15,9 @@ import {
 
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
+const REMOVED_BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
+  codex: new Set(["gpt-5.5"]),
+};
 
 export type ProviderCustomModelConfig = {
   provider: ProviderKind;
@@ -41,6 +44,10 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
 };
 
 export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
+
+function isRemovedBuiltInModelSlug(slug: string, provider: ProviderKind): boolean {
+  return REMOVED_BUILT_IN_MODEL_SLUGS_BY_PROVIDER[provider].has(slug);
+}
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
@@ -113,7 +120,8 @@ export function getAppModelOptions(
   if (
     normalizedSelectedModel &&
     !seen.has(normalizedSelectedModel) &&
-    !selectedModelMatchesExistingName
+    !selectedModelMatchesExistingName &&
+    !isRemovedBuiltInModelSlug(normalizedSelectedModel, provider)
   ) {
     options.push({
       slug: normalizedSelectedModel,

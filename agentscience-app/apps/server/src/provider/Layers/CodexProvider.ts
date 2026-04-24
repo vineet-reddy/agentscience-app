@@ -62,13 +62,6 @@ const PROVIDER = "codex" as const;
 const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);
 const BUILT_IN_MODELS: ReadonlyArray<CodexCatalogModel> = [
   {
-    slug: "gpt-5.5",
-    name: "GPT-5.5",
-    isCustom: false,
-    availableFor: ["chatgpt"],
-    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
-  },
-  {
     slug: "gpt-5.4",
     name: "GPT-5.4",
     isCustom: false,

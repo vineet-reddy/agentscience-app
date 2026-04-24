@@ -619,11 +619,16 @@ export function deriveEffectiveComposerModelState(input: {
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
   const providerModels = getProviderModels(input.providers, input.selectedProvider);
+  const persistedModel = input.threadModelSelection?.model ?? input.projectModelSelection?.model;
   const baseModel =
-    normalizeModelSlug(
-      input.threadModelSelection?.model ?? input.projectModelSelection?.model,
-      input.selectedProvider,
-    ) ?? getDefaultServerModel(input.providers, input.selectedProvider);
+    persistedModel !== undefined
+      ? resolveAppModelSelection(
+          input.selectedProvider,
+          input.settings,
+          input.providers,
+          persistedModel,
+        )
+      : getDefaultServerModel(input.providers, input.selectedProvider);
   const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
   const selectedModel = activeSelection?.model
     ? resolveAppModelSelection(
