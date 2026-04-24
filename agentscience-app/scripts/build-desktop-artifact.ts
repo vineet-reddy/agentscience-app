@@ -2,14 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,8 +35,7 @@ const DEV_MANAGED_RESOURCES_MANIFEST_FILE = ".manifest.json";
 const DEV_MANAGED_RESOURCES_MANIFEST_VERSION = 1;
 const MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION = "2026.04";
 const MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE = "TinyTeX";
-const MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG =
-  `v${MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION}`;
+const MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG = `v${MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION}`;
 const MANAGED_PAPER_TOOLCHAIN_REQUIRED_LATEX_PACKAGES = [
   "geometry",
   "microtype",
@@ -693,7 +685,9 @@ const removeFilesBySuffixes = Effect.fn("removeFilesBySuffixes")(function* (
   }
 });
 
-const prunePackagedSourceMaps = Effect.fn("prunePackagedSourceMaps")(function* (stageAppDir: string) {
+const prunePackagedSourceMaps = Effect.fn("prunePackagedSourceMaps")(function* (
+  stageAppDir: string,
+) {
   yield* removeFilesBySuffixes(stageAppDir, SOURCE_MAP_SUFFIXES);
 });
 
@@ -716,10 +710,12 @@ const pruneKnownPackageSourceTrees = Effect.fn("pruneKnownPackageSourceTrees")(f
   const path = yield* Path.Path;
 
   for (const relativeSegments of KNOWN_RUNTIME_DIST_ONLY_SOURCE_TREES) {
-    yield* fs.remove(path.join(stageAppDir, ...relativeSegments), {
-      recursive: true,
-      force: true,
-    }).pipe(Effect.ignore);
+    yield* fs
+      .remove(path.join(stageAppDir, ...relativeSegments), {
+        recursive: true,
+        force: true,
+      })
+      .pipe(Effect.ignore);
   }
 });
 
@@ -895,8 +891,7 @@ function resolveManagedPaperToolchainTargets(
   return [
     {
       platformKey: "darwin-universal",
-      tinytexArchiveName:
-        `${MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE}-darwin-${MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG}.tar.xz`,
+      tinytexArchiveName: `${MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE}-darwin-${MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG}.tar.xz`,
       tinytexSha256: "a23cfd01181dace693f1dce14ec7d2a4161ae5589c5455b1c37bc246949494fd",
       tinytexBinSubdir: "universal-darwin",
     },
@@ -927,7 +922,9 @@ function parseChecksumFileEntry(contents: string, filename: string): string {
 function assertSha256(filePath: string, expectedHash: string): void {
   const actualHash = sha256File(filePath);
   if (actualHash !== expectedHash.toLowerCase()) {
-    throw new Error(`Checksum mismatch for ${filePath}: expected ${expectedHash}, got ${actualHash}.`);
+    throw new Error(
+      `Checksum mismatch for ${filePath}: expected ${expectedHash}, got ${actualHash}.`,
+    );
   }
 }
 
@@ -970,10 +967,9 @@ function buildManagedScienceRuntimeEnv(runtimeDir: string, cacheDir: string): No
 }
 
 function pruneManagedScienceRuntimeArtifacts(runtimeDir: string, verbose: boolean): void {
-  const searchRoots = [
-    join(runtimeDir, "lib"),
-    join(runtimeDir, "Lib"),
-  ].filter((candidate) => existsSync(candidate));
+  const searchRoots = [join(runtimeDir, "lib"), join(runtimeDir, "Lib")].filter((candidate) =>
+    existsSync(candidate),
+  );
 
   for (const searchRoot of searchRoots) {
     runCheckedCommand({
@@ -1002,7 +998,19 @@ function pruneManagedScienceRuntimeArtifacts(runtimeDir: string, verbose: boolea
     });
     runCheckedCommand({
       command: "find",
-      args: [searchRoot, "-type", "f", "(", "-name", "*.pyc", "-o", "-name", "*.pyo", ")", "-delete"],
+      args: [
+        searchRoot,
+        "-type",
+        "f",
+        "(",
+        "-name",
+        "*.pyc",
+        "-o",
+        "-name",
+        "*.pyo",
+        ")",
+        "-delete",
+      ],
       verbose,
     });
   }
@@ -1204,14 +1212,12 @@ function toBunInstallTargetCpu(arch: typeof BuildArch.Type): "arm64" | "x64" | "
   }
 }
 
-function resolveGitHubPublishConfig():
-  | {
-      readonly provider: "github";
-      readonly owner: string;
-      readonly repo: string;
-      readonly releaseType: "release";
-    }
-{
+function resolveGitHubPublishConfig(): {
+  readonly provider: "github";
+  readonly owner: string;
+  readonly repo: string;
+  readonly releaseType: "release";
+} {
   return {
     provider: "github",
     owner: DESKTOP_RELEASE_REPOSITORY.owner,
@@ -1260,6 +1266,11 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       icon: MAC_APP_ICON_ICNS_FILE,
       category: "public.app-category.developer-tools",
     };
+    if (target === "dmg") {
+      buildConfig.dmg = {
+        size: "4g",
+      };
+    }
   }
 
   if (platform === "linux") {
@@ -1349,20 +1360,24 @@ const pruneNodePtyInstallArtifacts = Effect.fn("pruneNodePtyInstallArtifacts")(f
       if (allowedPrebuildTargets.has(entry)) {
         continue;
       }
-      yield* fs.remove(path.join(prebuildsDir, entry), {
-        recursive: true,
-        force: true,
-      }).pipe(Effect.ignore);
+      yield* fs
+        .remove(path.join(prebuildsDir, entry), {
+          recursive: true,
+          force: true,
+        })
+        .pipe(Effect.ignore);
     }
 
     yield* removeFilesBySuffixes(prebuildsDir, DEBUG_SYMBOL_SUFFIXES);
   }
 
   for (const entry of NODE_PTY_BUILD_ONLY_ENTRIES) {
-    yield* fs.remove(path.join(nodePtyRoot, entry), {
-      recursive: true,
-      force: true,
-    }).pipe(Effect.ignore);
+    yield* fs
+      .remove(path.join(nodePtyRoot, entry), {
+        recursive: true,
+        force: true,
+      })
+      .pipe(Effect.ignore);
   }
 });
 
@@ -1791,13 +1806,12 @@ const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(fun
     if (entry === "README.md") {
       continue;
     }
-    yield* fs.remove(path.join(toolchainRoot, entry), { recursive: true, force: true }).pipe(
-      Effect.ignore,
-    );
+    yield* fs
+      .remove(path.join(toolchainRoot, entry), { recursive: true, force: true })
+      .pipe(Effect.ignore);
   }
 
-  const releaseBaseUrl =
-    `https://github.com/rstudio/tinytex-releases/releases/download/${MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG}`;
+  const releaseBaseUrl = `https://github.com/rstudio/tinytex-releases/releases/download/${MANAGED_PAPER_TOOLCHAIN_TINYTEX_RELEASE_TAG}`;
   const tempRoot = mkdtempSync(join(tmpdir(), "agentscience-managed-paper-toolchain-"));
 
   try {
@@ -1899,7 +1913,15 @@ const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(fun
     const pythonChecksumsPath = path.join(tempRoot, "python-build-standalone-sha256sums.txt");
     runCheckedCommand({
       command: "curl",
-      args: ["--fail", "--location", "--retry", "3", "--output", pythonChecksumsPath, pythonChecksumsUrl],
+      args: [
+        "--fail",
+        "--location",
+        "--retry",
+        "3",
+        "--output",
+        pythonChecksumsPath,
+        pythonChecksumsUrl,
+      ],
       verbose,
     });
     const pythonChecksums = readFileSync(pythonChecksumsPath, "utf8");
@@ -1935,7 +1957,15 @@ const bundleManagedScienceRuntime = Effect.fn("bundleManagedScienceRuntime")(fun
 
       runCheckedCommand({
         command: "curl",
-        args: ["--fail", "--location", "--retry", "3", "--output", uvArchivePath, `${uvBaseUrl}/${uvArchiveName}`],
+        args: [
+          "--fail",
+          "--location",
+          "--retry",
+          "3",
+          "--output",
+          uvArchivePath,
+          `${uvBaseUrl}/${uvArchiveName}`,
+        ],
         verbose,
       });
       assertSha256(uvArchivePath, parseChecksumFileEntry(uvChecksumText, uvArchiveName));
