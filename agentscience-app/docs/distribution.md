@@ -1,6 +1,6 @@
 # Desktop Distribution
 
-This doc explains how AgentScience App gets from source code to a real download on the public AgentScience website, and what still needs to be finished for a normal Mac install experience.
+This doc explains how AgentScience App gets from source code to a real download on the public AgentScience website.
 
 ## Current shape
 
@@ -55,23 +55,17 @@ Each release is expected to include the stable public download assets:
 - `Agent-Science-mac-arm64.dmg`
 - `Agent-Science-mac-intel.dmg`
 
-## What still is not done
+## Mac trust status
 
-The biggest remaining gap is Mac trust/signing.
+Mac signing and notarization are configured for production releases.
 
-Right now the app can be downloaded, but the macOS build is unsigned and not notarized. That means non-technical users will still hit Gatekeeper warnings when they try to open it.
+The release workflow signs and notarizes macOS builds when the Apple signing secrets are present. The current production setup has those secrets configured; the `v0.0.43` release logs confirmed both `arm64` and Intel builds used the Developer ID Application certificate and completed notarization successfully.
 
-For a normal public Mac install flow, we still need:
+The workflow still contains an unsigned fallback so engineers can diagnose build or certificate issues, but that fallback is not the expected public release path.
 
-1. An Apple Developer account.
-2. A Developer ID Application certificate.
-3. App Store Connect API credentials for notarization.
-4. GitHub Actions secrets configured in this repo.
-5. A new release cut after those secrets are configured.
+## Apple signing configuration
 
-## Apple setup needed next
-
-Once the Apple Developer account exists, configure these repo secrets in GitHub Actions:
+The production release workflow expects these repo secrets in GitHub Actions:
 
 - `CSC_LINK`
 - `CSC_KEY_PASSWORD`
@@ -87,7 +81,7 @@ What they are:
 - `APPLE_API_KEY_ID`: App Store Connect key id
 - `APPLE_API_ISSUER`: App Store Connect issuer id
 
-Once those exist, the existing workflow will sign and notarize macOS builds automatically.
+When all five secrets are present and non-empty, the existing workflow signs and notarizes macOS builds automatically.
 
 ## Recommended operating flow
 
@@ -103,16 +97,13 @@ For each release:
 5. Verify the website download routes still resolve.
 6. Smoke test install on a real Mac.
 
-## Short-term recommendation
+## Release verification checklist
 
-Until Apple signing is configured:
+For public Mac releases, verify:
 
-- keep the download flow live
-- treat Mac distribution as early access/beta
-- do not assume non-technical scientists will get through Gatekeeper cleanly
-
-Once Apple signing is configured:
-
-- cut a new release immediately
-- re-test the website download flow
-- then promote the Mac app publicly
+1. The GitHub Actions build logs say `macOS signing enabled.`
+2. The desktop artifact build logs show a `Developer ID Application` signing identity.
+3. The desktop artifact build logs say `notarization successful`.
+4. The GitHub Release contains both stable alias DMGs.
+5. The website download routes resolve to the latest signed release.
+6. The downloaded app opens cleanly on a real Mac.

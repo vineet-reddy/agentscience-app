@@ -4,7 +4,7 @@ This doc is for engineers cutting desktop releases, or touching the release pipe
 
 - [release.yml](../../.github/workflows/release.yml)
 
-The big picture: one git tag drives one release. Pushing a tag like `v1.2.3` kicks off a GitHub Actions workflow that runs quality gates, builds the macOS installers, and publishes one GitHub Release with all the files. Signing is optional and auto-detected, so the unsigned path still works if Apple signing is broken.
+The big picture: one git tag drives one release. Pushing a tag like `v1.2.3` kicks off a GitHub Actions workflow that runs quality gates, builds the macOS installers, and publishes one GitHub Release with all the files. Production macOS releases are signed and notarized; the workflow still has an auto-detected unsigned fallback for debugging broken or missing Apple credentials.
 
 Versions with a suffix after the numeric part (for example `1.2.3-alpha.1`) are published as GitHub prereleases and do not become the "latest" release. Only plain `X.Y.Z` tags are marked latest.
 
@@ -16,7 +16,7 @@ When a tag matching `v*.*.*` is pushed, the workflow:
 - builds two desktop artifacts in parallel:
   - macOS `arm64` DMG
   - macOS `x64` DMG
-- signs macOS builds if Apple secrets are present, otherwise ships unsigned
+- signs and notarizes macOS builds when Apple secrets are present; the production repo is configured for this path
 - publishes one GitHub Release with all the installers plus electron-updater metadata files (`latest*.yml`, `*.blockmap`, mac `.zip` payloads)
 - publishes stable alias assets for the public website download buttons:
   - `Agent-Science-mac-arm64.dmg`
@@ -97,11 +97,11 @@ Use this rule of thumb:
 
 ## Signing
 
-Signing is strictly optional. The release path has an unsigned fallback, which is useful because it means a broken cert or expired key never blocks a release, it just downgrades quality. The workflow decides at runtime whether macOS signing is enabled based on whether the Apple secrets exist and are non-empty.
+Signing is expected for public production releases. The release path has an unsigned fallback, which is useful because it means a broken cert or expired key can be isolated from general build health, but unsigned artifacts should be treated as degraded test output. The workflow decides at runtime whether macOS signing is enabled based on whether the Apple secrets exist and are non-empty.
 
 ### macOS signing and notarization
 
-When these secrets are present the workflow signs and notarizes macOS builds automatically:
+When these secrets are present, the workflow signs and notarizes macOS builds automatically. The production repository has this configuration; `v0.0.43` verified the configured path for both `arm64` and Intel builds.
 
 - `CSC_LINK`: base64-encoded `.p12` containing the Developer ID Application certificate and its private key
 - `CSC_KEY_PASSWORD`: the `.p12` export password
@@ -124,7 +124,7 @@ One implementation detail worth knowing: `APPLE_API_KEY` is stored as raw key te
 
 ### What to do if signing is breaking a release
 
-Do not skip signing by force. Instead:
+Do not ship a public release by intentionally skipping signing. Instead:
 
 1. Cut a prerelease with no signing secrets present and confirm the unsigned path still works, so you know the build itself is healthy.
 2. Re-add the Apple signing secrets.
