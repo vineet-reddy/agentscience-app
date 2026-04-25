@@ -1,3 +1,11 @@
+# TODO
+
+## Structured Paper Publication State
+
+- Replace the sidebar's current inferred publication detector with a first-class structured paper publication signal. The current UI fix correctly stops treating a completed assistant turn as a completed AgentScience workflow, but green `Completed` still depends on detecting a completed `agentscience papers publish` command in tool activity text.
+- Add a domain event or projection field such as `paper.published` / `hasPublishedPaper` sourced from actual publication metadata, then drive sidebar `Completed` from that structured state instead of command text.
+- Keep settled-but-unpublished paper threads purple `Awaiting Input`; only published papers should render green `Completed`.
+
 # Fixed: Automatic Chat Renaming
 
 Automatic sidebar chat renaming now runs through the provider-session title path and has regression coverage for the runtime failure shape seen in the desktop app.
