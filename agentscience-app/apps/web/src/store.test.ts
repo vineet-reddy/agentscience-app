@@ -336,6 +336,26 @@ describe("incremental orchestration updates", () => {
     expect(next.bootstrapComplete).toBe(false);
   });
 
+  it("updates the sidebar thread title from thread metadata events", () => {
+    const thread = makeThread({
+      title: "can you add some way that a nano or a mini model renames the chat",
+    });
+    const state = makeState(thread);
+    const generatedTitle = "Fix Sidebar Thread Titles";
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.meta-updated", {
+        threadId: thread.id,
+        title: generatedTitle,
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threadsById[thread.id]?.title).toBe(generatedTitle);
+    expect(next.sidebarThreadsById[thread.id]?.title).toBe(generatedTitle);
+  });
+
   it("preserves state identity for no-op project and thread deletes", () => {
     const thread = makeThread();
     const state = makeState(thread);
