@@ -28,7 +28,12 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { fetchPaperReviewSnapshot } from "../lib/paperReview";
+import { fetchPaperReviewSnapshot, paperReviewReadyPdfKey } from "../lib/paperReview";
+import {
+  PAPER_REVIEW_INLINE_DEFAULT_WIDTH,
+  PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH,
+  resolvePaperReviewInlineSidebarMaxWidth,
+} from "../lib/paperReviewLayout";
 import { useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
@@ -41,8 +46,77 @@ const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
 const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
 const PAPER_REVIEW_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_paper_review_sidebar_width";
-const PAPER_REVIEW_INLINE_DEFAULT_WIDTH = "clamp(30rem,44vw,54rem)";
-const PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH = 28 * 16;
+
+function shouldPreserveUsableComposerWidth({
+  nextWidth,
+  wrapper,
+}: {
+  nextWidth: number;
+  wrapper: HTMLElement;
+}) {
+  const composerForm = document.querySelector<HTMLElement>("[data-chat-composer-form='true']");
+  if (!composerForm) return true;
+  const composerViewport = composerForm.parentElement;
+  if (!composerViewport) return true;
+  const previousSidebarWidth = wrapper.style.getPropertyValue("--sidebar-width");
+  wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+
+  const viewportStyle = window.getComputedStyle(composerViewport);
+  const viewportPaddingLeft = Number.parseFloat(viewportStyle.paddingLeft) || 0;
+  const viewportPaddingRight = Number.parseFloat(viewportStyle.paddingRight) || 0;
+  const viewportContentWidth = Math.max(
+    0,
+    composerViewport.clientWidth - viewportPaddingLeft - viewportPaddingRight,
+  );
+  const formRect = composerForm.getBoundingClientRect();
+  const composerFooter = composerForm.querySelector<HTMLElement>(
+    "[data-chat-composer-footer='true']",
+  );
+  const composerRightActions = composerForm.querySelector<HTMLElement>(
+    "[data-chat-composer-actions='right']",
+  );
+  const composerRightActionsWidth = composerRightActions?.getBoundingClientRect().width ?? 0;
+  const composerFooterGap = composerFooter
+    ? Number.parseFloat(window.getComputedStyle(composerFooter).columnGap) ||
+      Number.parseFloat(window.getComputedStyle(composerFooter).gap) ||
+      0
+    : 0;
+  const minimumComposerWidth =
+    COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX + composerRightActionsWidth + composerFooterGap;
+  const hasComposerOverflow = composerForm.scrollWidth > composerForm.clientWidth + 0.5;
+  const overflowsViewport = formRect.width > viewportContentWidth + 0.5;
+  const violatesMinimumComposerWidth = composerForm.clientWidth + 0.5 < minimumComposerWidth;
+
+  if (previousSidebarWidth.length > 0) {
+    wrapper.style.setProperty("--sidebar-width", previousSidebarWidth);
+  } else {
+    wrapper.style.removeProperty("--sidebar-width");
+  }
+
+  return !hasComposerOverflow && !overflowsViewport && !violatesMinimumComposerWidth;
+}
+
+function usePaperReviewSidebarMaxWidth() {
+  const [maxWidth, setMaxWidth] = useState(() =>
+    typeof window === "undefined"
+      ? PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH
+      : resolvePaperReviewInlineSidebarMaxWidth(window.innerWidth),
+  );
+
+  useEffect(() => {
+    const onResize = () => {
+      setMaxWidth(resolvePaperReviewInlineSidebarMaxWidth(window.innerWidth));
+    };
+
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  return maxWidth;
+}
 
 const DiffPanelSheet = (props: {
   children: ReactNode;
@@ -113,51 +187,6 @@ const DiffPanelInlineSidebar = (props: {
     },
     [onCloseDiff, onOpenDiff],
   );
-  const shouldAcceptInlineSidebarWidth = useCallback(
-    ({ nextWidth, wrapper }: { nextWidth: number; wrapper: HTMLElement }) => {
-      const composerForm = document.querySelector<HTMLElement>("[data-chat-composer-form='true']");
-      if (!composerForm) return true;
-      const composerViewport = composerForm.parentElement;
-      if (!composerViewport) return true;
-      const previousSidebarWidth = wrapper.style.getPropertyValue("--sidebar-width");
-      wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
-
-      const viewportStyle = window.getComputedStyle(composerViewport);
-      const viewportPaddingLeft = Number.parseFloat(viewportStyle.paddingLeft) || 0;
-      const viewportPaddingRight = Number.parseFloat(viewportStyle.paddingRight) || 0;
-      const viewportContentWidth = Math.max(
-        0,
-        composerViewport.clientWidth - viewportPaddingLeft - viewportPaddingRight,
-      );
-      const formRect = composerForm.getBoundingClientRect();
-      const composerFooter = composerForm.querySelector<HTMLElement>(
-        "[data-chat-composer-footer='true']",
-      );
-      const composerRightActions = composerForm.querySelector<HTMLElement>(
-        "[data-chat-composer-actions='right']",
-      );
-      const composerRightActionsWidth = composerRightActions?.getBoundingClientRect().width ?? 0;
-      const composerFooterGap = composerFooter
-        ? Number.parseFloat(window.getComputedStyle(composerFooter).columnGap) ||
-          Number.parseFloat(window.getComputedStyle(composerFooter).gap) ||
-          0
-        : 0;
-      const minimumComposerWidth =
-        COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX + composerRightActionsWidth + composerFooterGap;
-      const hasComposerOverflow = composerForm.scrollWidth > composerForm.clientWidth + 0.5;
-      const overflowsViewport = formRect.width > viewportContentWidth + 0.5;
-      const violatesMinimumComposerWidth = composerForm.clientWidth + 0.5 < minimumComposerWidth;
-
-      if (previousSidebarWidth.length > 0) {
-        wrapper.style.setProperty("--sidebar-width", previousSidebarWidth);
-      } else {
-        wrapper.style.removeProperty("--sidebar-width");
-      }
-
-      return !hasComposerOverflow && !overflowsViewport && !violatesMinimumComposerWidth;
-    },
-    [],
-  );
 
   return (
     <SidebarProvider
@@ -173,7 +202,7 @@ const DiffPanelInlineSidebar = (props: {
         className="border-l border-border bg-card text-foreground"
         resizable={{
           minWidth: DIFF_INLINE_SIDEBAR_MIN_WIDTH,
-          shouldAcceptWidth: shouldAcceptInlineSidebarWidth,
+          shouldAcceptWidth: shouldPreserveUsableComposerWidth,
           storageKey: DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
@@ -192,6 +221,7 @@ const PaperReviewInlineSidebar = (props: {
   threadId: ThreadId;
 }) => {
   const { reviewOpen, onCloseReview, onOpenReview, renderReviewContent, threadId } = props;
+  const maxWidth = usePaperReviewSidebarMaxWidth();
   const onOpenChange = useCallback(
     (open: boolean) => {
       if (open) {
@@ -216,7 +246,9 @@ const PaperReviewInlineSidebar = (props: {
         collapsible="offcanvas"
         className="border-l border-border bg-background text-foreground"
         resizable={{
+          maxWidth,
           minWidth: PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH,
+          shouldAcceptWidth: shouldPreserveUsableComposerWidth,
           storageKey: PAPER_REVIEW_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
@@ -263,8 +295,11 @@ function ChatThreadRouteView() {
   const [openedDiffByThreadId, setOpenedDiffByThreadId] = useState<Record<string, true>>({});
   const [reviewOpen, setReviewOpen] = useState(false);
   const [openedReviewByThreadId, setOpenedReviewByThreadId] = useState<Record<string, true>>({});
-  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>({});
+  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>(
+    {},
+  );
   const lastHandledPaperPresentationByThreadIdRef = useRef<Record<string, string>>({});
+  const lastAutoOpenedPaperReviewByThreadIdRef = useRef<Record<string, string>>({});
   const lastObservedThreadUpdatedAtByThreadIdRef = useRef<Record<string, string | null>>({});
   const paperReviewQuery = useQuery({
     queryKey: ["paper-review", threadId],
@@ -272,6 +307,7 @@ function ChatThreadRouteView() {
     enabled: routeThreadExists,
     refetchInterval: 5_000,
   });
+  const readyPaperReviewKey = paperReviewReadyPdfKey(paperReviewQuery.data);
   const paperReviewAvailable = Boolean(
     paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId,
   );
@@ -330,9 +366,31 @@ function ChatThreadRouteView() {
       return;
     }
     lastHandledPaperPresentationByThreadIdRef.current[threadId] = latestPaperPresentedActivityId;
-    openReview();
     void queryClient.invalidateQueries({ queryKey: ["paper-review", threadId] });
-  }, [latestPaperPresentedActivityId, openReview, queryClient, threadId]);
+  }, [latestPaperPresentedActivityId, queryClient, threadId]);
+
+  useEffect(() => {
+    if (!latestPaperPresentedActivityId || !readyPaperReviewKey) {
+      return;
+    }
+    if (dismissedReviewByThreadId[threadId]) {
+      return;
+    }
+
+    const autoOpenKey = `${latestPaperPresentedActivityId}:${readyPaperReviewKey}`;
+    if (lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] === autoOpenKey) {
+      return;
+    }
+
+    lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] = autoOpenKey;
+    openReview();
+  }, [
+    dismissedReviewByThreadId,
+    latestPaperPresentedActivityId,
+    openReview,
+    readyPaperReviewKey,
+    threadId,
+  ]);
 
   useEffect(() => {
     const previousUpdatedAt = lastObservedThreadUpdatedAtByThreadIdRef.current[threadId];
@@ -373,21 +431,8 @@ function ChatThreadRouteView() {
   useEffect(() => {
     if (!paperReviewAvailable) {
       setReviewOpen(false);
-      return;
     }
-    setOpenedReviewByThreadId((current) =>
-      current[threadId]
-        ? current
-        : {
-            ...current,
-            [threadId]: true,
-          },
-    );
-    if (dismissedReviewByThreadId[threadId]) {
-      return;
-    }
-    setReviewOpen(true);
-  }, [dismissedReviewByThreadId, paperReviewAvailable, threadId]);
+  }, [paperReviewAvailable]);
 
   useEffect(() => {
     if (!bootstrapComplete) {

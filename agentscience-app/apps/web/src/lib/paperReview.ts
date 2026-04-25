@@ -6,6 +6,23 @@ import {
 } from "@agentscience/contracts";
 import { resolveServerUrl } from "./utils";
 
+export function paperReviewReadyPdfKey(
+  snapshot: PaperReviewSnapshot | null | undefined,
+): string | null {
+  if (
+    snapshot?.preview.kind !== "pdf" ||
+    !snapshot.preview.url ||
+    !snapshot.preview.relativePath ||
+    !snapshot.preview.updatedAt ||
+    snapshot.compile.status !== "ready" ||
+    snapshot.compile.needsBuild
+  ) {
+    return null;
+  }
+
+  return `${snapshot.preview.relativePath}:${snapshot.preview.updatedAt}:${snapshot.preview.url}`;
+}
+
 function resolvePaperReviewRequestUrl(url: string): string {
   return new URL(
     url,
@@ -19,8 +36,12 @@ function resolvePaperReviewRequestUrl(url: string): string {
 function normalizeSnapshotUrls(snapshot: PaperReviewSnapshot): PaperReviewSnapshot {
   return {
     ...snapshot,
-    ...(snapshot.source ? { source: { ...snapshot.source, url: resolvePaperReviewRequestUrl(snapshot.source.url) } } : {}),
-    ...(snapshot.pdf ? { pdf: { ...snapshot.pdf, url: resolvePaperReviewRequestUrl(snapshot.pdf.url) } } : {}),
+    ...(snapshot.source
+      ? { source: { ...snapshot.source, url: resolvePaperReviewRequestUrl(snapshot.source.url) } }
+      : {}),
+    ...(snapshot.pdf
+      ? { pdf: { ...snapshot.pdf, url: resolvePaperReviewRequestUrl(snapshot.pdf.url) } }
+      : {}),
     ...(snapshot.bibliography
       ? {
           bibliography: {
@@ -29,7 +50,9 @@ function normalizeSnapshotUrls(snapshot: PaperReviewSnapshot): PaperReviewSnapsh
           },
         }
       : {}),
-    ...(snapshot.notes ? { notes: { ...snapshot.notes, url: resolvePaperReviewRequestUrl(snapshot.notes.url) } } : {}),
+    ...(snapshot.notes
+      ? { notes: { ...snapshot.notes, url: resolvePaperReviewRequestUrl(snapshot.notes.url) } }
+      : {}),
     preview: snapshot.preview.url
       ? {
           ...snapshot.preview,
@@ -47,17 +70,23 @@ async function parsePaperReviewResponse(response: Response): Promise<PaperReview
 }
 
 export async function fetchPaperReviewSnapshot(threadId: ThreadId): Promise<PaperReviewSnapshot> {
-  const response = await fetch(resolvePaperReviewRequestUrl(paperReviewSnapshotRoutePath(threadId)), {
-    credentials: "same-origin",
-  });
+  const response = await fetch(
+    resolvePaperReviewRequestUrl(paperReviewSnapshotRoutePath(threadId)),
+    {
+      credentials: "same-origin",
+    },
+  );
   return parsePaperReviewResponse(response);
 }
 
 export async function compilePaperReview(threadId: ThreadId): Promise<PaperReviewSnapshot> {
-  const response = await fetch(resolvePaperReviewRequestUrl(paperReviewCompileRoutePath(threadId)), {
-    method: "POST",
-    credentials: "same-origin",
-  });
+  const response = await fetch(
+    resolvePaperReviewRequestUrl(paperReviewCompileRoutePath(threadId)),
+    {
+      method: "POST",
+      credentials: "same-origin",
+    },
+  );
   return parsePaperReviewResponse(response);
 }
 

@@ -1,7 +1,11 @@
 import { ThreadId } from "@agentscience/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchPaperReviewBytes, fetchPaperReviewSnapshot } from "./paperReview";
+import {
+  fetchPaperReviewBytes,
+  fetchPaperReviewSnapshot,
+  paperReviewReadyPdfKey,
+} from "./paperReview";
 
 const threadId = ThreadId.makeUnsafe("thread-paper-review");
 
@@ -11,6 +15,62 @@ afterEach(() => {
 });
 
 describe("paperReview", () => {
+  it("only marks a PDF preview ready once the build state is ready and current", () => {
+    const readySnapshot = {
+      threadId,
+      threadTitle: "Paper thread",
+      workspaceRoot: "/tmp/paper",
+      source: null,
+      pdf: null,
+      bibliography: null,
+      notes: null,
+      preview: {
+        kind: "pdf" as const,
+        relativePath: "paper.pdf",
+        url: `/api/paper-review/${threadId}/files/paper.pdf`,
+        updatedAt: "2026-04-16T08:00:00.000Z",
+      },
+      compile: {
+        status: "ready" as const,
+        compiler: "managed-latexmk" as const,
+        compilerLabel: "latexmk",
+        canCompile: true,
+        needsBuild: false,
+        lastBuiltAt: "2026-04-16T08:00:00.000Z",
+        lastError: null,
+        outputExcerpt: null,
+      },
+      reviewRecommended: true,
+    };
+
+    expect(paperReviewReadyPdfKey(readySnapshot)).toBe(
+      `paper.pdf:2026-04-16T08:00:00.000Z:/api/paper-review/${threadId}/files/paper.pdf`,
+    );
+    expect(
+      paperReviewReadyPdfKey({
+        ...readySnapshot,
+        compile: { ...readySnapshot.compile, status: "compiling" },
+      }),
+    ).toBeNull();
+    expect(
+      paperReviewReadyPdfKey({
+        ...readySnapshot,
+        compile: { ...readySnapshot.compile, needsBuild: true },
+      }),
+    ).toBeNull();
+    expect(
+      paperReviewReadyPdfKey({
+        ...readySnapshot,
+        preview: {
+          kind: "latex",
+          relativePath: "paper.tex",
+          url: `/api/paper-review/${threadId}/files/paper.tex`,
+          updatedAt: "2026-04-16T08:00:00.000Z",
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("targets the desktop backend origin and normalizes artifact URLs", async () => {
     vi.stubGlobal("window", {
       desktopBridge: {
@@ -87,9 +147,9 @@ describe("paperReview", () => {
       },
     });
 
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }),
-    );
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }));
 
     const bytes = await fetchPaperReviewBytes(`/api/paper-review/${threadId}/files/paper.pdf`);
 
