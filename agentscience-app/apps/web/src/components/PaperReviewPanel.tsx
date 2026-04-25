@@ -3,7 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { CircleAlertIcon, LoaderCircleIcon, RefreshCcwIcon } from "lucide-react";
 
-import { compilePaperReview, fetchPaperReviewSnapshot, fetchPaperReviewText } from "~/lib/paperReview";
+import {
+  compilePaperReview,
+  fetchPaperReviewSnapshot,
+  fetchPaperReviewText,
+} from "~/lib/paperReview";
 import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
 import { toastManager } from "./ui/toast";
@@ -17,7 +21,7 @@ interface PaperReviewPanelProps {
 
 export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<PaperReviewTab>("preview");
+  const [selectedTab, setSelectedTab] = useState<PaperReviewTab | null>(null);
 
   const snapshotQuery = useQuery({
     queryKey: ["paper-review", threadId],
@@ -42,25 +46,24 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
   });
 
   const snapshot = snapshotQuery.data;
+  const showPreviewTab = snapshot?.preview.kind === "pdf";
+  const activeTab: PaperReviewTab = showPreviewTab ? (selectedTab ?? "preview") : "source";
   const sourceUrl = snapshot?.source?.url ?? null;
   const sourceQuery = useQuery({
     queryKey: ["paper-review", threadId, "source", sourceUrl],
     queryFn: () => fetchPaperReviewText(sourceUrl as string),
     enabled:
       sourceUrl !== null &&
-      (activeTab === "source" || snapshot?.preview.kind !== "pdf" || snapshot?.compile.status === "error"),
+      (activeTab === "source" ||
+        snapshot?.preview.kind !== "pdf" ||
+        snapshot?.compile.status === "error"),
   });
 
   useEffect(() => {
-    if (!snapshot) {
-      return;
+    if (!showPreviewTab) {
+      setSelectedTab(null);
     }
-    if (snapshot.preview.kind === "pdf") {
-      setActiveTab((current) => (current === "source" ? current : "preview"));
-      return;
-    }
-    setActiveTab("source");
-  }, [snapshot]);
+  }, [showPreviewTab]);
 
   const isBusy = snapshotQuery.isPending && !snapshot;
   const isCompiling = snapshot?.compile.status === "compiling" || compileMutation.isPending;
@@ -78,7 +81,6 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
     }
   })();
 
-  const showPreviewTab = snapshot?.preview.kind === "pdf";
   const showRebuildControl = Boolean(snapshot?.compile.canCompile);
   const sourceLabel = snapshot?.source?.relativePath ?? "Source";
 
@@ -96,7 +98,7 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
                     ? "bg-foreground text-background"
                     : "text-muted-foreground/80 hover:text-foreground",
                 )}
-                onClick={() => setActiveTab("preview")}
+                onClick={() => setSelectedTab("preview")}
               >
                 Preview
               </button>
@@ -109,7 +111,7 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
                   ? "bg-foreground text-background"
                   : "text-muted-foreground/80 hover:text-foreground",
               )}
-              onClick={() => setActiveTab("source")}
+              onClick={() => setSelectedTab(showPreviewTab ? "source" : null)}
             >
               Source
             </button>
