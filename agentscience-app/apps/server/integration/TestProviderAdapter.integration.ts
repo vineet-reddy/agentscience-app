@@ -7,6 +7,7 @@ import {
   ProviderRuntimeEvent,
   RuntimeSessionId,
   ProviderSession,
+  ProviderSessionStartInput,
   ProviderTurnStartResult,
   ThreadId,
   TurnId,
@@ -27,6 +28,7 @@ import type {
 
 export interface TestTurnResponse {
   readonly events: ReadonlyArray<FixtureProviderRuntimeEvent>;
+  readonly snapshotItems?: ReadonlyArray<unknown>;
   readonly mutateWorkspace?: (input: {
     readonly cwd: string;
     readonly turnCount: number;
@@ -190,6 +192,7 @@ export interface TestProviderAdapterHarness {
   readonly getRollbackCalls: (threadId: ThreadId) => ReadonlyArray<number>;
   readonly getInterruptCalls: (threadId: ThreadId) => ReadonlyArray<TurnId | undefined>;
   readonly listActiveSessionIds: () => ReadonlyArray<ThreadId>;
+  readonly getStartedSessions: () => ReadonlyArray<ProviderSessionStartInput>;
   readonly getApprovalResponses: (threadId: ThreadId) => ReadonlyArray<{
     readonly threadId: ThreadId;
     readonly requestId: ApprovalRequestId;
@@ -228,6 +231,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     const runtimeEvents = yield* Queue.unbounded<ProviderRuntimeEvent>();
     let sessionCount = 0;
     const sessions = new Map<ThreadId, SessionState>();
+    const startedSessions: ProviderSessionStartInput[] = [];
     const queuedResponsesForNextSession: TestTurnResponse[] = [];
     const interruptCallsBySession = new Map<ThreadId, Array<TurnId | undefined>>();
     const approvalResponsesBySession = new Map<
@@ -254,6 +258,10 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
         sessionCount += 1;
         const threadId = input.threadId;
         const createdAt = nowIso();
+        startedSessions.push({
+          ...input,
+          ...(input.modelSelection ? { modelSelection: { ...input.modelSelection } } : {}),
+        });
 
         const session: ProviderSession = {
           provider,
@@ -261,6 +269,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
           runtimeMode: input.runtimeMode,
           threadId,
           cwd: input.cwd,
+          model: input.modelSelection?.model,
           resumeCursor: input.resumeCursor ?? { threadId: String(threadId), seed: sessionCount },
           createdAt,
           updatedAt: createdAt,
@@ -346,9 +355,11 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
         } as const;
         const assistantText = assistantDeltas.join("");
         const nextItems: Array<unknown> =
-          assistantText.length > 0
-            ? [userItem, { type: "agentMessage", text: assistantText }]
-            : [userItem];
+          response.snapshotItems !== undefined
+            ? [...response.snapshotItems]
+            : assistantText.length > 0
+              ? [userItem, { type: "agentMessage", text: assistantText }]
+              : [userItem];
 
         const nextTurn: ProviderThreadTurnSnapshot = {
           id: turnId,
@@ -520,6 +531,12 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       return [...state.rollbackCalls];
     };
 
+    const getStartedSessions = (): ReadonlyArray<ProviderSessionStartInput> =>
+      startedSessions.map((input) => ({
+        ...input,
+        ...(input.modelSelection ? { modelSelection: { ...input.modelSelection } } : {}),
+      }));
+
     const getStartCount = (): number => sessionCount;
 
     const getInterruptCalls = (threadId: ThreadId): ReadonlyArray<TurnId | undefined> => {
@@ -556,6 +573,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       getRollbackCalls,
       getInterruptCalls,
       listActiveSessionIds,
+      getStartedSessions,
       getApprovalResponses,
     } satisfies TestProviderAdapterHarness;
   });

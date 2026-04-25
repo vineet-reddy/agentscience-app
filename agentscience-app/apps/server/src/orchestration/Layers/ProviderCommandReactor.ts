@@ -23,7 +23,6 @@ import {
   type ThreadTitleConversationMessage,
 } from "../../git/Services/TextGeneration.ts";
 import { buildThreadTitlePrompt } from "../../git/Prompts.ts";
-import { sanitizeThreadTitle } from "../../git/Utils.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
@@ -32,6 +31,10 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import {
+  extractGeneratedThreadTitleFromProviderItems,
+  selectThreadTitleModelSelection,
+} from "../threadTitleGeneration.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -94,75 +97,6 @@ function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolea
   return trimmedTitleSeed !== undefined && trimmedTitleSeed.length > 0
     ? trimmedCurrentTitle === trimmedTitleSeed
     : false;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function collectTextValues(value: unknown): string[] {
-  if (typeof value === "string") {
-    return [value];
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap(collectTextValues);
-  }
-  const record = asRecord(value);
-  if (!record) {
-    return [];
-  }
-  return Object.entries(record).flatMap(([key, entry]) =>
-    key === "text" || key === "content" || key === "message" ? collectTextValues(entry) : [],
-  );
-}
-
-function extractAssistantTextFromProviderItem(item: unknown): string | null {
-  const record = asRecord(item);
-  if (!record) {
-    return null;
-  }
-  const type = typeof record.type === "string" ? record.type.toLowerCase() : "";
-  if (type.includes("user")) {
-    return null;
-  }
-  if (
-    type.length > 0 &&
-    !type.includes("agent") &&
-    !type.includes("assistant") &&
-    !type.includes("message")
-  ) {
-    return null;
-  }
-  const text = collectTextValues(record)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-    .join("\n")
-    .trim();
-  return text.length > 0 ? text : null;
-}
-
-function parseGeneratedThreadTitle(rawText: string): string {
-  const trimmed = rawText.trim();
-  const fencedJson = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(trimmed)?.[1]?.trim();
-  const candidates = [
-    fencedJson,
-    trimmed,
-    /\{[\s\S]*\}/.exec(trimmed)?.[0],
-  ].filter((candidate): candidate is string => Boolean(candidate && candidate.trim().length > 0));
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      const title = asRecord(parsed)?.title;
-      if (typeof title === "string") {
-        return sanitizeThreadTitle(title);
-      }
-    } catch {
-      // Fall through to plain text sanitization.
-    }
-  }
-
-  return sanitizeThreadTitle(trimmed);
 }
 
 function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
@@ -588,8 +522,8 @@ const make = Effect.gen(function* () {
     }) {
       const attachments = input.attachments ?? [];
       yield* Effect.gen(function* () {
-        const { textGenerationModelSelection: modelSelection } =
-          yield* serverSettingsService.getSettings;
+        const { textGenerationModelSelection } = yield* serverSettingsService.getSettings;
+        const modelSelection = selectThreadTitleModelSelection(textGenerationModelSelection);
 
         const titleThreadId = ThreadId.makeUnsafe(`thread-title-${crypto.randomUUID()}`);
         const { prompt } = buildThreadTitlePrompt({
@@ -618,11 +552,11 @@ const make = Effect.gen(function* () {
           while (Date.now() - startedAt < Duration.toMillis(THREAD_TITLE_GENERATION_TIMEOUT)) {
             const snapshot = yield* providerService.readConversation({ threadId: titleThreadId });
             const latestTurn = snapshot.turns.at(-1);
-            const assistantText = latestTurn?.items
-              .map(extractAssistantTextFromProviderItem)
-              .find((text): text is string => text !== null);
-            if (assistantText) {
-              return parseGeneratedThreadTitle(assistantText);
+            const generatedTitle = latestTurn
+              ? extractGeneratedThreadTitleFromProviderItems(latestTurn.items)
+              : null;
+            if (generatedTitle) {
+              return generatedTitle;
             }
             yield* Effect.sleep(THREAD_TITLE_GENERATION_POLL_INTERVAL);
           }
@@ -696,8 +630,7 @@ const make = Effect.gen(function* () {
         conversation: thread.messages
           .filter(
             (entry) =>
-              (entry.role === "user" || entry.role === "assistant") &&
-              entry.text.trim().length > 0,
+              (entry.role === "user" || entry.role === "assistant") && entry.text.trim().length > 0,
           )
           .slice(-6)
           .map((entry): ThreadTitleConversationMessage => {

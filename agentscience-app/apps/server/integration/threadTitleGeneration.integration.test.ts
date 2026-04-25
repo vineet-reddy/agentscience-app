@@ -58,6 +58,37 @@ it.live("renames first-turn placeholder titles with generated sidebar titles", (
                 delta: JSON.stringify({ title: generatedTitle }),
               },
             ],
+            snapshotItems: [
+              {
+                type: "message",
+                role: "user",
+                content: [
+                  {
+                    type: "input_text",
+                    text: JSON.stringify({ title: "Wrong User Prompt Title" }),
+                  },
+                ],
+              },
+              {
+                type: "message",
+                content: [
+                  {
+                    type: "input_text",
+                    text: JSON.stringify({ title: "Wrong Generic Message Title" }),
+                  },
+                ],
+              },
+              {
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify({ title: generatedTitle }),
+                  },
+                ],
+              },
+            ],
           };
           yield* activeHarness.adapterHarness!.queueTurnResponseForNextSession(titleResponse);
           yield* activeHarness.adapterHarness!.queueTurnResponseForNextSession(titleResponse);
@@ -90,7 +121,24 @@ it.live("renames first-turn placeholder titles with generated sidebar titles", (
               event.payload.threadId === threadId &&
               event.payload.title === generatedTitle,
           );
-          assert.equal(events.some((event) => event.type === "thread.meta-updated"), true);
+          assert.equal(
+            events.some((event) => event.type === "thread.meta-updated"),
+            true,
+          );
+
+          const titleSession = activeHarness
+            .adapterHarness!.getStartedSessions()
+            .find((session) => String(session.threadId).startsWith("thread-title-"));
+          assert.equal(titleSession?.modelSelection?.model, "gpt-5.4-mini");
+          assert.equal(titleSession?.modelSelection?.options?.reasoningEffort, "low");
+          assert.equal(titleSession?.modelSelection?.options?.fastMode, true);
+          assert.equal(titleSession?.runtimeMode, "approval-required");
+          assert.equal(
+            activeHarness
+              .adapterHarness!.listActiveSessionIds()
+              .some((sessionId) => String(sessionId).startsWith("thread-title-")),
+            false,
+          );
         }),
       (activeHarness) => activeHarness.dispose,
     );
