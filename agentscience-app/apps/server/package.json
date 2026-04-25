@@ -24,7 +24,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentscience/personality": "1.1.3",
+    "@agentscience/personality": "1.1.5",
     "@effect/platform-bun": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",

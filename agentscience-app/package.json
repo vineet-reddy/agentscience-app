@@ -64,7 +64,8 @@
   },
   "overrides": {
     "vite": "^8.0.0",
-    "@effect/platform-node-shared": "4.0.0-beta.43"
+    "@effect/platform-node-shared": "4.0.0-beta.43",
+    "@agentscience/personality": "1.1.5"
   },
   "engines": {
     "bun": "^1.3.9",
