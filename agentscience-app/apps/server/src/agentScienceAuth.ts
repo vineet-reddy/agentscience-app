@@ -18,6 +18,8 @@ import {
   type AgentScienceAuthState,
   type AgentScienceAuthUser,
 } from "@agentscience/contracts";
+import { homedir } from "node:os";
+import nodePath from "node:path";
 import {
   Duration,
   Effect,
@@ -38,6 +40,12 @@ const TOKEN_FILE_MODE = 0o600;
 const POLL_INTERVAL_MS = 2_000;
 const POLL_MAX_ATTEMPTS = 60 * 5;
 const HTTP_TIMEOUT_MS = 20_000;
+const SHARED_CLI_CONFIG_PATH = nodePath.join(
+  homedir(),
+  ".config",
+  "agentscience",
+  "config.json",
+);
 
 export interface AgentScienceAuthShape {
   /** Current observable auth state. */
@@ -163,6 +171,9 @@ const MeResponse = Schema.Struct({
   name: Schema.String,
   handle: Schema.String,
   email: Schema.NullOr(Schema.String),
+  institution: Schema.optional(Schema.NullOr(Schema.String)),
+  publicationProfileComplete: Schema.optional(Schema.Boolean),
+  publishNameRequired: Schema.optional(Schema.Boolean),
 });
 
 const toUser = (profile: {
@@ -170,11 +181,17 @@ const toUser = (profile: {
   readonly name: string;
   readonly handle: string;
   readonly email: string | null;
+  readonly institution?: string | null | undefined;
+  readonly publicationProfileComplete?: boolean | undefined;
+  readonly publishNameRequired?: boolean | undefined;
 }): AgentScienceAuthUser => ({
   id: profile.id,
   name: profile.name.trim().length > 0 ? profile.name : profile.handle,
   handle: profile.handle,
   email: profile.email,
+  institution: profile.institution?.trim() ? profile.institution.trim() : null,
+  publicationProfileComplete: profile.publicationProfileComplete ?? false,
+  publishNameRequired: profile.publishNameRequired ?? false,
 });
 
 function joinUrl(base: string, path: string): string {
@@ -208,6 +225,7 @@ interface AgentScienceAuthDependencies {
   readonly fetch: HttpFetch;
   readonly baseUrl: string;
   readonly tokenFilePath: string;
+  readonly sharedCliConfigPath?: string;
 }
 
 async function readJson<A>(
@@ -251,7 +269,7 @@ const withHttpTimeout = <A, E, R>(
 export const makeAgentScienceAuthService = Effect.fn(function* (
   dependencies: AgentScienceAuthDependencies,
 ) {
-  const { fs, fetch, baseUrl, tokenFilePath } = dependencies;
+  const { fs, fetch, baseUrl, tokenFilePath, sharedCliConfigPath } = dependencies;
 
   const runtimeRef = yield* Ref.make<RuntimeState>({
     state: makeSignedOutState(baseUrl),
@@ -276,6 +294,63 @@ export const makeAgentScienceAuthService = Effect.fn(function* (
   const removeTokenFile = fs
     .remove(tokenFilePath, { force: true })
     .pipe(Effect.ignore, Effect.asVoid);
+
+  const syncSharedCliConfig = (token: string, user: AgentScienceAuthUser) =>
+    Effect.tryPromise({
+      try: async () => {
+        if (!sharedCliConfigPath) return;
+        const nodeFs = await import("node:fs/promises");
+        await nodeFs.mkdir(nodePath.dirname(sharedCliConfigPath), { recursive: true });
+        let existing: Record<string, unknown> = {};
+        try {
+          existing = JSON.parse(await nodeFs.readFile(sharedCliConfigPath, "utf8"));
+        } catch {
+          existing = {};
+        }
+
+        const nextConfig: Record<string, unknown> = {
+          ...existing,
+          baseUrl,
+          token,
+          authorName: user.name,
+        };
+        if (user.institution) {
+          nextConfig.authorAffiliation = user.institution;
+        } else {
+          delete nextConfig.authorAffiliation;
+        }
+
+        await nodeFs.writeFile(
+          sharedCliConfigPath,
+          `${JSON.stringify(nextConfig, null, 2)}\n`,
+          { mode: TOKEN_FILE_MODE },
+        );
+        await nodeFs.chmod(sharedCliConfigPath, TOKEN_FILE_MODE).catch(() => undefined);
+      },
+      catch: (cause) => toAuthError(cause, "Failed to sync AgentScience CLI profile."),
+    });
+
+  const clearSharedCliConfigAuth = Effect.tryPromise({
+    try: async () => {
+      if (!sharedCliConfigPath) return;
+      const nodeFs = await import("node:fs/promises");
+      let existing: Record<string, unknown> = {};
+      try {
+        existing = JSON.parse(await nodeFs.readFile(sharedCliConfigPath, "utf8"));
+      } catch {
+        return;
+      }
+      delete existing.token;
+      delete existing.authorName;
+      delete existing.authorAffiliation;
+      await nodeFs.writeFile(
+        sharedCliConfigPath,
+        `${JSON.stringify(existing, null, 2)}\n`,
+        { mode: TOKEN_FILE_MODE },
+      );
+    },
+    catch: (cause) => toAuthError(cause, "Failed to clear AgentScience CLI profile."),
+  });
 
   const readStoredToken: Effect.Effect<string | undefined> = Effect.gen(function* () {
     const exists = yield* fs
@@ -364,6 +439,7 @@ export const makeAgentScienceAuthService = Effect.fn(function* (
       yield* removeTokenFile;
       return;
     }
+    yield* syncSharedCliConfig(token, user).pipe(Effect.ignore);
     yield* setRuntime({
       state: makeSignedInState(baseUrl, user),
       token,
@@ -426,6 +502,7 @@ export const makeAgentScienceAuthService = Effect.fn(function* (
         });
         return;
       }
+      yield* syncSharedCliConfig(token, user).pipe(Effect.ignore);
       yield* setRuntime({
         state: makeSignedInState(baseUrl, user),
         token,
@@ -502,6 +579,7 @@ export const makeAgentScienceAuthService = Effect.fn(function* (
       yield* revokeToken(runtime.token);
     }
     yield* removeTokenFile;
+    yield* clearSharedCliConfigAuth.pipe(Effect.ignore);
     yield* setRuntime({
       state: makeSignedOutState(baseUrl),
       token: undefined,
@@ -538,6 +616,7 @@ export const AgentScienceAuthLive = Layer.effect(
       fetch: fetchImpl,
       baseUrl: config.agentScienceBaseUrl,
       tokenFilePath,
+      sharedCliConfigPath: SHARED_CLI_CONFIG_PATH,
     });
   }),
 );

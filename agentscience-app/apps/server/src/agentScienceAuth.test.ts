@@ -34,6 +34,9 @@ const PROFILE = {
   name: "Alice Researcher",
   handle: "alice",
   email: "alice@example.com",
+  institution: "Example University",
+  publicationProfileComplete: true,
+  publishNameRequired: false,
 };
 
 /**

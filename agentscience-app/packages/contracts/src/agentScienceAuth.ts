@@ -15,6 +15,9 @@ export const AgentScienceAuthUser = Schema.Struct({
   name: TrimmedNonEmptyString,
   handle: TrimmedNonEmptyString,
   email: Schema.NullOr(TrimmedNonEmptyString),
+  institution: Schema.NullOr(TrimmedNonEmptyString),
+  publicationProfileComplete: Schema.Boolean,
+  publishNameRequired: Schema.Boolean,
 });
 export type AgentScienceAuthUser = typeof AgentScienceAuthUser.Type;
 
