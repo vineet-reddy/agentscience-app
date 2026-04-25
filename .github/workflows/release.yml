@@ -257,7 +257,7 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Release app credentials are not configured; skipping version-bump finalization."
+            echo "Release app credentials are not configured; using the workflow GitHub token for version-bump finalization."
           fi
 
       - id: app_token
@@ -269,13 +269,21 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      - name: Checkout
+      - name: Checkout with release app token
         if: steps.release_app_config.outputs.enabled == 'true'
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
           token: ${{ steps.app_token.outputs.token }}
+          persist-credentials: true
+
+      - name: Checkout with workflow token
+        if: steps.release_app_config.outputs.enabled != 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
           persist-credentials: true
 
       - id: app_bot
@@ -289,35 +297,39 @@ jobs:
           echo "name=${APP_SLUG}[bot]" >> "$GITHUB_OUTPUT"
           echo "email=${user_id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
+      - id: workflow_bot
+        name: Resolve workflow bot identity
+        if: steps.release_app_config.outputs.enabled != 'true'
+        run: |
+          echo "name=github-actions[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=41898282+github-actions[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
       - name: Setup Bun
-        if: steps.release_app_config.outputs.enabled == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: agentscience-app/package.json
 
       - name: Setup Node
-        if: steps.release_app_config.outputs.enabled == 'true'
         uses: actions/setup-node@v6
         with:
           node-version-file: agentscience-app/package.json
 
       - id: update_versions
         name: Update version strings
-        if: steps.release_app_config.outputs.enabled == 'true'
         env:
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
         run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION" --github-output
 
       - name: Format package.json files
-        if: steps.release_app_config.outputs.enabled == 'true' && steps.update_versions.outputs.changed == 'true'
+        if: steps.update_versions.outputs.changed == 'true'
         run: bunx oxfmt apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json
 
       - name: Refresh lockfile
-        if: steps.release_app_config.outputs.enabled == 'true' && steps.update_versions.outputs.changed == 'true'
+        if: steps.update_versions.outputs.changed == 'true'
         run: bun install --lockfile-only --ignore-scripts
 
       - name: Commit and push version bump
-        if: steps.release_app_config.outputs.enabled == 'true' && steps.update_versions.outputs.changed == 'true'
+        if: steps.update_versions.outputs.changed == 'true'
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
@@ -327,8 +339,8 @@ jobs:
             exit 0
           fi
 
-          git config user.name "${{ steps.app_bot.outputs.name }}"
-          git config user.email "${{ steps.app_bot.outputs.email }}"
+          git config user.name "${{ steps.app_bot.outputs.name || steps.workflow_bot.outputs.name }}"
+          git config user.email "${{ steps.app_bot.outputs.email || steps.workflow_bot.outputs.email }}"
 
           git add apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json bun.lock
           git commit -m "chore(release): prepare $RELEASE_TAG"

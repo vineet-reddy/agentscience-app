@@ -1,6 +1,6 @@
 {
   "name": "@agentscience/desktop",
-  "version": "0.0.26",
+  "version": "0.0.45",
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
