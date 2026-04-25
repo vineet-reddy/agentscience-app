@@ -17,6 +17,7 @@ import {
   findLatestProposedPlan,
   hasActionableProposedPlan,
   derivePendingApprovals,
+  deriveImplicitPendingUserInput,
   derivePendingUserInputs,
 } from "./session-logic";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
@@ -320,7 +321,12 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     worktreePath: thread.worktreePath,
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
-    hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
+    hasPendingUserInput:
+      derivePendingUserInputs(thread.activities).length > 0 ||
+      deriveImplicitPendingUserInput({
+        messages: thread.messages,
+        activities: thread.activities,
+      }),
     hasActionableProposedPlan: hasActionableProposedPlan(
       findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     ),
@@ -330,25 +336,11 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
 function patchSidebarThreadSummaryForMessage(
   previousSummary: SidebarThreadSummary | undefined,
   thread: Thread,
-  message: ChatMessage,
 ): SidebarThreadSummary {
   if (previousSummary === undefined) {
     return buildSidebarThreadSummary(thread);
   }
-
-  const latestUserMessageAt =
-    message.role === "user" &&
-    (previousSummary.latestUserMessageAt === null ||
-      message.createdAt > previousSummary.latestUserMessageAt)
-      ? message.createdAt
-      : previousSummary.latestUserMessageAt;
-
-  const nextSummary: SidebarThreadSummary = {
-    ...previousSummary,
-    updatedAt: thread.updatedAt,
-    latestTurn: thread.latestTurn,
-    latestUserMessageAt,
-  };
+  const nextSummary = buildSidebarThreadSummary(thread);
 
   return sidebarThreadSummariesEqual(previousSummary, nextSummary) ? previousSummary : nextSummary;
 }
@@ -1242,11 +1234,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         return state;
       }
       const previousSummary = state.sidebarThreadsById[event.payload.threadId];
-      const nextSummary = patchSidebarThreadSummaryForMessage(
-        previousSummary,
-        updatedThread,
-        message,
-      );
+      const nextSummary = patchSidebarThreadSummaryForMessage(previousSummary, updatedThread);
       const sidebarThreadsById =
         nextSummary === previousSummary
           ? state.sidebarThreadsById

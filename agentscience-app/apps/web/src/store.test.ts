@@ -766,6 +766,61 @@ describe("incremental orchestration updates", () => {
     );
   });
 
+  it("marks the sidebar as awaiting input when a completed assistant message asks for consent", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId: thread.id,
+        messageId: MessageId.makeUnsafe("assistant-consent"),
+        role: "assistant",
+        text: "Can I submit the paper to AgentScience and add the datasets to the registry? If yes, just say yes.",
+        turnId: TurnId.makeUnsafe("turn-1"),
+        streaming: false,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.latestTurn?.state).toBe("completed");
+    expect(next.sidebarThreadsById[thread.id]?.hasPendingUserInput).toBe(true);
+  });
+
+  it("clears implicit awaiting input when the user responds", () => {
+    const thread = makeThread({
+      messages: [
+        {
+          id: MessageId.makeUnsafe("assistant-consent"),
+          role: "assistant",
+          text: "Can I submit this paper to AgentScience? If yes, just say yes.",
+          turnId: TurnId.makeUnsafe("turn-1"),
+          createdAt: "2026-02-27T00:00:01.000Z",
+          completedAt: "2026-02-27T00:00:01.000Z",
+          streaming: false,
+        },
+      ],
+    });
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.message-sent", {
+        threadId: thread.id,
+        messageId: MessageId.makeUnsafe("user-yes"),
+        role: "user",
+        text: "yes",
+        turnId: TurnId.makeUnsafe("turn-2"),
+        streaming: false,
+        createdAt: "2026-02-27T00:00:02.000Z",
+        updatedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+
+    expect(next.sidebarThreadsById[thread.id]?.hasPendingUserInput).toBe(false);
+  });
+
   it("reverts messages, plans, activities, and checkpoints by retained turns", () => {
     const state = makeState(
       makeThread({

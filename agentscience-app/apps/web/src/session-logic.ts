@@ -333,6 +333,107 @@ export function derivePendingUserInputs(
   );
 }
 
+const PAPER_PRESENTED_ACTIVITY_KIND = "paper.presented";
+
+const EXPLICIT_ASSISTANT_INPUT_REQUEST_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bif\s+yes,\s+(?:just\s+)?(?:say|reply|respond)\s+[`"']?yes[`"']?/i,
+  /\b(?:just\s+)?(?:say|reply|respond)\s+[`"']?yes[`"']?\s+(?:to|and)\b/i,
+  /\b(?:do you want me to|would you like me to|should i|can i|may i)\b[^?]{0,240}\?/i,
+  /\b(?:i need|i'll need|i will need)\s+(?:your\s+)?(?:input|approval|confirmation|decision|permission|consent)\b/i,
+  /\b(?:please|can you|could you)\s+(?:provide|confirm|choose|send|share|answer|approve)\b/i,
+];
+
+const ASSISTANT_COMPLETION_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bpublished and verified\b/i,
+  /\bpublished successfully\b/i,
+  /\bpaper (?:is )?published\b/i,
+  /\bsubmission (?:is )?(?:complete|completed|live)\b/i,
+];
+
+function latestMessage<TMessage extends Pick<ChatMessage, "createdAt">>(
+  messages: ReadonlyArray<TMessage>,
+): TMessage | null {
+  let latest: TMessage | null = null;
+  for (const message of messages) {
+    if (latest === null || message.createdAt > latest.createdAt) {
+      latest = message;
+    }
+  }
+  return latest;
+}
+
+export function assistantMessageRequestsInput(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) {
+    return false;
+  }
+  return EXPLICIT_ASSISTANT_INPUT_REQUEST_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function assistantMessageIndicatesCompletion(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) {
+    return false;
+  }
+  return ASSISTANT_COMPLETION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function activityCommandText(activity: OrchestrationThreadActivity): string {
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  const commandPreview = extractToolCommand(payload);
+  return [commandPreview.command, commandPreview.rawCommand].filter(Boolean).join("\n");
+}
+
+function isAgentSciencePublishActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "tool.completed") {
+    return false;
+  }
+  const command = activityCommandText(activity);
+  return /\bagentscience\s+papers\s+publish\b/.test(command);
+}
+
+function hasUnpublishedPresentedPaper(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): boolean {
+  const latestPresented = latestMessage(
+    activities.filter((activity) => activity.kind === PAPER_PRESENTED_ACTIVITY_KIND),
+  );
+  if (!latestPresented) {
+    return false;
+  }
+
+  const latestPublish = latestMessage(activities.filter(isAgentSciencePublishActivity));
+  return !latestPublish || latestPublish.createdAt < latestPresented.createdAt;
+}
+
+export function deriveImplicitPendingUserInput(input: {
+  messages: ReadonlyArray<ChatMessage>;
+  activities: ReadonlyArray<OrchestrationThreadActivity>;
+}): boolean {
+  const latestConversationMessage = latestMessage(
+    input.messages.filter((message) => message.role === "user" || message.role === "assistant"),
+  );
+  if (
+    !latestConversationMessage ||
+    latestConversationMessage.role !== "assistant" ||
+    latestConversationMessage.streaming
+  ) {
+    return false;
+  }
+
+  if (assistantMessageIndicatesCompletion(latestConversationMessage.text)) {
+    return false;
+  }
+
+  return (
+    assistantMessageRequestsInput(latestConversationMessage.text) ||
+    hasUnpublishedPresentedPaper(input.activities)
+  );
+}
+
 export function deriveActivePlanState(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   latestTurnId: TurnId | undefined,

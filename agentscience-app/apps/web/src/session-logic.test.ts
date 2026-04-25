@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   deriveCompletionDividerBeforeEntryId,
+  deriveImplicitPendingUserInput,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
   PROVIDER_OPTIONS,
@@ -22,6 +23,7 @@ import {
   hasToolActivityForTurn,
   isLatestTurnSettled,
 } from "./session-logic";
+import type { ChatMessage } from "./types";
 
 function makeActivity(overrides: {
   id?: string;
@@ -300,6 +302,117 @@ describe("derivePendingUserInputs", () => {
     ];
 
     expect(derivePendingUserInputs(activities)).toEqual([]);
+  });
+});
+
+function makeMessage(overrides: Partial<ChatMessage> & Pick<ChatMessage, "role" | "text">) {
+  return {
+    id: MessageId.makeUnsafe(overrides.id ?? crypto.randomUUID()),
+    role: overrides.role,
+    text: overrides.text,
+    turnId: overrides.turnId ?? null,
+    createdAt: overrides.createdAt ?? "2026-02-23T00:00:00.000Z",
+    completedAt: overrides.completedAt,
+    streaming: overrides.streaming ?? false,
+    ...(overrides.attachments ? { attachments: overrides.attachments } : {}),
+  } satisfies ChatMessage;
+}
+
+describe("deriveImplicitPendingUserInput", () => {
+  it("detects completed assistant consent prompts as awaiting input", () => {
+    expect(
+      deriveImplicitPendingUserInput({
+        messages: [
+          makeMessage({
+            role: "user",
+            text: "write a paper",
+            createdAt: "2026-02-23T00:00:00.000Z",
+          }),
+          makeMessage({
+            role: "assistant",
+            text: "Can I submit the paper to AgentScience and add the datasets to the registry? If yes, just say yes.",
+            createdAt: "2026-02-23T00:01:00.000Z",
+            completedAt: "2026-02-23T00:01:00.000Z",
+          }),
+        ],
+        activities: [],
+      }),
+    ).toBe(true);
+  });
+
+  it("clears the implicit prompt once the user responds", () => {
+    expect(
+      deriveImplicitPendingUserInput({
+        messages: [
+          makeMessage({
+            role: "assistant",
+            text: "Can I submit this paper to AgentScience? If yes, just say yes.",
+            createdAt: "2026-02-23T00:01:00.000Z",
+            completedAt: "2026-02-23T00:01:00.000Z",
+          }),
+          makeMessage({
+            role: "user",
+            text: "yes",
+            createdAt: "2026-02-23T00:02:00.000Z",
+          }),
+        ],
+        activities: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps presented paper turns awaiting input until a publish command completes", () => {
+    const presented = makeActivity({
+      id: "paper-presented",
+      createdAt: "2026-02-23T00:01:00.000Z",
+      kind: "paper.presented",
+      summary: "Paper ready to review",
+      tone: "info",
+      payload: { workspaceRoot: "/tmp/paper", pdf: "/tmp/paper/paper.pdf" },
+    });
+
+    const messages = [
+      makeMessage({
+        role: "assistant",
+        text: "Updated the manuscript author line.",
+        createdAt: "2026-02-23T00:02:00.000Z",
+        completedAt: "2026-02-23T00:02:00.000Z",
+      }),
+    ];
+
+    expect(
+      deriveImplicitPendingUserInput({
+        messages,
+        activities: [presented],
+      }),
+    ).toBe(true);
+
+    expect(
+      deriveImplicitPendingUserInput({
+        messages: [
+          makeMessage({
+            role: "assistant",
+            text: "Published and verified live.",
+            createdAt: "2026-02-23T00:04:00.000Z",
+            completedAt: "2026-02-23T00:04:00.000Z",
+          }),
+        ],
+        activities: [
+          presented,
+          makeActivity({
+            id: "paper-publish",
+            createdAt: "2026-02-23T00:03:00.000Z",
+            kind: "tool.completed",
+            summary: "Ran command",
+            tone: "tool",
+            payload: {
+              itemType: "command_execution",
+              detail: 'agentscience papers publish --title "Demo" <exited with exit code 0>',
+            },
+          }),
+        ],
+      }),
+    ).toBe(false);
   });
 });
 
