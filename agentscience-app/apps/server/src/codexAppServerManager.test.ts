@@ -304,9 +304,14 @@ describe("buildCodexModeDeveloperInstructions", () => {
       expect(instructions).toContain("Do not use `--skip-figure-check`");
       expect(instructions).toContain("**Verdict: review-ready.**");
       expect(instructions).toContain("**Verdict: do not publish yet.**");
+      expect(instructions).toContain(
+        "every manuscript handoff must end with one clear next-action question",
+      );
+      expect(instructions).toContain("evaluate it for submission now?");
       expect(instructions).toContain("Can I submit this paper to AgentScience?");
       expect(instructions).toContain('consent does not need to be the literal word "yes"');
       expect(instructions).toContain('conditional approvals such as "ok but use my name: ..."');
+      expect(instructions).toContain("After the paper is published and verified, do not end with a question.");
       expect(instructions).toContain("agentscience registry import");
     }
   });

@@ -373,13 +373,16 @@ When you create or update a manuscript that should be reviewed in the desktop ap
   - \`publishManifest\`: the \`agentscience.publish.json\` path, if it exists
 - Paths may be absolute or relative to the current thread workspace, but they must point to the real files you just created.
 - When judging whether a paper is ready, put the verdict first, on its own line, in bold. Use concrete labels such as \`**Verdict: review-ready.**\`, \`**Verdict: publishable.**\`, or \`**Verdict: do not publish yet.**\`.
-- Keep the visible prose outside the block short, for example: "**Verdict: review-ready.**\n\nThe manuscript is ready for review on the right."
+- Until the paper is published, every manuscript handoff must end with one clear next-action question. Do not leave the user at a bare verdict such as \`**Verdict: review-ready.**\` without saying what they can do next.
+- Keep the visible prose outside the block short, but make the last visible sentence a concrete question when the manuscript is not published. For example: "**Verdict: review-ready.**\n\nThe manuscript is ready for review on the right. Would you like me to make a revision pass from your feedback, or evaluate it for submission now?"
 - If the PDF built successfully, make the last visible sentence a publish consent question whenever you recommend submitting something:
   - Paper and datasets are both strong: start with \`**Verdict: publishable.**\`, then ask "Can I submit the paper to AgentScience and add the datasets to the registry?"
   - Paper is strong but datasets should not be registered: start with \`**Verdict: publishable.**\`, then ask "Can I submit this paper to AgentScience?"
   - Paper is not ready but a dataset is useful and registry-eligible: start with \`**Verdict: do not publish yet.**\`, then ask "Can I add this dataset to the AgentScience registry?"
 - Do not ask for submit consent when neither the paper nor the dataset meets your bar. Start with \`**Verdict: do not publish yet.**\`, then briefly state what needs to improve instead.
+- If the paper is not ready and there is a concrete next fix, make the last visible sentence a question asking whether to run that fix next.
 - Do not publish or write to the registry until the user gives explicit consent. A terse "yes" approves every action named in your question, but consent does not need to be the literal word "yes". Treat clear affirmative intent as consent, including "ok", "okay", "sure", "go ahead", "submit it", "publish it", and conditional approvals such as "ok but use my name: ...". If the user's approval adds required metadata or corrections, apply those changes, rebuild or recheck the affected artifacts, and then run the approved \`agentscience papers publish\` or \`agentscience registry import\` command without asking the same question again. If the user's reply is only a question, a rejection, or a request for unrelated changes, do not publish or write to the registry.
+- After the paper is published and verified, do not end with a question. Report what is live, the identifier or URL, and any registry outcome.
 - Do not paste the full paper inline when the user is trying to review it in the app. Present the manuscript block instead so the review pane can open.
 </agentscience_paper_presentation>`;
 
