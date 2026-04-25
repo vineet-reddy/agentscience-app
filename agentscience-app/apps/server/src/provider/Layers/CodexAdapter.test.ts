@@ -21,6 +21,7 @@ import {
   type CodexAppServerStartSessionInput,
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
+import { AgentScienceAuthService } from "../../agentScienceAuth.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
@@ -148,12 +149,25 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
   listThreadIds: () => Effect.succeed([]),
 });
 
+const agentScienceAuthTestLayer = Layer.mock(AgentScienceAuthService)({
+  getState: Effect.succeed({
+    status: "signed-out" as const,
+    updatedAt: "2026-04-21T12:00:00.000Z",
+    baseUrl: "https://agentscience.test",
+  }),
+  startLogin: Effect.die("unused"),
+  cancelLogin: Effect.die("unused"),
+  signOut: Effect.die("unused"),
+  getBearerToken: Effect.succeed(undefined),
+});
+
 const validationManager = new FakeCodexManager();
 const validationLayer = it.layer(
   makeCodexAdapterLive({ manager: validationManager }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(agentScienceAuthTestLayer),
     Layer.provideMerge(NodeServices.layer),
   ),
 );
@@ -221,6 +235,7 @@ const sessionErrorLayer = it.layer(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(agentScienceAuthTestLayer),
     Layer.provideMerge(NodeServices.layer),
   ),
 );
@@ -290,6 +305,7 @@ const lifecycleLayer = it.layer(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(ServerSettingsService.layerTest()),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
+    Layer.provideMerge(agentScienceAuthTestLayer),
     Layer.provideMerge(NodeServices.layer),
   ),
 );

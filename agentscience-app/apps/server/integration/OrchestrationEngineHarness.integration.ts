@@ -62,6 +62,7 @@ import {
   RuntimeReceiptBus,
   type OrchestrationRuntimeReceipt,
 } from "../src/orchestration/Services/RuntimeReceiptBus.ts";
+import { AgentScienceAuthService } from "../src/agentScienceAuth.ts";
 
 import {
   makeTestProviderAdapterHarness,
@@ -275,6 +276,19 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provide(makeCodexAdapterLive()),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(
+        Layer.mock(AgentScienceAuthService)({
+          getState: Effect.succeed({
+            status: "signed-out" as const,
+            updatedAt: new Date().toISOString(),
+            baseUrl: "https://agentscience.test",
+          }),
+          startLogin: Effect.die("unused"),
+          cancelLogin: Effect.die("unused"),
+          signOut: Effect.die("unused"),
+          getBearerToken: Effect.succeed(undefined),
+        }),
+      ),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     const providerLayer = useRealCodex

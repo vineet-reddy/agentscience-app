@@ -37,6 +37,7 @@ import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
+import { AgentScienceAuthService } from "../../agentScienceAuth.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { resolveEffectiveCodexSettings } from "../codexSettings.ts";
@@ -1380,6 +1381,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   );
   const serverSettingsService = yield* ServerSettingsService;
   const config = yield* ServerConfig;
+  const agentScienceAuth = yield* AgentScienceAuthService;
 
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
     function* (input) {
@@ -1405,11 +1407,22 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+      const authState = yield* agentScienceAuth.getState.pipe(Effect.catchCause(() => Effect.succeed(null)));
+      const publishingIdentity =
+        authState?.status === "signed-in" &&
+        authState.user?.publicationProfileComplete &&
+        authState.user.name.trim().length > 0
+          ? {
+              name: authState.user.name,
+              ...(authState.user.institution ? { institution: authState.user.institution } : {}),
+            }
+          : undefined;
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(publishingIdentity !== undefined ? { publishingIdentity } : {}),
         runtimeMode: input.runtimeMode,
         binaryPath,
         ...(homePath ? { homePath } : {}),

@@ -302,8 +302,11 @@ describe("buildCodexModeDeveloperInstructions", () => {
       expect(instructions).toContain("code/agentscience_figures.py");
       expect(instructions).toContain("agentscience research check-figures --workspace");
       expect(instructions).toContain("Do not use `--skip-figure-check`");
+      expect(instructions).toContain("**Verdict: review-ready.**");
+      expect(instructions).toContain("**Verdict: do not publish yet.**");
       expect(instructions).toContain("Can I submit this paper to AgentScience?");
-      expect(instructions).toContain("If yes, just say `yes`.");
+      expect(instructions).toContain('consent does not need to be the literal word "yes"');
+      expect(instructions).toContain('conditional approvals such as "ok but use my name: ..."');
       expect(instructions).toContain("agentscience registry import");
     }
   });

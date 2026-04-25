@@ -1544,6 +1544,14 @@ export const makeLocalPapersService = Effect.gen(function* () {
           ),
         );
       }
+      if (authState.user.publishNameRequired) {
+        return yield* Effect.fail(
+          new LocalPaperPublishError(
+            "Confirm your AgentScience publishing name before publishing.",
+            409,
+          ),
+        );
+      }
       const signedInUser = authState.user;
 
       const folderAbsolutePath = resolvePaperFolderAbsolutePath(paperId, containerRoot);

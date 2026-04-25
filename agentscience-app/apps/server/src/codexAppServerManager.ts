@@ -77,6 +77,7 @@ interface CodexUserInputAnswer {
 
 interface CodexSessionContext {
   session: ProviderSession;
+  publishingIdentity?: AgentSciencePublishingIdentity;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   output: readline.Interface;
@@ -127,9 +128,15 @@ export interface CodexAppServerStartSessionInput {
   readonly model?: string;
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
+  readonly publishingIdentity?: AgentSciencePublishingIdentity;
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly runtimeMode: RuntimeMode;
+}
+
+export interface AgentSciencePublishingIdentity {
+  readonly name: string;
+  readonly institution?: string;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -365,13 +372,14 @@ When you create or update a manuscript that should be reviewed in the desktop ap
   - \`notes\`: the figure notes / experiment log path, if it exists
   - \`publishManifest\`: the \`agentscience.publish.json\` path, if it exists
 - Paths may be absolute or relative to the current thread workspace, but they must point to the real files you just created.
-- Keep the visible prose outside the block short, for example: "The manuscript is ready for review on the right."
+- When judging whether a paper is ready, put the verdict first, on its own line, in bold. Use concrete labels such as \`**Verdict: review-ready.**\`, \`**Verdict: publishable.**\`, or \`**Verdict: do not publish yet.**\`.
+- Keep the visible prose outside the block short, for example: "**Verdict: review-ready.**\n\nThe manuscript is ready for review on the right."
 - If the PDF built successfully, make the last visible sentence a publish consent question whenever you recommend submitting something:
-  - Paper and datasets are both strong: "Can I submit the paper to AgentScience and add the datasets to the registry? If yes, just say \`yes\`."
-  - Paper is strong but datasets should not be registered: "Can I submit this paper to AgentScience? If yes, just say \`yes\`."
-  - Paper is not ready but a dataset is useful and registry-eligible: "Can I add this dataset to the AgentScience registry? If yes, just say \`yes\`."
-- Do not ask for submit consent when neither the paper nor the dataset meets your bar. Briefly state what needs to improve instead.
-- Do not publish or write to the registry until the user gives explicit consent. A terse "yes" approves every action named in your question; after yes, run the approved \`agentscience papers publish\` or \`agentscience registry import\` command without asking the same question again.
+  - Paper and datasets are both strong: start with \`**Verdict: publishable.**\`, then ask "Can I submit the paper to AgentScience and add the datasets to the registry?"
+  - Paper is strong but datasets should not be registered: start with \`**Verdict: publishable.**\`, then ask "Can I submit this paper to AgentScience?"
+  - Paper is not ready but a dataset is useful and registry-eligible: start with \`**Verdict: do not publish yet.**\`, then ask "Can I add this dataset to the AgentScience registry?"
+- Do not ask for submit consent when neither the paper nor the dataset meets your bar. Start with \`**Verdict: do not publish yet.**\`, then briefly state what needs to improve instead.
+- Do not publish or write to the registry until the user gives explicit consent. A terse "yes" approves every action named in your question, but consent does not need to be the literal word "yes". Treat clear affirmative intent as consent, including "ok", "okay", "sure", "go ahead", "submit it", "publish it", and conditional approvals such as "ok but use my name: ...". If the user's approval adds required metadata or corrections, apply those changes, rebuild or recheck the affected artifacts, and then run the approved \`agentscience papers publish\` or \`agentscience registry import\` command without asking the same question again. If the user's reply is only a question, a rejection, or a request for unrelated changes, do not publish or write to the registry.
 - Do not paste the full paper inline when the user is trying to review it in the app. Present the manuscript block instead so the review pane can open.
 </agentscience_paper_presentation>`;
 
@@ -385,8 +393,37 @@ const CODEX_MODE_DEVELOPER_INSTRUCTIONS = {
   plan: `${compileCodexDeveloperInstructions(AGENTSCIENCE_PERSONALITY, { mode: "plan" })}\n\n${CODEX_PYTHON_ENVIRONMENT_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_SANDBOX_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_DESKTOP_APP_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_TEMPLATE_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_FIGURE_QA_INSTRUCTIONS}\n\n${CODEX_AGENTSCIENCE_PAPER_PRESENTATION_INSTRUCTIONS}\n\n${CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS}`,
 } as const satisfies Record<"default" | "plan", string>;
 
-export function buildCodexModeDeveloperInstructions(mode: "default" | "plan"): string {
-  return CODEX_MODE_DEVELOPER_INSTRUCTIONS[mode];
+function appendPublishingIdentityInstructions(
+  instructions: string,
+  identity?: AgentSciencePublishingIdentity,
+): string {
+  if (!identity?.name.trim()) {
+    return instructions;
+  }
+
+  const institutionLine = identity.institution?.trim()
+    ? `- Institutional affiliation: ${identity.institution.trim()}`
+    : "- Institutional affiliation: none; leave affiliation blank.";
+
+  return `${instructions}
+
+<agentscience_publishing_identity>
+Use this connected AgentScience account profile for manuscript authorship and publish metadata:
+- Publishing name: ${identity.name.trim()}
+${institutionLine}
+
+When creating or updating a manuscript, write the author block with this publishing name and affiliation automatically. Do not ask for these details in each new chat. Never use "AgentScience", "AgentScience Research", or an AI tool as the author name.
+</agentscience_publishing_identity>`;
+}
+
+export function buildCodexModeDeveloperInstructions(
+  mode: "default" | "plan",
+  publishingIdentity?: AgentSciencePublishingIdentity,
+): string {
+  return appendPublishingIdentityInstructions(
+    CODEX_MODE_DEVELOPER_INSTRUCTIONS[mode],
+    publishingIdentity,
+  );
 }
 
 export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
@@ -511,6 +548,7 @@ function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly publishingIdentity?: AgentSciencePublishingIdentity;
 }):
   | {
       mode: "default" | "plan";
@@ -530,7 +568,10 @@ function buildCodexCollaborationMode(input: {
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions: buildCodexModeDeveloperInstructions(input.interactionMode),
+      developer_instructions: buildCodexModeDeveloperInstructions(
+        input.interactionMode,
+        input.publishingIdentity,
+      ),
     },
   };
 }
@@ -656,6 +697,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       context = {
         session,
+        ...(input.publishingIdentity ? { publishingIdentity: input.publishingIdentity } : {}),
         account: {
           type: "unknown",
           planType: null,
@@ -900,6 +942,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(context.publishingIdentity !== undefined
+        ? { publishingIdentity: context.publishingIdentity }
+        : {}),
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
