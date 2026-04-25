@@ -1,5 +1,8 @@
 import * as React from "react";
-import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@agentscience/contracts/settings";
+import type {
+  SidebarProjectSortOrder,
+  SidebarThreadSortOrder,
+} from "@agentscience/contracts/settings";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
@@ -67,6 +70,7 @@ type ThreadStatusInput = Pick<
   | "hasActionableProposedPlan"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
+  | "hasPublishedPaper"
   | "interactionMode"
   | "latestTurn"
   | "session"
@@ -332,17 +336,10 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
   /**
    * ISO timestamp captured when the current app session started
-   * (`APP_SESSION_BOOT_AT` in production). The "Completed" pill is only
-   * shown for turns that finished *after* this moment, scoping the green
-   * dot to the current app-open lifetime.
-   *
-   * Rationale: "Completed" is most useful as an in-session acknowledgement
-   * ("this finished while you were here"), not as a permanent badge on
-   * every thread that ever ran. Without a session gate, relaunching the
-   * app would light up every historical thread green, burying real signal.
-   *
-   * Required so that future call sites can't silently regress to the
-   * unscoped "always green" behavior by forgetting to pass it.
+   * (`APP_SESSION_BOOT_AT` in production). Kept in the call signature because
+   * callers already provide it and some future status rules may still need
+   * session scoping, but paper completion is now tied to publication rather
+   * than model-turn completion.
    */
   sessionBootAt: string;
 }): ThreadStatusPill | null {
@@ -390,8 +387,7 @@ export function resolveThreadStatusPill(input: {
       // happening. `startedAt` is when the turn actually started executing;
       // `requestedAt` is the fallback for the race where the server has
       // ack'd the turn but hasn't marked it started yet.
-      startedAt:
-        thread.latestTurn?.startedAt ?? thread.latestTurn?.requestedAt ?? null,
+      startedAt: thread.latestTurn?.startedAt ?? thread.latestTurn?.requestedAt ?? null,
     };
   }
 
@@ -406,6 +402,7 @@ export function resolveThreadStatusPill(input: {
 
   const hasPlanReadyPrompt =
     !thread.hasPendingUserInput &&
+    !thread.hasPublishedPaper &&
     thread.interactionMode === "plan" &&
     isLatestTurnSettled(thread.latestTurn, thread.session) &&
     thread.hasActionableProposedPlan;
@@ -418,31 +415,26 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  // Show the completed pill for threads whose latest turn finished cleanly
-  // *during the current app session*. An unrestricted "always green on
-  // completed" rule turns the sidebar into a wall of green after a few days
-  // of use, so we scope it: green persists from the moment the turn finishes
-  // through the rest of the app-open lifetime, but a relaunch starts from a
-  // clean slate.
-  if (
-    isLatestTurnSettled(thread.latestTurn, thread.session) &&
-    thread.latestTurn?.state === "completed"
-  ) {
-    const completedAtMs = thread.latestTurn.completedAt
-      ? Date.parse(thread.latestTurn.completedAt)
-      : Number.NaN;
-    const sessionBootAtMs = Date.parse(input.sessionBootAt);
-    if (
-      !Number.isFinite(completedAtMs) ||
-      !Number.isFinite(sessionBootAtMs) ||
-      completedAtMs < sessionBootAtMs
-    ) {
-      return null;
-    }
+  // A model turn completing only means the assistant stopped talking. For
+  // AgentScience papers, the workflow is not complete until publication is
+  // observed, so settled-but-unpublished threads remain in the human's court.
+  if (thread.hasPublishedPaper) {
     return {
       label: "Completed",
       colorClass: "text-emerald-600 dark:text-emerald-300/90",
       dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      pulse: false,
+    };
+  }
+
+  if (
+    isLatestTurnSettled(thread.latestTurn, thread.session) &&
+    thread.latestTurn?.state === "completed"
+  ) {
+    return {
+      label: "Awaiting Input",
+      colorClass: "text-violet-600 dark:text-violet-300/90",
+      dotClass: "bg-violet-500 dark:bg-violet-300/90",
       pulse: false,
     };
   }

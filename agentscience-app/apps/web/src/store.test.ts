@@ -821,6 +821,32 @@ describe("incremental orchestration updates", () => {
     expect(next.sidebarThreadsById[thread.id]?.hasPendingUserInput).toBe(false);
   });
 
+  it("marks the sidebar summary when a paper publish command completes", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.activity-appended", {
+        threadId: thread.id,
+        activity: {
+          id: EventId.makeUnsafe("activity-publish"),
+          createdAt: "2026-02-27T00:00:03.000Z",
+          tone: "tool",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            detail: 'agentscience papers publish --title "Demo" <exited with exit code 0>',
+          },
+          turnId: TurnId.makeUnsafe("turn-1"),
+        },
+      }),
+    );
+
+    expect(next.sidebarThreadsById[thread.id]?.hasPublishedPaper).toBe(true);
+  });
+
   it("reverts messages, plans, activities, and checkpoints by retained turns", () => {
     const state = makeState(
       makeThread({

@@ -395,6 +395,12 @@ function isAgentSciencePublishActivity(activity: OrchestrationThreadActivity): b
   return /\bagentscience\s+papers\s+publish\b/.test(command);
 }
 
+export function hasPublishedPaperActivity(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): boolean {
+  return activities.some(isAgentSciencePublishActivity);
+}
+
 function hasUnpublishedPresentedPaper(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): boolean {

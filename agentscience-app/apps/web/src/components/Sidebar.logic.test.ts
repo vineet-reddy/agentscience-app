@@ -50,6 +50,7 @@ describe("hasUnseenCompletion", () => {
         hasActionableProposedPlan: false,
         hasPendingApprovals: false,
         hasPendingUserInput: false,
+        hasPublishedPaper: false,
         interactionMode: "default",
         latestTurn: makeLatestTurn(),
         lastVisitedAt: "2026-03-09T10:04:00.000Z",
@@ -406,6 +407,7 @@ describe("resolveThreadStatusPill", () => {
     hasActionableProposedPlan: false,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
+    hasPublishedPaper: false,
     interactionMode: "plan" as const,
     latestTurn: null,
     lastVisitedAt: undefined,
@@ -487,7 +489,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("does not show plan ready after the proposed plan was implemented elsewhere", () => {
+  it("shows awaiting input after a settled unpublished turn with no actionable plan", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -501,10 +503,10 @@ describe("resolveThreadStatusPill", () => {
         },
         sessionBootAt: SESSION_BOOT_AT,
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toMatchObject({ label: "Awaiting Input", pulse: false });
   });
 
-  it("shows completed when there is an unseen completion and no active blocker", () => {
+  it("shows awaiting input when a paper turn finished but has not published", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -520,17 +522,15 @@ describe("resolveThreadStatusPill", () => {
         },
         sessionBootAt: SESSION_BOOT_AT,
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toMatchObject({ label: "Awaiting Input", pulse: false });
   });
 
-  it("shows completed even when the user already visited the thread after it finished", () => {
-    // The sidebar dot is a state indicator, not a notification. A thread
-    // that the user sat on through completion should still show green so
-    // the row is glanceable as "done".
+  it("shows completed only after the paper has been published", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
+          hasPublishedPaper: true,
           interactionMode: "default",
           latestTurn: makeLatestTurn(),
           lastVisitedAt: "2026-03-09T11:00:00.000Z",
@@ -566,33 +566,12 @@ describe("resolveThreadStatusPill", () => {
     ).toBeNull();
   });
 
-  it("shows completed when the turn finished after the current session started", () => {
-    // Green is scoped to in-session completions: a turn that finished at
-    // 10:05 during a session booted at 10:00 deserves to glow emerald.
+  it("shows completed for published papers even when publication predates the app session", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
-          interactionMode: "default",
-          latestTurn: makeLatestTurn(),
-          session: {
-            ...baseThread.session,
-            status: "ready",
-            orchestrationStatus: "ready",
-          },
-        },
-        sessionBootAt: "2026-03-09T10:00:00.000Z",
-      }),
-    ).toMatchObject({ label: "Completed", pulse: false });
-  });
-
-  it("does not show completed for turns that finished before the current session", () => {
-    // Relaunching the app resets the baseline: a thread that finished last
-    // week should not light up green just because the user opened the app.
-    expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
+          hasPublishedPaper: true,
           interactionMode: "default",
           latestTurn: makeLatestTurn(),
           session: {
@@ -603,7 +582,7 @@ describe("resolveThreadStatusPill", () => {
         },
         sessionBootAt: "2026-03-09T12:00:00.000Z",
       }),
-    ).toBeNull();
+    ).toMatchObject({ label: "Completed", pulse: false });
   });
 });
 

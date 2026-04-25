@@ -20,6 +20,7 @@ import {
   findLatestProposedPlan,
   findSidebarProposedPlan,
   hasActionableProposedPlan,
+  hasPublishedPaperActivity,
   hasToolActivityForTurn,
   isLatestTurnSettled,
 } from "./session-logic";
@@ -413,6 +414,26 @@ describe("deriveImplicitPendingUserInput", () => {
         ],
       }),
     ).toBe(false);
+  });
+});
+
+describe("hasPublishedPaperActivity", () => {
+  it("treats completed agentscience paper publish commands as publication", () => {
+    expect(
+      hasPublishedPaperActivity([
+        makeActivity({
+          id: "paper-publish",
+          createdAt: "2026-02-23T00:03:00.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          tone: "tool",
+          payload: {
+            itemType: "command_execution",
+            detail: 'agentscience papers publish --title "Demo" <exited with exit code 0>',
+          },
+        }),
+      ]),
+    ).toBe(true);
   });
 });
 

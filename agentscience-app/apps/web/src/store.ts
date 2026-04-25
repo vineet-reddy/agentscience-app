@@ -19,6 +19,7 @@ import {
   derivePendingApprovals,
   deriveImplicitPendingUserInput,
   derivePendingUserInputs,
+  hasPublishedPaperActivity,
 } from "./session-logic";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
@@ -327,6 +328,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
         messages: thread.messages,
         activities: thread.activities,
       }),
+    hasPublishedPaper: hasPublishedPaperActivity(thread.activities),
     hasActionableProposedPlan: hasActionableProposedPlan(
       findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     ),
@@ -365,6 +367,7 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
+    left.hasPublishedPaper === right.hasPublishedPaper &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan
   );
 }

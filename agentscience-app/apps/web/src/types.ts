@@ -129,6 +129,7 @@ export interface SidebarThreadSummary {
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
+  hasPublishedPaper: boolean;
   hasActionableProposedPlan: boolean;
 }
 
