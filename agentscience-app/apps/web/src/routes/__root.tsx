@@ -47,6 +47,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
+import { resolveOnboardingAccountSyncKey } from "../onboardingGate";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
@@ -117,12 +118,16 @@ function RootRouteView() {
   const syncOnboardingAccount = useOnboardingStore((state) => state.syncAccount);
   const onboardingSeen =
     onboardingStoreAccountKey === onboardingAccountKey && onboardingSeenRaw;
+  const onboardingAccountSyncKey = resolveOnboardingAccountSyncKey({
+    accountState: agentScienceAccount.state,
+    accountIsLoading: agentScienceAccount.isLoading,
+  });
   useEffect(() => {
-    if (agentScienceStatus === "signed-in" && onboardingAccountKey === null) {
+    if (onboardingAccountSyncKey === undefined) {
       return;
     }
-    syncOnboardingAccount(onboardingAccountKey);
-  }, [agentScienceStatus, onboardingAccountKey, syncOnboardingAccount]);
+    syncOnboardingAccount(onboardingAccountSyncKey);
+  }, [onboardingAccountSyncKey, syncOnboardingAccount]);
   const shouldShowOnboardingPortal =
     !shouldShowAgentScienceConnectionPortal &&
     !shouldShowDesktopConnectionPortal &&
