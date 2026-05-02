@@ -87,6 +87,11 @@ jobs:
             platform: mac
             target: dmg
             arch: x64
+          - label: Windows x64
+            runner: windows-latest
+            platform: win
+            target: nsis
+            arch: x64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -163,6 +168,7 @@ jobs:
           for pattern in \
             "release/*.dmg" \
             "release/*.zip" \
+            "release/*.exe" \
             "release/*.blockmap" \
             "release/latest*.yml"; do
             for file in $pattern; do
@@ -185,6 +191,14 @@ jobs:
               else
                 cp "${dmg_files[0]}" release-publish/Agent-Science-mac-intel.dmg
               fi
+            fi
+          fi
+
+          if [[ "${{ matrix.platform }}" == "win" ]]; then
+            shopt -s nullglob
+            exe_files=(release-publish/Agent-Science-*-x64.exe)
+            if (( ${#exe_files[@]} > 0 )); then
+              cp "${exe_files[0]}" release-publish/Agent-Science-win-x64.exe
             fi
           fi
 
@@ -236,6 +250,7 @@ jobs:
           files: |
             agentscience-app/release-assets/*.dmg
             agentscience-app/release-assets/*.zip
+            agentscience-app/release-assets/*.exe
             agentscience-app/release-assets/*.blockmap
             agentscience-app/release-assets/latest*.yml
           fail_on_unmatched_files: true
