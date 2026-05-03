@@ -1,0 +1,50 @@
+name: Task
+description: Something to build or change
+labels: ["task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Write in plain English.** Short sentences, concrete words, and the user's own phrasing where possible.
+        Avoid words like "leverage," "utilize," "robust," "scalable," and "streamline."
+        Use technical terms only when they are the most precise option.
+        A new hire should understand this issue.
+
+  - type: input
+    id: title-guidance
+    attributes:
+      label: Title (set above)
+      description: |
+        Start with a verb. Under 80 characters.
+        Example: "Add CSV export to reports page."
+        Avoid: "Implement data export functionality."
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What we want
+      description: One or two sentences. Plain English. No implementation details.
+      placeholder: A "Download CSV" button on the reports page that exports the rows currently shown.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: One sentence about who benefits.
+      placeholder: Customers keep asking for this so they can pull numbers into their own spreadsheets.
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Bullets of things someone can verify by clicking around.
+      placeholder: |
+        - Button is visible on the reports page
+        - Clicking it downloads a CSV with the rows shown
+        - Filename includes report name and date
+    validations:
+      required: true

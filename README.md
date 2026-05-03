@@ -16,3 +16,7 @@ The workflow publishes GitHub Releases for the desktop installers and updater me
 ## Notes
 
 This repository is a fork of the MIT-licensed T3 Code project (https://github.com/pingdotgg/t3code) and now carries its own product identity and release process.
+
+## Contributing
+
+File issues with `gh issue create --template task.yml` (or `bug.yml`). The template has the style rules.

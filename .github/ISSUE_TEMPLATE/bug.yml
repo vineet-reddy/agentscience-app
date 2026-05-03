@@ -1,0 +1,63 @@
+name: Bug
+description: Something is broken or confusing
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Write in plain English.** Short sentences, concrete words, and the user's own phrasing where possible.
+        Avoid words like "leverage," "utilize," "robust," "scalable," and "streamline."
+        Use technical terms only when they are the most precise option.
+        A new hire should understand this issue.
+
+  - type: input
+    id: title-guidance
+    attributes:
+      label: Title (set above)
+      description: |
+        Start with what is broken. Under 80 characters.
+        Example: "Reports page freezes when filter is changed."
+        Avoid: "Intermittent UI performance degradation in reporting module."
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: One or two plain-English sentences describing the problem.
+      placeholder: On the reports page, changing the date filter can freeze the page for several seconds.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: One sentence describing the expected behavior.
+      placeholder: Changing the filter should update results quickly without freezing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Short numbered steps someone else can follow.
+      placeholder: |
+        1. Open the reports page
+        2. Select a large date range
+        3. Change the date filter
+        4. Notice the page freezes
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Bullets of things someone can verify after the fix.
+      placeholder: |
+        - Changing the date filter no longer freezes the page
+        - Reports update within 1–2 seconds
+        - The issue is not reproducible with the same steps
+    validations:
+      required: true
