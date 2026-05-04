@@ -15,6 +15,8 @@ const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const IS_FULL_SCREEN_CHANNEL = "desktop:is-full-screen";
 const FULL_SCREEN_CHANGED_CHANNEL = "desktop:full-screen-changed";
+const ANALYTICS_GET_CHANNEL = "desktop:analytics-get";
+const ANALYTICS_SET_ENABLED_CHANNEL = "desktop:analytics-set-enabled";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: () => {
@@ -65,4 +67,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(FULL_SCREEN_CHANGED_CHANNEL, wrappedListener);
     };
   },
+  getAnalyticsSettings: () => ipcRenderer.invoke(ANALYTICS_GET_CHANNEL),
+  setAnalyticsEnabled: (enabled: boolean) =>
+    ipcRenderer.invoke(ANALYTICS_SET_ENABLED_CHANNEL, enabled),
 } satisfies DesktopBridge);

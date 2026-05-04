@@ -83,6 +83,18 @@ What they are:
 
 When all five secrets are present and non-empty, the existing workflow signs and notarizes macOS builds automatically.
 
+## Anonymous usage telemetry
+
+Release builds optionally bake an Aptabase App Key into the desktop main process so the app can send a single anonymous ping per UTC day (one event: `app_opened`). The full design — what is and isn't collected, how to opt out, the literal payload — lives in [./PRIVACY.md](./PRIVACY.md).
+
+The release pipeline expects one additional repo secret:
+
+- `AGENTSCIENCE_APTABASE_KEY`: the Aptabase App Key, formatted `A-{REGION}-{12 digits}` (e.g. `A-US-XXXXXXXXXX`)
+
+When the secret is absent or empty, builds still succeed — the desktop app simply never initializes the Aptabase SDK and never makes any HTTPS request to `*.aptabase.com`. This makes the secret strictly opt-in for forks, PR previews, and local builds.
+
+End users can also opt out at any time via **Settings → Privacy → Anonymous usage**; that toggle is checked before the SDK is initialized at startup, so opting out leaves no in-process Aptabase code path active.
+
 ## Recommended operating flow
 
 For each release:

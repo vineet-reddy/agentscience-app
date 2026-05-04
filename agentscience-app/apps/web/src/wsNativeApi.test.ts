@@ -154,6 +154,8 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     onUpdateState: () => () => undefined,
     isFullScreen: () => false,
     onFullScreenChange: () => () => undefined,
+    getAnalyticsSettings: async () => ({ enabled: true, lastPingDay: null }),
+    setAnalyticsEnabled: async (enabled: boolean) => ({ enabled, lastPingDay: null }),
     ...overrides,
   };
 }

@@ -123,6 +123,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          AGENTSCIENCE_APTABASE_KEY: ${{ secrets.AGENTSCIENCE_APTABASE_KEY }}
         run: |
           args=(
             --platform "${{ matrix.platform }}"

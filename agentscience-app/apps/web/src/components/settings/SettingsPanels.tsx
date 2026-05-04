@@ -2,10 +2,12 @@ import {
   ArchiveIcon,
   ArchiveX,
   ChevronDownIcon,
+  ExternalLinkIcon,
   InfoIcon,
   LoaderIcon,
   PlusIcon,
   RefreshCwIcon,
+  ShieldCheckIcon,
   Undo2Icon,
   XIcon,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import {
   type ServerRuntimeAgentScience,
   ThreadId,
 } from "@agentscience/contracts";
+import type { AnalyticsSettings } from "@agentscience/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@agentscience/contracts/settings";
 import { normalizeModelSlug } from "@agentscience/shared/model";
 import { Equal } from "effect";
@@ -126,6 +129,9 @@ const PROVIDER_STATUS_STYLES = {
 
 const AGENTSCIENCE_RELEASES_URL =
   "https://github.com/vineet-reddy/agentscience-app/releases/latest";
+
+const PRIVACY_DOC_URL =
+  "https://github.com/vineet-reddy/agentscience-app/blob/main/agentscience-app/docs/PRIVACY.md";
 
 function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
@@ -1524,6 +1530,8 @@ export function GeneralSettingsPanel() {
         })}
       </SettingsSection>
 
+      <PrivacySettingsSection />
+
       <SettingsSection title="About">
         {isElectron ? (
           <AboutVersionSection />
@@ -1533,6 +1541,30 @@ export function GeneralSettingsPanel() {
             description="Current version of the application."
           />
         )}
+        <SettingsRow
+          title="Privacy"
+          description="What AgentScience collects, what it doesn't, and how to turn it off."
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                void readNativeApi()
+                  ?.shell.openExternal(PRIVACY_DOC_URL)
+                  .catch((error: unknown) => {
+                    toastManager.add({
+                      type: "error",
+                      title: "Could not open privacy policy",
+                      description: error instanceof Error ? error.message : "Open link failed.",
+                    });
+                  });
+              }}
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              <span>View PRIVACY.md</span>
+            </Button>
+          }
+        />
         <SettingsRow
           title="Diagnostics"
           description={diagnosticsDescription}
@@ -1759,5 +1791,90 @@ export function ArchivedThreadsPanel() {
         ))
       )}
     </SettingsPageContainer>
+  );
+}
+
+const ANALYTICS_PAYLOAD_PREVIEW = `{
+  "timestamp": "2026-05-04T03:42:00.000Z",
+  "sessionId": "171234567890123456",
+  "eventName": "app_opened",
+  "systemProps": {
+    "isDebug": false,
+    "locale": "en-US",
+    "osName": "macOS",
+    "osVersion": "14.5",
+    "engineName": "Chromium",
+    "engineVersion": "118.0.5993.159",
+    "appVersion": "1.4.2",
+    "sdkVersion": "aptabase-electron@0.3.1"
+  },
+  "props": {}
+}`;
+
+function PrivacySettingsSection() {
+  const [settings, setSettings] = useState<AnalyticsSettings | null>(null);
+  const [isToggling, setIsToggling] = useState(false);
+  const [bridgeAvailable, setBridgeAvailable] = useState(true);
+
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    if (!bridge?.getAnalyticsSettings) {
+      setBridgeAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    void bridge
+      .getAnalyticsSettings()
+      .then((next) => {
+        if (!cancelled) setSettings(next);
+      })
+      .catch((error: unknown) => {
+        console.warn("Failed to load analytics settings", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleToggle = useCallback(async (enabled: boolean) => {
+    const bridge = window.desktopBridge;
+    if (!bridge?.setAnalyticsEnabled) return;
+    setIsToggling(true);
+    try {
+      const next = await bridge.setAnalyticsEnabled(enabled);
+      setSettings(next);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not update analytics setting",
+        description: error instanceof Error ? error.message : "Unknown error.",
+      });
+    } finally {
+      setIsToggling(false);
+    }
+  }, []);
+
+  if (!bridgeAvailable) return null;
+
+  return (
+    <SettingsSection title="Privacy" icon={<ShieldCheckIcon className="size-3.5" />}>
+      <SettingsRow
+        title="Send anonymous usage ping"
+        description="One small ping per UTC day so we know whether anyone is using AgentScience and which platforms to support. No prompts, files, accounts, or IP addresses."
+        status={
+          settings?.lastPingDay
+            ? `Last ping recorded for ${settings.lastPingDay} (UTC).`
+            : "No ping has been sent yet."
+        }
+        control={
+          <Switch
+            checked={settings?.enabled ?? true}
+            disabled={settings === null || isToggling}
+            onCheckedChange={(checked) => void handleToggle(Boolean(checked))}
+            aria-label="Send anonymous usage ping"
+          />
+        }
+      />
+    </SettingsSection>
   );
 }
