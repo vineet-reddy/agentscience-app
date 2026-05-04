@@ -14,3 +14,4 @@ export * from "./paperReview";
 export * from "./localPapers";
 export * from "./agentScienceAuth";
 export * from "./rpc";
+export * from "./telemetry";

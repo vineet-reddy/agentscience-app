@@ -54,6 +54,7 @@ import type {
 } from "./orchestration";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
+import type { AnalyticsSettings } from "./telemetry";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -131,6 +132,19 @@ export interface DesktopBridge {
    */
   isFullScreen: () => boolean;
   onFullScreenChange: (listener: (isFullScreen: boolean) => void) => () => void;
+  /**
+   * Read the current analytics opt-out state and last-ping bookkeeping
+   * from the desktop app's persisted settings. Safe to call at any time;
+   * never throws — falls back to defaults on a missing or corrupt file.
+   */
+  getAnalyticsSettings: () => Promise<AnalyticsSettings>;
+  /**
+   * Toggle the anonymous-usage opt-out. Persists the change immediately
+   * and, when re-enabled, lazily initializes the Aptabase SDK on the
+   * main process so the next `app_opened` ping (if due) goes through.
+   * Resolves with the new persisted settings.
+   */
+  setAnalyticsEnabled: (enabled: boolean) => Promise<AnalyticsSettings>;
 }
 
 export interface NativeApi {

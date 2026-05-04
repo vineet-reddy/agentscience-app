@@ -37,6 +37,13 @@ import {
   resolveDesktopServerSettingsPath,
   resolveDesktopStateDir,
 } from "./statePaths";
+import {
+  bootstrapAnalytics,
+  getAnalyticsSettings,
+  initializeAnalyticsIfEligible,
+  setAnalyticsEnabled,
+  tryTrackAppOpened,
+} from "./analyticsService";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
@@ -55,6 +62,20 @@ import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runti
 
 syncShellEnvironment();
 
+// Aptabase requires `initialize` to run BEFORE `app.whenReady()`. Loading
+// persisted opt-out state and seeding the SDK at module load satisfies the
+// SDK contract and keeps the main process the only import site for
+// `@aptabase/electron` (see `agentscience-app/docs/PRIVACY.md`).
+bootstrapAnalytics({
+  settingsPath: resolveDesktopServerSettingsPath(
+    process.env.AGENTSCIENCE_HOME?.trim() || Path.join(OS.homedir(), ".agentscience"),
+    Boolean(process.env.VITE_DEV_SERVER_URL),
+  ),
+});
+initializeAnalyticsIfEligible({
+  appKey: process.env.AGENTSCIENCE_APTABASE_KEY?.trim() || undefined,
+});
+
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const SET_THEME_CHANNEL = "desktop:set-theme";
@@ -69,6 +90,8 @@ const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const IS_FULL_SCREEN_CHANNEL = "desktop:is-full-screen";
 const FULL_SCREEN_CHANGED_CHANNEL = "desktop:full-screen-changed";
+const ANALYTICS_GET_CHANNEL = "desktop:analytics-get";
+const ANALYTICS_SET_ENABLED_CHANNEL = "desktop:analytics-set-enabled";
 const BASE_DIR = process.env.AGENTSCIENCE_HOME?.trim() || Path.join(OS.homedir(), ".agentscience");
 const DESKTOP_SCHEME = "agentscience";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
@@ -153,6 +176,9 @@ function focusOrCreateMainWindow(): void {
     targetWindow.show();
   }
   targetWindow.focus();
+  // Re-evaluate the daily ping on every reactivation so a long-running
+  // session that crosses UTC midnight still gets counted on the new day.
+  tryTrackAppOpened({ now: new Date() });
 }
 
 if (!hasSingleInstanceLock) {
@@ -1581,6 +1607,19 @@ function registerIpcHandlers(): void {
       state: updateState,
     } satisfies DesktopUpdateCheckResult;
   });
+
+  ipcMain.removeHandler(ANALYTICS_GET_CHANNEL);
+  ipcMain.handle(ANALYTICS_GET_CHANNEL, async () => getAnalyticsSettings());
+
+  ipcMain.removeHandler(ANALYTICS_SET_ENABLED_CHANNEL);
+  ipcMain.handle(ANALYTICS_SET_ENABLED_CHANNEL, async (_event, rawEnabled: unknown) => {
+    if (typeof rawEnabled !== "boolean") return getAnalyticsSettings();
+    const next = setAnalyticsEnabled(rawEnabled);
+    // If the user just opted in on a fresh UTC day, fire the ping now so
+    // they don't have to wait until the next launch / window focus.
+    tryTrackAppOpened({ now: new Date() });
+    return next;
+  });
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
@@ -1832,6 +1871,9 @@ async function bootstrap(): Promise<void> {
     loadAppShell(mainWindow);
     writeDesktopLogHeader("bootstrap app shell loaded");
   }
+  // Daily anonymous-usage ping. No-op when opted out, env var unset, or
+  // we already pinged for the current UTC day. See docs/PRIVACY.md.
+  tryTrackAppOpened({ now: new Date() });
 }
 
 app.on("before-quit", () => {

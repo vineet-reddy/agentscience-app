@@ -7,10 +7,9 @@
  * once-per-day Aptabase ping. See `agentscience-app/docs/PRIVACY.md`.
  */
 
-export interface AnalyticsSettings {
-  readonly enabled: boolean;
-  readonly lastPingDay: string | null;
-}
+import type { AnalyticsSettings } from "@agentscience/contracts";
+
+export type { AnalyticsSettings };
 
 export const DEFAULT_ANALYTICS_SETTINGS: AnalyticsSettings = {
   enabled: true,
