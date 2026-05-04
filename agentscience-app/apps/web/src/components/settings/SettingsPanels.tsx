@@ -1530,6 +1530,8 @@ export function GeneralSettingsPanel() {
         })}
       </SettingsSection>
 
+      <PrivacySettingsSection />
+
       <SettingsSection title="About">
         {isElectron ? (
           <AboutVersionSection />
@@ -1810,7 +1812,7 @@ const ANALYTICS_PAYLOAD_PREVIEW = `{
   "props": {}
 }`;
 
-export function PrivacySettingsPanel() {
+function PrivacySettingsSection() {
   const [settings, setSettings] = useState<AnalyticsSettings | null>(null);
   const [isToggling, setIsToggling] = useState(false);
   const [bridgeAvailable, setBridgeAvailable] = useState(true);
@@ -1864,53 +1866,41 @@ export function PrivacySettingsPanel() {
     });
   }, []);
 
-  return (
-    <SettingsPageContainer>
-      <SettingsSection title="Anonymous usage" icon={<ShieldCheckIcon className="size-3.5" />}>
-        <SettingsRow
-          title="Send anonymous usage ping"
-          description="One small ping per UTC day so we know whether anyone is using AgentScience and which platforms to support. No prompts, files, accounts, or IP addresses."
-          status={
-            settings?.lastPingDay
-              ? `Last ping recorded for ${settings.lastPingDay} (UTC).`
-              : "No ping has been sent yet."
-          }
-          control={
-            <Switch
-              checked={settings?.enabled ?? true}
-              disabled={!bridgeAvailable || settings === null || isToggling}
-              onCheckedChange={(checked) => void handleToggle(Boolean(checked))}
-              aria-label="Send anonymous usage ping"
-            />
-          }
-        />
-        <SettingsRow
-          title="What we collect"
-          description="The exact JSON payload sent on each ping. Always equal to this preview — no other event is emitted by the desktop app."
-          control={
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleOpenPolicy}
-              disabled={!isElectron && !bridgeAvailable}
-            >
-              <ExternalLinkIcon className="size-3.5" />
-              <span>View PRIVACY.md</span>
-            </Button>
-          }
-        >
-          <pre className="mt-3 overflow-x-auto rounded-lg border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-            <code>{ANALYTICS_PAYLOAD_PREVIEW}</code>
-          </pre>
-        </SettingsRow>
-      </SettingsSection>
+  if (!bridgeAvailable) return null;
 
-      {!bridgeAvailable ? (
-        <p className="text-xs text-muted-foreground">
-          Analytics settings are only available in the desktop app. The web client never sends
-          telemetry.
-        </p>
-      ) : null}
-    </SettingsPageContainer>
+  return (
+    <SettingsSection title="Privacy" icon={<ShieldCheckIcon className="size-3.5" />}>
+      <SettingsRow
+        title="Send anonymous usage ping"
+        description="One small ping per UTC day so we know whether anyone is using AgentScience and which platforms to support. No prompts, files, accounts, or IP addresses."
+        status={
+          settings?.lastPingDay
+            ? `Last ping recorded for ${settings.lastPingDay} (UTC).`
+            : "No ping has been sent yet."
+        }
+        control={
+          <Switch
+            checked={settings?.enabled ?? true}
+            disabled={settings === null || isToggling}
+            onCheckedChange={(checked) => void handleToggle(Boolean(checked))}
+            aria-label="Send anonymous usage ping"
+          />
+        }
+      />
+      <SettingsRow
+        title="What we collect"
+        description="The exact JSON payload sent on each ping. Always equal to this preview — no other event is emitted by the desktop app."
+        control={
+          <Button size="sm" variant="outline" onClick={handleOpenPolicy}>
+            <ExternalLinkIcon className="size-3.5" />
+            <span>View PRIVACY.md</span>
+          </Button>
+        }
+      >
+        <pre className="mt-3 overflow-x-auto rounded-lg border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          <code>{ANALYTICS_PAYLOAD_PREVIEW}</code>
+        </pre>
+      </SettingsRow>
+    </SettingsSection>
   );
 }

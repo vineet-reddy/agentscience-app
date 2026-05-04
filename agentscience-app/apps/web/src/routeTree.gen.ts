@@ -15,7 +15,6 @@ import { Route as DatasetsRouteImport } from './routes/datasets'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as PapersIndexRouteImport } from './routes/papers.index'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
-import { Route as SettingsPrivacyRouteImport } from './routes/settings.privacy'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as PapersPaperIdRouteImport } from './routes/papers.$paperId'
@@ -50,11 +49,6 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ChatRoute,
 } as any)
-const SettingsPrivacyRoute = SettingsPrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -85,7 +79,6 @@ export interface FileRoutesByFullPath {
   '/papers/$paperId': typeof PapersPaperIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
-  '/settings/privacy': typeof SettingsPrivacyRoute
   '/papers/': typeof PapersIndexRoute
 }
 export interface FileRoutesByTo {
@@ -95,7 +88,6 @@ export interface FileRoutesByTo {
   '/papers/$paperId': typeof PapersPaperIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
-  '/settings/privacy': typeof SettingsPrivacyRoute
   '/': typeof ChatIndexRoute
   '/papers': typeof PapersIndexRoute
 }
@@ -109,7 +101,6 @@ export interface FileRoutesById {
   '/papers/$paperId': typeof PapersPaperIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
-  '/settings/privacy': typeof SettingsPrivacyRoute
   '/_chat/': typeof ChatIndexRoute
   '/papers/': typeof PapersIndexRoute
 }
@@ -124,7 +115,6 @@ export interface FileRouteTypes {
     | '/papers/$paperId'
     | '/settings/archived'
     | '/settings/general'
-    | '/settings/privacy'
     | '/papers/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -134,7 +124,6 @@ export interface FileRouteTypes {
     | '/papers/$paperId'
     | '/settings/archived'
     | '/settings/general'
-    | '/settings/privacy'
     | '/'
     | '/papers'
   id:
@@ -147,7 +136,6 @@ export interface FileRouteTypes {
     | '/papers/$paperId'
     | '/settings/archived'
     | '/settings/general'
-    | '/settings/privacy'
     | '/_chat/'
     | '/papers/'
   fileRoutesById: FileRoutesById
@@ -202,13 +190,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
-    }
-    '/settings/privacy': {
-      id: '/settings/privacy'
-      path: '/privacy'
-      fullPath: '/settings/privacy'
-      preLoaderRoute: typeof SettingsPrivacyRouteImport
-      parentRoute: typeof SettingsRoute
     }
     '/settings/general': {
       id: '/settings/general'
@@ -269,13 +250,11 @@ const PapersRouteWithChildren =
 interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
-  SettingsPrivacyRoute: typeof SettingsPrivacyRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsArchivedRoute: SettingsArchivedRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
-  SettingsPrivacyRoute: SettingsPrivacyRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
