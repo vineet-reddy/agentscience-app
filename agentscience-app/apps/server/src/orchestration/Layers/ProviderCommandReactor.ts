@@ -13,6 +13,7 @@ import {
 } from "@agentscience/contracts";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@agentscience/shared/DrainableWorker";
+import { buildStageAgentInputs } from "@agentscience/shared/stagePromptBuilder";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -425,7 +426,13 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const normalizedInput = toNonEmptyProviderInput(input.messageText);
+    const stageInstructions =
+      thread.stageState != null ? buildStageAgentInputs(thread.stageState.currentStageId) : null;
+    const providerMessageText =
+      stageInstructions !== null
+        ? [stageInstructions.systemMessage, "## User request", input.messageText].join("\n\n")
+        : input.messageText;
+    const normalizedInput = toNonEmptyProviderInput(providerMessageText);
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService
       .listSessions()

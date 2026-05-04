@@ -27,6 +27,7 @@ import {
   extractPresentedManuscriptFromText,
   PAPER_PRESENTED_ACTIVITY_KIND,
 } from "../../paperPresentation.ts";
+import { extractStageArtifactFromText } from "../stageArtifactExtraction.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -665,8 +666,20 @@ const make = Effect.fn("make")(function* () {
         : (input.fallbackText?.trim().length ?? 0) > 0
           ? input.fallbackText!
           : "";
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const thread = readModel.threads.find((entry) => entry.id === input.threadId);
+    const stageExtraction =
+      thread?.stageState !== null && thread?.stageState !== undefined
+        ? extractStageArtifactFromText({
+            text: rawText,
+            threadId: input.threadId,
+            currentStageId: thread.stageState.currentStageId,
+            createdAt: input.createdAt,
+          })
+        : null;
+    const visibleRawText = stageExtraction?.sanitizedText ?? rawText;
     const manuscriptPresentation = extractPresentedManuscriptFromText({
-      text: rawText,
+      text: visibleRawText,
     });
     const fallbackPresentation =
       !manuscriptPresentation.presentation && input.presentationFallbackText
@@ -696,6 +709,13 @@ const make = Effect.fn("make")(function* () {
       ...(input.turnId ? { turnId: input.turnId } : {}),
       createdAt: input.createdAt,
     });
+
+    if (stageExtraction) {
+      yield* orchestrationEngine.dispatch({
+        ...stageExtraction.command,
+        commandId: providerCommandId(input.event, "stage-artifact-proposed"),
+      });
+    }
 
     const presentation = manuscriptPresentation.presentation ?? fallbackPresentation;
     if (presentation) {
