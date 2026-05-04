@@ -7,7 +7,7 @@ The short version: we count daily app opens, broken down by app version and OS, 
 ## TL;DR
 
 - The desktop app sends **one anonymous ping per UTC day** when you open it, while opted in.
-- The ping contains your **app version, OS name and version, locale, device model family, and Node engine version**. It does not contain your IP address, your name, your email, your projects, prompts, files, or any account identifier.
+- The ping contains your **app version, OS name and version, locale, and Chromium engine version**. It does not contain your IP address, your name, your email, your projects, prompts, files, or any account identifier.
 - Storage is handled by [Aptabase](https://aptabase.com), an open-source, privacy-first analytics service. We do not run the storage ourselves — see [Sub-processors](#sub-processors).
 - You can **opt out at any time** in Settings → Privacy. The toggle takes effect immediately and persists across launches.
 
@@ -22,15 +22,13 @@ Once per UTC day, while the **Settings → Privacy → Anonymous usage** toggle 
   "eventName": "app_opened",
   "systemProps": {
     "isDebug": false,
+    "locale": "en-US",
     "osName": "macOS",
     "osVersion": "14.5",
-    "locale": "en-US",
+    "engineName": "Chromium",
+    "engineVersion": "118.0.5993.159",
     "appVersion": "1.4.2",
-    "appBuildNumber": "1",
-    "deviceModel": "MacBookPro18,1",
-    "engineName": "node",
-    "engineVersion": "20.18.0",
-    "sdkVersion": "@aptabase/electron@x.y.z"
+    "sdkVersion": "aptabase-electron@0.3.1"
   },
   "props": {}
 }
@@ -39,14 +37,13 @@ Once per UTC day, while the **Settings → Privacy → Anonymous usage** toggle 
 Field by field, here is exactly what each one is and why it is there:
 
 - `timestamp`: ISO-8601 time of the ping. Used to count active days. Does not reveal where you are — only when the ping arrived.
-- `sessionId`: random opaque number generated in memory at app launch and rotated after a period of inactivity. **Not** a stable install ID. It does not persist across reinstalls, app updates, or a long-enough idle period. We use it to dedupe a single launch from showing up as multiple events; we do not use it to follow you across days.
+- `sessionId`: random opaque number generated in memory at app launch and rotated after one hour of inactivity. **Not** a stable install ID. It does not persist across reinstalls, app updates, or a long-enough idle period. We use it so a single launch doesn't show up as multiple events; we do not use it to follow you across days.
 - `eventName`: always the literal string `app_opened` for this ping. There is currently no other event in the app.
 - `isDebug`: `true` for unpackaged dev builds, `false` for packaged installers. Lets us exclude developer noise from "real" usage counts.
+- `locale`: e.g. `en-US`. Sent automatically by the Aptabase SDK from `app.getLocale()`; we cannot disable this without forking the SDK. Tells us whether internationalization is worth investing in.
 - `osName` / `osVersion`: e.g. `macOS 14.5`, `Windows 11`, `Ubuntu 22.04`. Tells us whether to keep supporting older OSes.
-- `locale`: e.g. `en-US`. Sent automatically by the Aptabase SDK; we cannot disable this without forking the SDK. Tells us whether internationalization is worth investing in.
-- `appVersion` / `appBuildNumber`: which release you're on. Lets us see whether new releases are reaching users and whether old ones are still in the wild.
-- `deviceModel`: a coarse hardware identifier like `MacBookPro18,1`. This is the model family, not your serial number. Tens of millions of devices share each model string. Sent automatically by the Aptabase SDK on macOS; usually empty on Windows and Linux.
-- `engineName` / `engineVersion`: the Node.js runtime bundled with the app. Lets us reason about Electron upgrade paths. This is the bundled Node, not anything from your system.
+- `engineName` / `engineVersion`: the literal string `Chromium` plus the Chromium version bundled inside Electron (e.g. `118.0.5993.159`). Lets us reason about Electron upgrade paths. This is the Chromium runtime that ships *inside* the app's binary, not anything from your system.
+- `appVersion`: which release of AgentScience you're on. Lets us see whether new releases are reaching users and whether old ones are still in the wild.
 - `sdkVersion`: which version of the Aptabase Electron SDK we're using.
 - `props`: always empty `{}` for the daily ping. We do not pass any custom properties.
 
@@ -118,6 +115,7 @@ If any of these files reference Aptabase outside the main process, that is a bug
 ## Changelog
 
 - **2026-05-03**: Initial draft. Establishes the daily-ping design, the Aptabase Cloud sub-processor relationship, the literal payload, the opt-out, and the no-collection commitments above.
+- **2026-05-03**: Corrected the literal payload to match `@aptabase/electron@0.3.1` source. The Electron SDK does **not** send `deviceModel` or `appBuildNumber` (those appear in some other Aptabase SDKs but not Electron's), and the engine fields are `Chromium` + the bundled Chromium version, not Node.
 
 ## Contact
 
