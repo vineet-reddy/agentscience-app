@@ -33,6 +33,7 @@ import {
   ThreadUnarchivedPayload,
   ThreadRevertedPayload,
   ThreadSessionSetPayload,
+  ThreadStageStateUpdatedPayload,
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
@@ -313,6 +314,9 @@ export function projectEvent(
             activities: [],
             checkpoints: [],
             session: null,
+            ...(payload.stageState !== undefined
+              ? { stageState: payload.stageState }
+              : {}),
           },
           event.type,
           "thread",
@@ -801,6 +805,22 @@ export function projectEvent(
             }),
           };
         }),
+      );
+
+    case "thread.stage-state-updated":
+      return decodeForEvent(
+        ThreadStageStateUpdatedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            stageState: payload.stageState,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
       );
 
     default:

@@ -5,6 +5,7 @@ import {
   ThreadId,
   type OrchestrationEvent,
 } from "@agentscience/contracts";
+import { createInitialStageState } from "@agentscience/shared/stageMachine";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -236,6 +237,60 @@ describe("orchestration projector", () => {
     expect(next.snapshotSequence).toBe(7);
     expect(next.updatedAt).toBe("2026-01-01T00:00:00.000Z");
     expect(next.threads).toEqual([]);
+  });
+
+  it("applies projected stage state updates", async () => {
+    const now = new Date().toISOString();
+    const model = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-thread-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            folderSlug: "demo",
+            title: "demo",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+    const stageState = createInitialStageState({ now });
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 2,
+          type: "thread.stage-state-updated",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-stage",
+          payload: {
+            threadId: "thread-1",
+            stageState,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.stageState).toEqual(stageState);
   });
 
   it("tracks latest turn id from session lifecycle events", async () => {

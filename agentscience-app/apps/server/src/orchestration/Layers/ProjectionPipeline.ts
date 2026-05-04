@@ -1434,6 +1434,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
             latestTurnId: null,
+            stageState: event.payload.stageState ?? null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             archivedAt: null,
@@ -1886,6 +1887,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn(
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             updatedAt: event.occurredAt,
+          });
+          return;
+        }
+
+        case "thread.stage-state-updated": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            stageState: event.payload.stageState,
+            updatedAt: event.payload.updatedAt,
           });
           return;
         }

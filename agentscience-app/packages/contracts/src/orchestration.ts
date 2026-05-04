@@ -1,6 +1,17 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
 import { CodexModelOptions } from "./model";
 import {
+  ProjectModeSetCommand,
+  ProjectRecomputeCommand,
+  ProjectStageState,
+  StageApproveCommand,
+  StageArtifactProposedCommand,
+  StageDiscussCommand,
+  StageReviseCommand,
+  StageSkipCommand,
+  StageStartCommand,
+} from "./stages";
+import {
   ApprovalRequestId,
   CheckpointRef,
   CommandId,
@@ -332,6 +343,7 @@ export const OrchestrationThread = Schema.Struct({
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
   session: Schema.NullOr(OrchestrationSession),
+  stageState: Schema.optional(Schema.NullOr(ProjectStageState)),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
@@ -578,6 +590,14 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  StageStartCommand,
+  StageArtifactProposedCommand,
+  StageApproveCommand,
+  StageReviseCommand,
+  StageDiscussCommand,
+  StageSkipCommand,
+  ProjectModeSetCommand,
+  ProjectRecomputeCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -602,6 +622,14 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUserInputRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
+  StageStartCommand,
+  StageArtifactProposedCommand,
+  StageApproveCommand,
+  StageReviseCommand,
+  StageDiscussCommand,
+  StageSkipCommand,
+  ProjectModeSetCommand,
+  ProjectRecomputeCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
@@ -714,6 +742,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread.stage-state-updated",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -766,6 +795,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  stageState: Schema.optional(Schema.NullOr(ProjectStageState)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -916,6 +946,12 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const ThreadStageStateUpdatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  stageState: ProjectStageState,
+  updatedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -1062,6 +1098,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.stage-state-updated"),
+    payload: ThreadStageStateUpdatedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

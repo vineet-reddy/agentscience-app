@@ -2,7 +2,13 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
+  ThreadId,
 } from "@agentscience/contracts";
+import {
+  createInitialStageState,
+  applyStageCommand,
+  shouldAutoApprove,
+} from "@agentscience/shared/stageMachine";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -52,6 +58,30 @@ function withEventBase(
     commandId: input.commandId,
     correlationId: input.commandId,
     metadata: input.metadata ?? {},
+  };
+}
+
+function stageStateEvent(input: {
+  readonly command: Pick<OrchestrationCommand, "commandId">;
+  readonly threadId: ThreadId;
+  readonly stageState: NonNullable<
+    OrchestrationReadModel["threads"][number]["stageState"]
+  >;
+  readonly occurredAt: string;
+}): Omit<OrchestrationEvent, "sequence"> {
+  return {
+    ...withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.threadId,
+      occurredAt: input.occurredAt,
+      commandId: input.command.commandId,
+    }),
+    type: "thread.stage-state-updated",
+    payload: {
+      threadId: input.threadId,
+      stageState: input.stageState,
+      updatedAt: input.occurredAt,
+    },
   };
 }
 
@@ -197,6 +227,9 @@ export const decideOrchestrationCommand = Effect.fn(
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          stageState: createInitialStageState({
+            now: command.createdAt,
+          }),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -781,6 +814,74 @@ export const decideOrchestrationCommand = Effect.fn(
           activity: command.activity,
         },
       };
+    }
+
+    case "stage.start":
+    case "stage.artifact.proposed":
+    case "stage.approve":
+    case "stage.revise":
+    case "stage.discuss":
+    case "stage.skip":
+    case "project.mode.set":
+    case "project.recompute": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const currentStageState = thread.stageState;
+      if (currentStageState == null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' does not have an active stage workflow.`,
+        });
+      }
+      const result = applyStageCommand(currentStageState, command);
+      if (!result.ok) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Stage transition rejected: ${JSON.stringify(result.error)}`,
+        });
+      }
+
+      const occurredAt = command.createdAt;
+      const proposedEvent = stageStateEvent({
+        command,
+        threadId: command.threadId,
+        stageState: result.state,
+        occurredAt,
+      });
+
+      if (
+        command.type === "stage.artifact.proposed" &&
+        shouldAutoApprove({
+          state: result.state,
+          stageId: command.stageId,
+          confidence: command.confidence,
+        })
+      ) {
+        const approved = applyStageCommand(result.state, {
+          type: "stage.approve",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          stageId: command.stageId,
+          auto: true,
+          createdAt: occurredAt,
+        });
+        if (approved.ok) {
+          return [
+            proposedEvent,
+            stageStateEvent({
+              command,
+              threadId: command.threadId,
+              stageState: approved.state,
+              occurredAt,
+            }),
+          ];
+        }
+      }
+
+      return proposedEvent;
     }
 
     default: {

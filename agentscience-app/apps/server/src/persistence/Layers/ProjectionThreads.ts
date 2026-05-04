@@ -11,11 +11,12 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection } from "@agentscience/contracts";
+import { ModelSelection, ProjectStageState } from "@agentscience/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    stageState: Schema.NullOr(Schema.fromJsonString(ProjectStageState)),
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
@@ -38,6 +39,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           branch,
           worktree_path,
           latest_turn_id,
+          stage_state_json,
           created_at,
           updated_at,
           archived_at,
@@ -54,6 +56,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.branch},
           ${row.worktreePath},
           ${row.latestTurnId},
+          ${row.stageState === null ? null : JSON.stringify(row.stageState)},
           ${row.createdAt},
           ${row.updatedAt},
           ${row.archivedAt},
@@ -70,6 +73,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           branch = excluded.branch,
           worktree_path = excluded.worktree_path,
           latest_turn_id = excluded.latest_turn_id,
+          stage_state_json = excluded.stage_state_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           archived_at = excluded.archived_at,
@@ -93,6 +97,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           branch,
           worktree_path AS "worktreePath",
           latest_turn_id AS "latestTurnId",
+          stage_state_json AS "stageState",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
@@ -119,6 +124,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
               branch,
               worktree_path AS "worktreePath",
               latest_turn_id AS "latestTurnId",
+              stage_state_json AS "stageState",
               created_at AS "createdAt",
               updated_at AS "updatedAt",
               archived_at AS "archivedAt",
@@ -139,6 +145,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
               branch,
               worktree_path AS "worktreePath",
               latest_turn_id AS "latestTurnId",
+              stage_state_json AS "stageState",
               created_at AS "createdAt",
               updated_at AS "updatedAt",
               archived_at AS "archivedAt",

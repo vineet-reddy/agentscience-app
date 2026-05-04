@@ -12,6 +12,7 @@ import {
   OrchestrationReadModel,
   OrchestrationSessionStatus,
   OrchestrationThreadActivityTone,
+  ProjectStageState,
   type OrchestrationThread,
   ProjectScript,
   ProjectId,
@@ -83,6 +84,7 @@ const ProjectionThreadRowSchema = Schema.Struct({
   interactionMode: Schema.Literals(["default", "plan"]),
   modelSelection: Schema.fromJsonString(ModelSelection),
   latestTurnId: Schema.NullOr(TurnId),
+  stageState: Schema.NullOr(Schema.fromJsonString(ProjectStageState)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
   archivedAt: Schema.NullOr(Schema.String),
@@ -387,6 +389,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           model_selection_json AS "modelSelection",
           latest_turn_id AS "latestTurnId",
+          stage_state_json AS "stageState",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
@@ -612,6 +615,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           model_selection_json AS "modelSelection",
           latest_turn_id AS "latestTurnId",
+          stage_state_json AS "stageState",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
@@ -892,6 +896,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               activities: activitiesByThread.get(row.threadId) ?? [],
               checkpoints: buildCheckpointsFromTurns(threadTurns),
               session,
+              ...(row.stageState !== null ? { stageState: row.stageState } : {}),
             };
           });
 
