@@ -1,3 +1,18 @@
+/**
+ * UNUSED — DO NOT base feature work on this file.
+ *
+ * Inherited from the t3-code fork. `SettingsSidebarNav`, `SETTINGS_NAV_ITEMS`,
+ * and `SettingsSectionPath` have zero importers anywhere in the monorepo
+ * (verified 2026-05-03). The actual settings UI is a single scrolling page
+ * — `GeneralSettingsPanel` in `./SettingsPanels.tsx` — composed of inline
+ * `<SettingsSection>` blocks (AgentScience account → General → Connection →
+ * Privacy → About). To add a new settings group, append a `<SettingsSection>`
+ * there, NOT a route + nav entry here.
+ *
+ * Kept around because deleting forked-in code carries risk we haven't paid
+ * down yet. Re-evaluate or delete once that backlog is touched.
+ */
+
 import type { ComponentType } from "react";
 import { ArchiveIcon, ArrowLeftIcon, Settings2Icon } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
