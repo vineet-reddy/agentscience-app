@@ -72,9 +72,16 @@ bootstrapAnalytics({
     Boolean(process.env.VITE_DEV_SERVER_URL),
   ),
 });
-initializeAnalyticsIfEligible({
-  appKey: process.env.AGENTSCIENCE_APTABASE_KEY?.trim() || undefined,
-});
+// `__AGENTSCIENCE_APTABASE_KEY__` is replaced with a JSON string literal at
+// build time by `tsdown.config.ts`. The runtime `process.env` lookup is the
+// dev fallback so a developer can ship un-baked builds and still test the
+// pipeline by setting the variable in their shell or `.env.local`.
+declare const __AGENTSCIENCE_APTABASE_KEY__: string;
+const APTABASE_APP_KEY: string | undefined =
+  (typeof __AGENTSCIENCE_APTABASE_KEY__ === "string" && __AGENTSCIENCE_APTABASE_KEY__) ||
+  process.env.AGENTSCIENCE_APTABASE_KEY?.trim() ||
+  undefined;
+initializeAnalyticsIfEligible({ appKey: APTABASE_APP_KEY });
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
