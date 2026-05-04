@@ -1555,8 +1555,7 @@ export function GeneralSettingsPanel() {
                     toastManager.add({
                       type: "error",
                       title: "Could not open privacy policy",
-                      description:
-                        error instanceof Error ? error.message : "Open link failed.",
+                      description: error instanceof Error ? error.message : "Open link failed.",
                     });
                   });
               }}
@@ -1855,17 +1854,6 @@ function PrivacySettingsSection() {
     }
   }, []);
 
-  const handleOpenPolicy = useCallback(() => {
-    const api = readNativeApi();
-    void api?.shell.openExternal(PRIVACY_DOC_URL).catch((error: unknown) => {
-      toastManager.add({
-        type: "error",
-        title: "Could not open privacy policy",
-        description: error instanceof Error ? error.message : "Open link failed.",
-      });
-    });
-  }, []);
-
   if (!bridgeAvailable) return null;
 
   return (
@@ -1887,20 +1875,6 @@ function PrivacySettingsSection() {
           />
         }
       />
-      <SettingsRow
-        title="What we collect"
-        description="The exact JSON payload sent on each ping. Always equal to this preview — no other event is emitted by the desktop app."
-        control={
-          <Button size="sm" variant="outline" onClick={handleOpenPolicy}>
-            <ExternalLinkIcon className="size-3.5" />
-            <span>View PRIVACY.md</span>
-          </Button>
-        }
-      >
-        <pre className="mt-3 overflow-x-auto rounded-lg border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-          <code>{ANALYTICS_PAYLOAD_PREVIEW}</code>
-        </pre>
-      </SettingsRow>
     </SettingsSection>
   );
 }

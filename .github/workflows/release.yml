@@ -123,10 +123,6 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          # Baked into the desktop bundle by tsdown at build time so packaged
-          # apps can send the daily anonymous-usage ping. When this secret
-          # is absent the build still succeeds and analytics stays disabled.
-          # See agentscience-app/docs/distribution.md and PRIVACY.md.
           AGENTSCIENCE_APTABASE_KEY: ${{ secrets.AGENTSCIENCE_APTABASE_KEY }}
         run: |
           args=(
