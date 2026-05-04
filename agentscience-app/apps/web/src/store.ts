@@ -272,6 +272,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     worktreePath: thread.worktreePath,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
+    stageState: thread.stageState ?? null,
   };
 }
 
@@ -880,6 +881,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         activities: [],
         checkpoints: [],
         session: null,
+        stageState: event.payload.stageState ?? null,
       });
       const threads =
         existing && existingIndex >= 0
@@ -1118,6 +1120,14 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
         interactionMode: event.payload.interactionMode,
+        updatedAt: event.payload.updatedAt,
+      }));
+    }
+
+    case "thread.stage-state-updated": {
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        stageState: event.payload.stageState,
         updatedAt: event.payload.updatedAt,
       }));
     }

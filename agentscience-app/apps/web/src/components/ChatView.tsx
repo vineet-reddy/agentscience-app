@@ -7,6 +7,7 @@ import {
   type ProviderKind,
   type ProjectEntry,
   type ProjectId,
+  type ProjectMode,
   type ProviderApprovalDecision,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -16,6 +17,7 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
+  type StageId,
   TerminalOpenInput,
 } from "@agentscience/contracts";
 import { normalizeModelSlug } from "@agentscience/shared/model";
@@ -211,6 +213,10 @@ import {
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useServerAvailableEditors, useServerConfig } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
+
+import { StepperBar } from "./stages/StepperBar";
+import { StageRail } from "./stages/StageRail";
+import { useThreadStageState } from "../stages/stageStore";
 
 const PlanSidebar = lazy(() => import("./PlanSidebar"));
 const ThreadTerminalDrawer = lazy(() => import("./ThreadTerminalDrawer"));
@@ -913,6 +919,16 @@ export default function ChatView({
     [draftThread, fallbackDraftProject?.defaultModelSelection, localDraftError, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
+  const stageState = useThreadStageState(activeThread?.id ?? null);
+  const [focusedStageId, setFocusedStageId] = useState<StageId | null>(null);
+  // When the project advances, follow the new current stage.
+  useEffect(() => {
+    if (!stageState) {
+      if (focusedStageId !== null) setFocusedStageId(null);
+      return;
+    }
+    setFocusedStageId(stageState.currentStageId);
+  }, [stageState?.currentStageId]); // eslint-disable-line react-hooks/exhaustive-deps
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -1733,6 +1749,119 @@ export default function ChatView({
       });
     },
     [setStoreThreadError],
+  );
+
+  const dispatchStageCommand = useCallback(
+    async (
+      command:
+        | {
+            type: "project.mode.set";
+            mode: ProjectMode;
+          }
+        | {
+            type: "stage.approve";
+            stageId: StageId;
+            auto: boolean;
+          }
+        | {
+            type: "stage.revise";
+            stageId: StageId;
+            instructionsMd: string;
+          }
+        | {
+            type: "stage.discuss";
+            stageId: StageId;
+          }
+        | {
+            type: "stage.skip";
+            stageId: StageId;
+          }
+        | {
+            type: "project.recompute";
+            stageIds: readonly StageId[];
+          },
+    ) => {
+      const api = readNativeApi();
+      if (!api || !activeThread?.id) return;
+      const createdAt = new Date().toISOString();
+      const threadId = activeThread.id;
+      try {
+        if (command.type === "project.mode.set") {
+          await api.orchestration.dispatchCommand({
+            type: "project.mode.set",
+            commandId: newCommandId(),
+            threadId,
+            mode: command.mode,
+            createdAt,
+          });
+          return;
+        }
+        if (command.type === "stage.approve") {
+          await api.orchestration.dispatchCommand({
+            type: "stage.approve",
+            commandId: newCommandId(),
+            threadId,
+            stageId: command.stageId,
+            auto: command.auto,
+            createdAt,
+          });
+          return;
+        }
+        if (command.type === "stage.revise") {
+          await api.orchestration.dispatchCommand({
+            type: "stage.revise",
+            commandId: newCommandId(),
+            threadId,
+            stageId: command.stageId,
+            instructionsMd: command.instructionsMd,
+            createdAt,
+          });
+          return;
+        }
+        if (command.type === "stage.discuss") {
+          await api.orchestration.dispatchCommand({
+            type: "stage.discuss",
+            commandId: newCommandId(),
+            threadId,
+            stageId: command.stageId,
+            messageId: newMessageId(),
+            createdAt,
+          });
+          return;
+        }
+        if (command.type === "stage.skip") {
+          await api.orchestration.dispatchCommand({
+            type: "stage.skip",
+            commandId: newCommandId(),
+            threadId,
+            stageId: command.stageId,
+            createdAt,
+          });
+          return;
+        }
+        if (command.stageIds.length === 0) return;
+        await api.orchestration.dispatchCommand({
+          type: "project.recompute",
+          commandId: newCommandId(),
+          threadId,
+          stageIds: [...command.stageIds],
+          createdAt,
+        });
+      } catch (error) {
+        setThreadError(
+          threadId,
+          error instanceof Error ? error.message : "Failed to update the stage workflow.",
+        );
+      }
+    },
+    [activeThread?.id, setThreadError],
+  );
+  const setStageMode = useCallback(
+    (threadId: ThreadId, mode: ProjectMode) => {
+      if (threadId !== activeThread?.id) return;
+      void dispatchStageCommand({ type: "project.mode.set", mode });
+    },
+    [activeThread?.id, dispatchStageCommand],
   );
 
   const focusComposer = useCallback(() => {
@@ -4147,6 +4276,7 @@ export default function ChatView({
           diffOpen={diffOpen}
           paperReviewAvailable={paperReviewAvailable}
           paperReviewOpen={paperReviewOpen}
+          stageMode={stageState && paperReviewOpen ? stageState.mode : undefined}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -4156,6 +4286,11 @@ export default function ChatView({
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
           onTogglePaperReview={onTogglePaperReview ?? (() => undefined)}
+          onChangeStageMode={
+            stageState && paperReviewOpen
+              ? (mode) => setStageMode(activeThread.id, mode)
+              : undefined
+          }
         />
       </header>
 
@@ -4165,6 +4300,14 @@ export default function ChatView({
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
+      {stageState && !paperReviewOpen && (
+        <StepperBar
+          state={stageState}
+          focusedStageId={focusedStageId ?? undefined}
+          onFocusStage={(stageId) => setFocusedStageId(stageId)}
+          onChangeMode={(mode) => setStageMode(activeThread.id, mode)}
+        />
+      )}
       {/* Main content area with optional plan sidebar */}
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
@@ -4211,6 +4354,44 @@ export default function ChatView({
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
               />
+              {stageState && (
+                <StageRail
+                  threadId={activeThread.id}
+                  state={stageState}
+                  onApproveStage={(stageId) =>
+                    void dispatchStageCommand({
+                      type: "stage.approve",
+                      stageId,
+                      auto: false,
+                    })
+                  }
+                  onReviseStage={(stageId, instructionsMd) =>
+                    void dispatchStageCommand({
+                      type: "stage.revise",
+                      stageId,
+                      instructionsMd,
+                    })
+                  }
+                  onDiscussStage={(stageId) =>
+                    void dispatchStageCommand({
+                      type: "stage.discuss",
+                      stageId,
+                    })
+                  }
+                  onSkipStage={(stageId) =>
+                    void dispatchStageCommand({
+                      type: "stage.skip",
+                      stageId,
+                    })
+                  }
+                  onRecomputeStages={(stageIds) =>
+                    void dispatchStageCommand({
+                      type: "project.recompute",
+                      stageIds,
+                    })
+                  }
+                />
+              )}
             </div>
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}

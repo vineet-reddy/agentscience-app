@@ -48,6 +48,7 @@ export function buildLocalDraftThread(
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],
+    stageState: null,
   };
 }
 

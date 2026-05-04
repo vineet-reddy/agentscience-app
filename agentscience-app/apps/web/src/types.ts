@@ -4,6 +4,7 @@ import type {
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
+  ProjectStageState,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -112,6 +113,7 @@ export interface Thread {
   worktreePath: string | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  stageState?: ProjectStageState | null;
 }
 
 export interface SidebarThreadSummary {

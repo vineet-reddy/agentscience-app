@@ -17,6 +17,7 @@ import {
   syncServerReadModel,
   type AppState,
 } from "./store";
+import { createInitialStageState } from "@agentscience/shared/stageMachine";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -354,6 +355,26 @@ describe("incremental orchestration updates", () => {
 
     expect(next.threadsById[thread.id]?.title).toBe(generatedTitle);
     expect(next.sidebarThreadsById[thread.id]?.title).toBe(generatedTitle);
+  });
+
+  it("applies projected stage state updates to the active thread", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+    const stageState = createInitialStageState({
+      now: "2026-05-03T00:00:00.000Z",
+    });
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.stage-state-updated", {
+        threadId: thread.id,
+        stageState,
+        updatedAt: "2026-05-03T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threadsById[thread.id]?.stageState).toBe(stageState);
+    expect(next.threadsById[thread.id]?.updatedAt).toBe("2026-05-03T00:00:01.000Z");
   });
 
   it("preserves state identity for no-op project and thread deletes", () => {

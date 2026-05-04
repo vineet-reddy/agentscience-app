@@ -21,6 +21,7 @@ import {
   DiffPanelShell,
   type DiffPanelMode,
 } from "../components/DiffPanelShell";
+import { useThreadStageState } from "../stages/stageStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import {
   type DiffRouteSearch,
@@ -39,7 +40,9 @@ import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
-const PaperReviewPanel = lazy(() => import("../components/PaperReviewPanel"));
+const StagePanel = lazy(() =>
+  import("../components/stages/StagePanel").then((m) => ({ default: m.StagePanel })),
+);
 const DIFF_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
@@ -213,14 +216,22 @@ const DiffPanelInlineSidebar = (props: {
   );
 };
 
-const PaperReviewInlineSidebar = (props: {
+const StageInlineSidebar = (props: {
   reviewOpen: boolean;
   onCloseReview: () => void;
   onOpenReview: () => void;
   renderReviewContent: boolean;
   threadId: ThreadId;
+  paperReviewAvailable: boolean;
 }) => {
-  const { reviewOpen, onCloseReview, onOpenReview, renderReviewContent, threadId } = props;
+  const {
+    reviewOpen,
+    onCloseReview,
+    onOpenReview,
+    renderReviewContent,
+    threadId,
+    paperReviewAvailable,
+  } = props;
   const maxWidth = usePaperReviewSidebarMaxWidth();
   const onOpenChange = useCallback(
     (open: boolean) => {
@@ -254,7 +265,11 @@ const PaperReviewInlineSidebar = (props: {
       >
         {renderReviewContent ? (
           <Suspense fallback={<PaperReviewLoadingFallback />}>
-            <PaperReviewPanel key={threadId} threadId={threadId} />
+            <StagePanel
+              key={threadId}
+              threadId={threadId}
+              paperReviewAvailable={paperReviewAvailable}
+            />
           </Suspense>
         ) : null}
         <SidebarRail />
@@ -308,9 +323,15 @@ function ChatThreadRouteView() {
     refetchInterval: 5_000,
   });
   const readyPaperReviewKey = paperReviewReadyPdfKey(paperReviewQuery.data);
-  const paperReviewAvailable = Boolean(
+  // Stage-aware threads always expose the right canvas (it shows the
+  // stage-specific artifact preview). Legacy threads keep the old behavior:
+  // the canvas only opens when the agent has produced a manuscript.
+  const stageState = useThreadStageState(threadId);
+  const stageAware = stageState !== null;
+  const paperReviewAvailableFromAgent = Boolean(
     paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId,
   );
+  const paperReviewAvailable = paperReviewAvailableFromAgent || stageAware;
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY) || reviewOpen;
   const closeDiff = useCallback(() => {
     void navigate({
@@ -462,12 +483,13 @@ function ChatThreadRouteView() {
           onTogglePaperReview={reviewOpen ? closeReview : openReview}
         />
       </SidebarInset>
-      <PaperReviewInlineSidebar
+      <StageInlineSidebar
         reviewOpen={reviewOpen}
         onCloseReview={closeReview}
         onOpenReview={openReview}
         renderReviewContent={shouldRenderReviewContent}
         threadId={threadId}
+        paperReviewAvailable={paperReviewAvailableFromAgent}
       />
       {shouldUseDiffSheet ? (
         <DiffPanelSheet diffOpen={diffOpen} onCloseDiff={closeDiff}>

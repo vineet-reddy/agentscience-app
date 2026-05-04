@@ -1,5 +1,6 @@
 import {
   type EditorId,
+  type ProjectMode,
   type ProjectScript,
   type ThreadId,
 } from "@agentscience/contracts";
@@ -13,6 +14,7 @@ import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { SidebarReopenTrigger } from "../SidebarReopenTrigger";
 import { OpenInPicker } from "./OpenInPicker";
+import { ModeToggle } from "../stages/StepperBar";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -31,6 +33,7 @@ interface ChatHeaderProps {
   diffOpen: boolean;
   paperReviewAvailable: boolean;
   paperReviewOpen: boolean;
+  stageMode?: ProjectMode | undefined;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -38,6 +41,7 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onTogglePaperReview: () => void;
+  onChangeStageMode?: ((mode: ProjectMode) => void) | undefined;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -57,6 +61,7 @@ export const ChatHeader = memo(function ChatHeader({
   diffOpen,
   paperReviewAvailable,
   paperReviewOpen,
+  stageMode,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -64,6 +69,7 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
   onTogglePaperReview,
+  onChangeStageMode,
 }: ChatHeaderProps) {
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -105,6 +111,14 @@ export const ChatHeader = memo(function ChatHeader({
           />
         )}
         {/* {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />} */}
+        {stageMode && onChangeStageMode && (
+          <ModeToggle
+            className="shrink-0 bg-background"
+            mode={stageMode}
+            onChangeMode={onChangeStageMode}
+            size="compact"
+          />
+        )}
         {terminalAvailable && (
           <Tooltip>
             <TooltipTrigger
