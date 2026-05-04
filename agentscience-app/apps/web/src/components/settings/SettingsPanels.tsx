@@ -130,6 +130,9 @@ const PROVIDER_STATUS_STYLES = {
 const AGENTSCIENCE_RELEASES_URL =
   "https://github.com/vineet-reddy/agentscience-app/releases/latest";
 
+const PRIVACY_DOC_URL =
+  "https://github.com/vineet-reddy/agentscience-app/blob/main/agentscience-app/docs/PRIVACY.md";
+
 function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
     return {
@@ -1537,6 +1540,31 @@ export function GeneralSettingsPanel() {
           />
         )}
         <SettingsRow
+          title="Privacy"
+          description="What AgentScience collects, what it doesn't, and how to turn it off."
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                void readNativeApi()
+                  ?.shell.openExternal(PRIVACY_DOC_URL)
+                  .catch((error: unknown) => {
+                    toastManager.add({
+                      type: "error",
+                      title: "Could not open privacy policy",
+                      description:
+                        error instanceof Error ? error.message : "Open link failed.",
+                    });
+                  });
+              }}
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              <span>View PRIVACY.md</span>
+            </Button>
+          }
+        />
+        <SettingsRow
           title="Diagnostics"
           description={diagnosticsDescription}
           status={
@@ -1764,9 +1792,6 @@ export function ArchivedThreadsPanel() {
     </SettingsPageContainer>
   );
 }
-
-const PRIVACY_DOC_URL =
-  "https://github.com/vineet-reddy/agentscience-app/blob/main/agentscience-app/docs/PRIVACY.md";
 
 const ANALYTICS_PAYLOAD_PREVIEW = `{
   "timestamp": "2026-05-04T03:42:00.000Z",
