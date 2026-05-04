@@ -2,10 +2,12 @@ import {
   ArchiveIcon,
   ArchiveX,
   ChevronDownIcon,
+  ExternalLinkIcon,
   InfoIcon,
   LoaderIcon,
   PlusIcon,
   RefreshCwIcon,
+  ShieldCheckIcon,
   Undo2Icon,
   XIcon,
 } from "lucide-react";
@@ -20,6 +22,7 @@ import {
   type ServerRuntimeAgentScience,
   ThreadId,
 } from "@agentscience/contracts";
+import type { AnalyticsSettings } from "@agentscience/contracts";
 import { DEFAULT_UNIFIED_SETTINGS } from "@agentscience/contracts/settings";
 import { normalizeModelSlug } from "@agentscience/shared/model";
 import { Equal } from "effect";
@@ -1758,6 +1761,131 @@ export function ArchivedThreadsPanel() {
           </SettingsSection>
         ))
       )}
+    </SettingsPageContainer>
+  );
+}
+
+const PRIVACY_DOC_URL =
+  "https://github.com/vineet-reddy/agentscience-app/blob/main/agentscience-app/docs/PRIVACY.md";
+
+const ANALYTICS_PAYLOAD_PREVIEW = `{
+  "timestamp": "2026-05-04T03:42:00.000Z",
+  "sessionId": "171234567890123456",
+  "eventName": "app_opened",
+  "systemProps": {
+    "isDebug": false,
+    "locale": "en-US",
+    "osName": "macOS",
+    "osVersion": "14.5",
+    "engineName": "Chromium",
+    "engineVersion": "118.0.5993.159",
+    "appVersion": "1.4.2",
+    "sdkVersion": "aptabase-electron@0.3.1"
+  },
+  "props": {}
+}`;
+
+export function PrivacySettingsPanel() {
+  const [settings, setSettings] = useState<AnalyticsSettings | null>(null);
+  const [isToggling, setIsToggling] = useState(false);
+  const [bridgeAvailable, setBridgeAvailable] = useState(true);
+
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    if (!bridge?.getAnalyticsSettings) {
+      setBridgeAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    void bridge
+      .getAnalyticsSettings()
+      .then((next) => {
+        if (!cancelled) setSettings(next);
+      })
+      .catch((error: unknown) => {
+        console.warn("Failed to load analytics settings", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleToggle = useCallback(async (enabled: boolean) => {
+    const bridge = window.desktopBridge;
+    if (!bridge?.setAnalyticsEnabled) return;
+    setIsToggling(true);
+    try {
+      const next = await bridge.setAnalyticsEnabled(enabled);
+      setSettings(next);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not update analytics setting",
+        description: error instanceof Error ? error.message : "Unknown error.",
+      });
+    } finally {
+      setIsToggling(false);
+    }
+  }, []);
+
+  const handleOpenPolicy = useCallback(() => {
+    const api = readNativeApi();
+    void api?.shell.openExternal(PRIVACY_DOC_URL).catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Could not open privacy policy",
+        description: error instanceof Error ? error.message : "Open link failed.",
+      });
+    });
+  }, []);
+
+  return (
+    <SettingsPageContainer>
+      <SettingsSection title="Anonymous usage" icon={<ShieldCheckIcon className="size-3.5" />}>
+        <SettingsRow
+          title="Send anonymous usage ping"
+          description="One small ping per UTC day so we know whether anyone is using AgentScience and which platforms to support. No prompts, files, accounts, or IP addresses."
+          status={
+            settings?.lastPingDay
+              ? `Last ping recorded for ${settings.lastPingDay} (UTC).`
+              : "No ping has been sent yet."
+          }
+          control={
+            <Switch
+              checked={settings?.enabled ?? true}
+              disabled={!bridgeAvailable || settings === null || isToggling}
+              onCheckedChange={(checked) => void handleToggle(Boolean(checked))}
+              aria-label="Send anonymous usage ping"
+            />
+          }
+        />
+        <SettingsRow
+          title="What we collect"
+          description="The exact JSON payload sent on each ping. Always equal to this preview — no other event is emitted by the desktop app."
+          control={
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleOpenPolicy}
+              disabled={!isElectron && !bridgeAvailable}
+            >
+              <ExternalLinkIcon className="size-3.5" />
+              <span>View PRIVACY.md</span>
+            </Button>
+          }
+        >
+          <pre className="mt-3 overflow-x-auto rounded-lg border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+            <code>{ANALYTICS_PAYLOAD_PREVIEW}</code>
+          </pre>
+        </SettingsRow>
+      </SettingsSection>
+
+      {!bridgeAvailable ? (
+        <p className="text-xs text-muted-foreground">
+          Analytics settings are only available in the desktop app. The web client never sends
+          telemetry.
+        </p>
+      ) : null}
     </SettingsPageContainer>
   );
 }

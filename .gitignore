@@ -23,6 +23,7 @@ apps/web/src/components/__screenshots__
 __screenshots__/
 .tanstack
 .vite/
+.cache/
 agent-memory/
 agentscience-app/apps/desktop/managed-resources/.manifest.json
 agentscience-app/apps/desktop/managed-resources/*/darwin-*/
