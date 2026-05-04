@@ -1,7 +1,8 @@
 import {
   type EditorId,
-  type ProjectMode,
   type ProjectScript,
+  type ProjectStageState,
+  type StageId,
   type ThreadId,
 } from "@agentscience/contracts";
 import { memo } from "react";
@@ -14,7 +15,7 @@ import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { SidebarReopenTrigger } from "../SidebarReopenTrigger";
 import { OpenInPicker } from "./OpenInPicker";
-import { ModeToggle } from "../stages/StepperBar";
+import { StageBreadcrumb } from "../stages/StepperBar";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -33,7 +34,8 @@ interface ChatHeaderProps {
   diffOpen: boolean;
   paperReviewAvailable: boolean;
   paperReviewOpen: boolean;
-  stageMode?: ProjectMode | undefined;
+  stageState?: ProjectStageState | null | undefined;
+  focusedStageId?: StageId | undefined;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -41,7 +43,7 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onTogglePaperReview: () => void;
-  onChangeStageMode?: ((mode: ProjectMode) => void) | undefined;
+  onFocusStage?: ((stageId: StageId) => void) | undefined;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -61,7 +63,8 @@ export const ChatHeader = memo(function ChatHeader({
   diffOpen,
   paperReviewAvailable,
   paperReviewOpen,
-  stageMode,
+  stageState,
+  focusedStageId,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -69,7 +72,7 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
   onTogglePaperReview,
-  onChangeStageMode,
+  onFocusStage,
 }: ChatHeaderProps) {
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -87,6 +90,14 @@ export const ChatHeader = memo(function ChatHeader({
             <span className="min-w-0 truncate">{activeProjectName}</span>
           </Badge>
         )}
+        {stageState && onFocusStage ? (
+          <StageBreadcrumb
+            className="ml-1 hidden flex-1 @2xl/header-actions:flex"
+            state={stageState}
+            focusedStageId={focusedStageId}
+            onFocusStage={onFocusStage}
+          />
+        ) : null}
         {/* {activeProjectName && !isGitRepo && (
           <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
             No Git
@@ -111,14 +122,6 @@ export const ChatHeader = memo(function ChatHeader({
           />
         )}
         {/* {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />} */}
-        {stageMode && onChangeStageMode && (
-          <ModeToggle
-            className="shrink-0 bg-background"
-            mode={stageMode}
-            onChangeMode={onChangeStageMode}
-            size="compact"
-          />
-        )}
         {terminalAvailable && (
           <Tooltip>
             <TooltipTrigger

@@ -31,6 +31,11 @@ import {
 import { useStore } from "../store";
 import { cn } from "../lib/utils";
 import {
+  PAPER_WORKFLOW_MODES,
+  type PaperWorkflowMode,
+} from "../paperWorkflowModes";
+import { useUiStateStore } from "../uiStateStore";
+import {
   buildGreeting,
   CASE_D_MESSAGE,
   formatConnectedDatasetCount,
@@ -56,6 +61,13 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   const draftThreadsByThreadId = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId,
   );
+  const isDraftThread = useComposerDraftStore((store) =>
+    Object.hasOwn(store.draftThreadsByThreadId, threadId),
+  );
+  const selectedPaperMode = useUiStateStore(
+    (store) => store.paperWorkflowModeByThreadId[threadId] ?? null,
+  );
+  const setPaperWorkflowMode = useUiStateStore((store) => store.setPaperWorkflowMode);
 
   const onboardingProfile = useOnboardingStore((store) => store.profile);
   const welcomeGreetingConsumed = useOnboardingStore(
@@ -280,6 +292,24 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     requestComposerFocus({ threadId, seedPrompt: nextPrompt });
   };
 
+  const handleModeSelect = (mode: PaperWorkflowMode | null) => {
+    setPaperWorkflowMode(threadId, mode);
+    requestComposerFocus({ threadId });
+  };
+
+  if (isDraftThread) {
+    return (
+      <NewPaperModePicker
+        selectedMode={selectedPaperMode}
+        onSelectMode={handleModeSelect}
+        onSkip={() => {
+          setPaperWorkflowMode(threadId, null);
+          requestComposerFocus({ threadId });
+        }}
+      />
+    );
+  }
+
   if (presentation.emptyStateCase === "D") {
     return (
       <div className="flex h-full items-center justify-center px-6">
@@ -411,6 +441,73 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
             </ul>
           </section>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function NewPaperModePicker({
+  selectedMode,
+  onSelectMode,
+  onSkip,
+}: {
+  selectedMode: PaperWorkflowMode | null;
+  onSelectMode: (mode: PaperWorkflowMode | null) => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-16 pt-14 sm:pt-20">
+      <div className="w-full max-w-[680px]">
+        <header className="text-center">
+          <h1 className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
+            How would you like to start?
+          </h1>
+          <p className="mx-auto mt-3 max-w-[520px] text-[0.9375rem] leading-relaxed text-ink-light">
+            Choose the research workflow that matches the artifact you want to produce.
+          </p>
+        </header>
+
+        <div className="mt-10 grid gap-3 border-y border-rule py-4 sm:grid-cols-2">
+          {PAPER_WORKFLOW_MODES.map((mode) => {
+            const selected = selectedMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => onSelectMode(selected ? null : mode.id)}
+                className={cn(
+                  "group flex min-h-28 flex-col items-start justify-start rounded-[8px] border border-rule bg-background px-4 py-4 text-left transition-colors duration-150 ease-linear",
+                  "hover:border-ink-faint hover:bg-snow-white",
+                  selected && "border-ink bg-snow-white",
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <span
+                    aria-hidden
+                    className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)}
+                  />
+                  <span className="truncate text-[0.9375rem] font-medium text-ink">
+                    {mode.label}
+                  </span>
+                </span>
+                <span className="mt-3 text-[0.875rem] leading-relaxed text-ink-light">
+                  {mode.description}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={onSkip}
+            className="inline-flex items-center rounded-[4px] border border-rule bg-background px-4 py-2 text-[0.8125rem] font-medium text-ink transition-colors duration-150 ease-linear hover:bg-snow-white-dark"
+          >
+            Skip and describe your work below
+          </button>
+        </div>
       </div>
     </div>
   );

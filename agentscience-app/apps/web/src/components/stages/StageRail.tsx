@@ -24,11 +24,11 @@
  */
 
 import {
-  STAGE_DISPLAY_NAME,
-  STAGE_ORDER,
   type ProjectStageState,
   type StageId,
   type ThreadId,
+  workflowStageDisplayName,
+  workflowStageOrder,
 } from "@agentscience/contracts";
 import { getStaleStageIds } from "@agentscience/shared/stageMachine";
 import { ZapIcon } from "lucide-react";
@@ -66,9 +66,10 @@ export const StageRail = memo(function StageRail({
     items.push({
       stageId: state.currentStageId,
       node: (
-        <StaleRecomputeBanner
-          key="stale-banner"
-          staleStageIds={staleStageIds}
+          <StaleRecomputeBanner
+            key="stale-banner"
+            workflowMode={state.workflowMode}
+            staleStageIds={staleStageIds}
           onDismiss={() => setStaleDismissed(true)}
           onRecompute={(stageIds) => {
             onRecomputeStages(stageIds);
@@ -79,9 +80,9 @@ export const StageRail = memo(function StageRail({
     });
   }
 
-  // Walk every stage in canonical order. Past stages get a collapsed row;
+  // Walk every stage in the selected workflow order. Past stages get a collapsed row;
   // the current stage gets the gate card or active row.
-  for (const stageId of STAGE_ORDER) {
+  for (const stageId of workflowStageOrder(state.workflowMode)) {
     const stage = state.stages[stageId];
     if (!stage) continue;
 
@@ -95,6 +96,7 @@ export const StageRail = memo(function StageRail({
           <StageApprovedRow
             key={`approved:${stageId}`}
             stageId={stageId}
+            workflowMode={state.workflowMode}
             status={status}
             stale={stage.stale}
             // Auto-confidence is only shown when the stage was auto-approved.
@@ -123,6 +125,7 @@ export const StageRail = memo(function StageRail({
           <ActiveStageRow
             key={`active:${stageId}`}
             stageId={stageId}
+            workflowMode={state.workflowMode}
           />
         ),
       });
@@ -134,9 +137,10 @@ export const StageRail = memo(function StageRail({
         stageId,
         node: (
           <div key={`gate:${stageId}`} className="space-y-2">
-            <StageDivider stageId={stageId} />
+            <StageDivider stageId={stageId} workflowMode={state.workflowMode} />
             <GateCard
               stageId={stageId}
+              workflowMode={state.workflowMode}
               concerns={stage.concerns}
               confidence={stage.confidence}
               stale={stage.stale}
@@ -171,14 +175,16 @@ export const StageRail = memo(function StageRail({
 
 function ActiveStageRow({
   stageId,
+  workflowMode,
 }: {
   stageId: StageId;
+  workflowMode: ProjectStageState["workflowMode"];
 }) {
-  const number = STAGE_ORDER.indexOf(stageId) + 1;
-  const name = STAGE_DISPLAY_NAME[stageId];
+  const number = workflowStageOrder(workflowMode).indexOf(stageId) + 1;
+  const name = workflowStageDisplayName(workflowMode, stageId);
   return (
     <>
-      <StageDivider stageId={stageId} />
+      <StageDivider stageId={stageId} workflowMode={workflowMode} />
       <div className="rounded-xl border border-dashed border-border/65 bg-card/20 px-3 py-2.5">
         <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-muted-foreground/80">
           <ZapIcon className="size-3.5 text-muted-foreground/55" />

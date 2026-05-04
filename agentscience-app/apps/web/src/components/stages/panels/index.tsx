@@ -9,8 +9,8 @@
  */
 
 import {
-  STAGE_DISPLAY_NAME,
   type ProjectStageState,
+  workflowStageDisplayName,
 } from "@agentscience/contracts";
 import { type ReactNode } from "react";
 
@@ -288,7 +288,7 @@ export function DraftStagePanel({ state, view }: BasePanelProps) {
   }
   return (
     <PanelShell>
-      <SectionLabel>{STAGE_DISPLAY_NAME.draft}</SectionLabel>
+      <SectionLabel>{workflowStageDisplayName(state.workflowMode, "draft")}</SectionLabel>
       <article className="space-y-6">
         {artifact.sections.map((section) => (
           <section key={section.id} className="space-y-2">

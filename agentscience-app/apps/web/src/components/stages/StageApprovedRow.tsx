@@ -13,15 +13,17 @@ import { CheckIcon, RotateCcwIcon, SkipForwardIcon } from "lucide-react";
 import { memo } from "react";
 
 import {
-  STAGE_DISPLAY_NAME,
-  STAGE_ORDER,
+  type ResearchWorkflowMode,
   type StageId,
   type StageStatus,
+  workflowStageDisplayName,
+  workflowStageOrder,
 } from "@agentscience/contracts";
 import { cn } from "~/lib/utils";
 
 interface StageApprovedRowProps {
   stageId: StageId;
+  workflowMode: ResearchWorkflowMode;
   status: Exclude<StageStatus, "active" | "awaiting_approval" | "pending">;
   /** True when an upstream revise marked this stage stale. */
   stale?: boolean;
@@ -31,12 +33,13 @@ interface StageApprovedRowProps {
 
 export const StageApprovedRow = memo(function StageApprovedRow({
   stageId,
+  workflowMode,
   status,
   stale,
   autoConfidence,
 }: StageApprovedRowProps) {
-  const number = STAGE_ORDER.indexOf(stageId) + 1;
-  const name = STAGE_DISPLAY_NAME[stageId];
+  const number = workflowStageOrder(workflowMode).indexOf(stageId) + 1;
+  const name = workflowStageDisplayName(workflowMode, stageId);
   const Icon =
     status === "skipped"
       ? SkipForwardIcon

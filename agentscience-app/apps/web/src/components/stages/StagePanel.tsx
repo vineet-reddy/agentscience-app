@@ -16,7 +16,7 @@ import { lazy, memo, Suspense, useEffect, useState } from "react";
 
 import { useThreadStageState } from "../../stages/stageStore";
 import { cn } from "~/lib/utils";
-import { STAGE_DISPLAY_NAME } from "@agentscience/contracts";
+import { workflowStageDisplayName } from "@agentscience/contracts";
 import { StepperDots } from "./StepperBar";
 
 import {
@@ -71,7 +71,7 @@ export const StagePanel = memo(function StagePanel({
 
   const stageId = focusedStageId ?? localFocusedStageId ?? state.currentStageId;
   const stage = state.stages[stageId];
-  const name = STAGE_DISPLAY_NAME[stageId];
+  const name = workflowStageDisplayName(state.workflowMode, stageId);
   const focusStage = (nextStageId: StageId) => {
     setLocalFocusedStageId(nextStageId);
   };

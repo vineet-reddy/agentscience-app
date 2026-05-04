@@ -20,11 +20,12 @@
  */
 
 import {
-  STAGE_DISPLAY_NAME,
-  STAGE_ORDER,
   type Concern,
   type Confidence,
+  type ResearchWorkflowMode,
   type StageId,
+  workflowStageDisplayName,
+  workflowStageOrder,
 } from "@agentscience/contracts";
 import { ArrowRightIcon, AlertTriangleIcon } from "lucide-react";
 import { memo, useState } from "react";
@@ -35,6 +36,7 @@ import ChatMarkdown from "../ChatMarkdown";
 
 interface GateCardProps {
   stageId: StageId;
+  workflowMode: ResearchWorkflowMode;
   concerns: readonly Concern[];
   confidence: Confidence | null;
   /** True when revision turned this gate stale (still actionable, but flagged). */
@@ -47,6 +49,7 @@ interface GateCardProps {
 
 export const GateCard = memo(function GateCard({
   stageId,
+  workflowMode,
   concerns,
   confidence,
   stale,
@@ -55,8 +58,8 @@ export const GateCard = memo(function GateCard({
   onDiscuss,
   onSkip,
 }: GateCardProps) {
-  const stageNumber = STAGE_ORDER.indexOf(stageId) + 1;
-  const stageName = STAGE_DISPLAY_NAME[stageId];
+  const stageNumber = workflowStageOrder(workflowMode).indexOf(stageId) + 1;
+  const stageName = workflowStageDisplayName(workflowMode, stageId);
   const concernCount = concerns.length;
   const [revising, setRevising] = useState(false);
   const [reviseDraft, setReviseDraft] = useState("");

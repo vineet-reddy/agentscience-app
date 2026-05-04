@@ -1,6 +1,10 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import { type ProjectId, type ThreadId } from "@agentscience/contracts";
 import { create } from "zustand";
+import {
+  isPaperWorkflowMode,
+  type PaperWorkflowMode,
+} from "./paperWorkflowModes";
 
 const PERSISTED_STATE_KEY = "agentscience:ui-state:v1";
 const LEGACY_PERSISTED_STATE_KEYS = [
@@ -21,6 +25,7 @@ interface PersistedUiState {
   projectOrderFolderSlugs?: string[];
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
+  paperWorkflowModeByThreadId?: Record<string, unknown>;
 }
 
 export interface UiProjectState {
@@ -30,6 +35,7 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
+  paperWorkflowModeByThreadId: Record<string, PaperWorkflowMode>;
 }
 
 export interface UiState extends UiProjectState, UiThreadState {}
@@ -48,6 +54,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
+  paperWorkflowModeByThreadId: {},
 };
 
 const persistedExpandedProjectFolderSlugs = new Set<string>();
@@ -67,13 +74,21 @@ function readPersistedState(): UiState {
         if (!legacyRaw) {
           continue;
         }
-        hydratePersistedProjectState(JSON.parse(legacyRaw) as PersistedUiState);
-        return initialState;
+        const parsed = JSON.parse(legacyRaw) as PersistedUiState;
+        hydratePersistedProjectState(parsed);
+        return {
+          ...initialState,
+          paperWorkflowModeByThreadId: hydratePaperWorkflowModes(parsed),
+        };
       }
       return initialState;
     }
-    hydratePersistedProjectState(JSON.parse(raw) as PersistedUiState);
-    return initialState;
+    const parsed = JSON.parse(raw) as PersistedUiState;
+    hydratePersistedProjectState(parsed);
+    return {
+      ...initialState,
+      paperWorkflowModeByThreadId: hydratePaperWorkflowModes(parsed),
+    };
   } catch {
     return initialState;
   }
@@ -98,6 +113,18 @@ function hydratePersistedProjectState(parsed: PersistedUiState): void {
   }
 }
 
+function hydratePaperWorkflowModes(
+  parsed: PersistedUiState,
+): Record<string, PaperWorkflowMode> {
+  const result: Record<string, PaperWorkflowMode> = {};
+  for (const [threadId, mode] of Object.entries(parsed.paperWorkflowModeByThreadId ?? {})) {
+    if (threadId.length > 0 && isPaperWorkflowMode(mode)) {
+      result[threadId] = mode;
+    }
+  }
+  return result;
+}
+
 function persistState(state: UiState): void {
   if (typeof window === "undefined") {
     return;
@@ -118,6 +145,7 @@ function persistState(state: UiState): void {
       JSON.stringify({
         expandedProjectFolderSlugs,
         projectOrderFolderSlugs,
+        paperWorkflowModeByThreadId: state.paperWorkflowModeByThreadId,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -276,7 +304,11 @@ export function syncThreads(state: UiState, threads: readonly SyncThreadInput[])
       nextThreadLastVisitedAtById[thread.id] = thread.seedVisitedAt;
     }
   }
-  if (recordsEqual(state.threadLastVisitedAtById, nextThreadLastVisitedAtById)) {
+  const threadVisitsEqual = recordsEqual(
+    state.threadLastVisitedAtById,
+    nextThreadLastVisitedAtById,
+  );
+  if (threadVisitsEqual) {
     return state;
   }
   return {
@@ -332,14 +364,41 @@ export function markThreadUnread(
 }
 
 export function clearThreadUi(state: UiState, threadId: ThreadId): UiState {
-  if (!(threadId in state.threadLastVisitedAtById)) {
+  if (
+    !(threadId in state.threadLastVisitedAtById) &&
+    !(threadId in state.paperWorkflowModeByThreadId)
+  ) {
     return state;
   }
   const nextThreadLastVisitedAtById = { ...state.threadLastVisitedAtById };
   delete nextThreadLastVisitedAtById[threadId];
+  const nextPaperWorkflowModeByThreadId = { ...state.paperWorkflowModeByThreadId };
+  delete nextPaperWorkflowModeByThreadId[threadId];
   return {
     ...state,
     threadLastVisitedAtById: nextThreadLastVisitedAtById,
+    paperWorkflowModeByThreadId: nextPaperWorkflowModeByThreadId,
+  };
+}
+
+export function setPaperWorkflowMode(
+  state: UiState,
+  threadId: ThreadId,
+  mode: PaperWorkflowMode | null,
+): UiState {
+  const current = state.paperWorkflowModeByThreadId[threadId] ?? null;
+  if (current === mode) {
+    return state;
+  }
+  const nextPaperWorkflowModeByThreadId = { ...state.paperWorkflowModeByThreadId };
+  if (mode === null) {
+    delete nextPaperWorkflowModeByThreadId[threadId];
+  } else {
+    nextPaperWorkflowModeByThreadId[threadId] = mode;
+  }
+  return {
+    ...state,
+    paperWorkflowModeByThreadId: nextPaperWorkflowModeByThreadId,
   };
 }
 
@@ -402,6 +461,7 @@ interface UiStateStore extends UiState {
   markThreadVisited: (threadId: ThreadId, visitedAt?: string) => void;
   markThreadUnread: (threadId: ThreadId, latestTurnCompletedAt: string | null | undefined) => void;
   clearThreadUi: (threadId: ThreadId) => void;
+  setPaperWorkflowMode: (threadId: ThreadId, mode: PaperWorkflowMode | null) => void;
   toggleProject: (projectId: ProjectId) => void;
   setProjectExpanded: (projectId: ProjectId, expanded: boolean) => void;
   reorderProjects: (draggedProjectId: ProjectId, targetProjectId: ProjectId) => void;
@@ -416,6 +476,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   markThreadUnread: (threadId, latestTurnCompletedAt) =>
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   clearThreadUi: (threadId) => set((state) => clearThreadUi(state, threadId)),
+  setPaperWorkflowMode: (threadId, mode) =>
+    set((state) => setPaperWorkflowMode(state, threadId, mode)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),

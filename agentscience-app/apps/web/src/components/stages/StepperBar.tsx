@@ -1,29 +1,15 @@
 /**
- * Slim horizontal bar between the chat header and the chat thread.
- *
- * Three regions on one row:
- *   - Left:   small-caps label "STAGE N · NAME" for the current stage
- *   - Middle: 8 dots with connecting lines
- *               · done    -> filled
- *               · current -> enlarged with a halo ring
- *               · future  -> outlined
- *               · stale   -> filled but tinted (work needs redoing)
- *               · skipped -> outlined dashed
- *   - Right:  Manual / Auto pill toggle. Manual is the default. The
- *             container styling matches the existing Preview/Source
- *             toggle in PaperReviewPanel.
- *
- * Clicking a past stage navigates focus back to that stage. Clicking a
- * future dot is a no-op (the agent has not produced the upstream
- * artifacts yet).
+ * Stage navigation controls for the research workflow. The breadcrumb variant
+ * is used in the chat header; the dot strip remains available for compact
+ * secondary surfaces such as the stage panel.
  */
 
 import {
-  STAGE_DISPLAY_NAME,
-  STAGE_ORDER,
   type ProjectMode,
   type ProjectStageState,
   type StageId,
+  workflowStageDisplayName,
+  workflowStageOrder,
 } from "@agentscience/contracts";
 import { memo } from "react";
 
@@ -34,19 +20,18 @@ interface StepperBarProps {
   /** Optional override of which stage to highlight. Defaults to current. */
   focusedStageId?: StageId | undefined;
   onFocusStage: (stageId: StageId) => void;
-  onChangeMode: (mode: ProjectMode) => void;
 }
 
 export const StepperBar = memo(function StepperBar({
   state,
   focusedStageId,
   onFocusStage,
-  onChangeMode,
 }: StepperBarProps) {
   const focused = focusedStageId ?? state.currentStageId;
-  const focusedIndex = STAGE_ORDER.indexOf(focused);
+  const stageOrder = workflowStageOrder(state.workflowMode);
+  const focusedIndex = stageOrder.indexOf(focused);
   const focusedNumber = focusedIndex + 1;
-  const focusedLabel = STAGE_DISPLAY_NAME[focused];
+  const focusedLabel = workflowStageDisplayName(state.workflowMode, focused);
 
   return (
     <div className="@container/stepper border-b border-border/65 bg-background">
@@ -64,13 +49,81 @@ export const StepperBar = memo(function StepperBar({
           focusedStageId={focused}
           onFocusStage={onFocusStage}
         />
-        <div className="ml-auto shrink-0">
-          <ModeToggle mode={state.mode} onChangeMode={onChangeMode} />
-        </div>
       </div>
     </div>
   );
 });
+
+interface StageBreadcrumbProps {
+  className?: string;
+  state: ProjectStageState;
+  focusedStageId?: StageId | undefined;
+  onFocusStage: (stageId: StageId) => void;
+}
+
+export function StageBreadcrumb({
+  className,
+  focusedStageId,
+  onFocusStage,
+  state,
+}: StageBreadcrumbProps) {
+  const focused = focusedStageId ?? state.currentStageId;
+  const stageOrder = workflowStageOrder(state.workflowMode);
+  const currentIndex = stageOrder.indexOf(state.currentStageId);
+
+  return (
+    <nav
+      aria-label="Research stages"
+      className={cn(
+        "flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className,
+      )}
+    >
+      {stageOrder.map((stageId, index) => {
+        const stage = state.stages[stageId];
+        const status = stage?.status ?? "pending";
+        const isFocused = stageId === focused;
+        const isCurrent = stageId === state.currentStageId;
+        const isComplete = status === "approved" || status === "skipped";
+        const isPast = index < currentIndex;
+        const navigable = isPast || isCurrent;
+
+        return (
+          <div key={stageId} className="flex min-w-max items-center gap-1">
+            <button
+              type="button"
+              aria-current={isCurrent ? "step" : undefined}
+              disabled={!navigable}
+              onClick={() => {
+                if (navigable) {
+                  onFocusStage(stageId);
+                }
+              }}
+              className={cn(
+                "h-7 rounded-full px-2.5 text-[0.8125rem] leading-none transition-colors duration-150",
+                isCurrent
+                  ? "bg-ink text-snow-white"
+                  : isFocused
+                    ? "text-ink ring-1 ring-rule"
+                    : isComplete || isPast
+                      ? "text-ink-light hover:text-ink"
+                      : "text-ink-faint",
+                navigable ? "cursor-pointer" : "cursor-default",
+              )}
+            >
+              {workflowStageDisplayName(state.workflowMode, stageId)}
+            </button>
+            {index < stageOrder.length - 1 ? (
+              <span aria-hidden className="text-[0.75rem] text-ink-faint/70">
+                /
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
 
 interface StepperDotsProps {
   className?: string;
@@ -87,7 +140,8 @@ export function StepperDots({
   onFocusStage,
   state,
 }: StepperDotsProps) {
-  const currentIndex = STAGE_ORDER.indexOf(state.currentStageId);
+  const stageOrder = workflowStageOrder(state.workflowMode);
+  const currentIndex = stageOrder.indexOf(state.currentStageId);
 
   return (
     <div
@@ -98,7 +152,7 @@ export function StepperDots({
       )}
     >
       <div className="flex items-center">
-        {STAGE_ORDER.map((stageId, index) => {
+        {stageOrder.map((stageId, index) => {
           const stage = state.stages[stageId];
           const status = stage?.status ?? "pending";
           const stale = stage?.stale === true;
@@ -112,7 +166,7 @@ export function StepperDots({
             <div key={stageId} className="flex items-center">
               <button
                 type="button"
-                aria-label={`Stage ${index + 1} · ${STAGE_DISPLAY_NAME[stageId]} · ${status}${stale ? " · stale" : ""}`}
+                aria-label={`Stage ${index + 1} · ${workflowStageDisplayName(state.workflowMode, stageId)} · ${status}${stale ? " · stale" : ""}`}
                 aria-current={isCurrent ? "step" : undefined}
                 disabled={!navigable}
                 onClick={() => navigable && onFocusStage(stageId)}
@@ -144,7 +198,7 @@ export function StepperDots({
                   )}
                 />
               </button>
-              {index < STAGE_ORDER.length - 1 && (
+              {index < stageOrder.length - 1 && (
                 <span
                   aria-hidden
                   className={cn(
@@ -209,7 +263,7 @@ function ModeButton({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "rounded-full py-1 text-[11px] uppercase tracking-[0.14em] transition-colors",
+        "rounded-full py-1 text-[0.8125rem] transition-colors",
         size === "compact" ? "px-2.5" : "px-3",
         active
           ? "bg-foreground text-background"

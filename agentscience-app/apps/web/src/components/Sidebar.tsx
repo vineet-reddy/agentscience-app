@@ -1,4 +1,9 @@
-import { type ProjectId, type ThreadId } from "@agentscience/contracts";
+import {
+  type ProjectId,
+  workflowStageDisplayName,
+  workflowStageOrder,
+  type ThreadId,
+} from "@agentscience/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -39,6 +44,12 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
+  PAPER_WORKFLOW_MODE_BY_ID,
+  PAPER_WORKFLOW_MODES,
+  type PaperWorkflowMode,
+  type PaperWorkflowModeOption,
+} from "../paperWorkflowModes";
+import {
   buildSidebarThreadEntries,
   type SidebarThreadEntryRecord,
   resolveThreadStatusPill,
@@ -67,7 +78,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarTrigger,
+  useSidebar,
 } from "./ui/sidebar";
+import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 
 type SidebarThreadEntry = SidebarThreadEntryRecord<ThreadId, ProjectId | null>;
 
@@ -118,9 +131,95 @@ function deriveDraftTitle(prompt: string | undefined): string {
     : firstMeaningfulLine;
 }
 
+function SidebarPaperModePill({
+  collapsed,
+  mode,
+  onChangeMode,
+  stageLabel,
+}: {
+  collapsed: boolean;
+  mode: PaperWorkflowModeOption;
+  onChangeMode: (mode: PaperWorkflowMode) => void;
+  stageLabel: string;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger
+        className={cn(
+          "mt-1 inline-flex items-center rounded-[8px] border border-sidebar-border bg-sidebar px-2 text-left text-sidebar-foreground transition-colors duration-150 ease-linear hover:bg-sidebar-accent",
+          collapsed
+            ? "size-8 justify-center p-0"
+            : "h-8 w-full justify-between gap-2",
+        )}
+        title={`${mode.label} · ${stageLabel}`}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span
+            aria-hidden
+            className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)}
+          />
+          {!collapsed ? (
+            <span className="min-w-0 truncate text-[0.8125rem] font-medium">
+              {mode.label}
+            </span>
+          ) : null}
+        </span>
+        {!collapsed ? (
+          <ChevronRightIcon className="size-3.5 shrink-0 text-sidebar-foreground/55" />
+        ) : null}
+      </PopoverTrigger>
+      <PopoverPopup
+        align="start"
+        side={collapsed ? "right" : "top"}
+        sideOffset={8}
+        className="w-60 border-rule bg-popover shadow-none"
+      >
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-center gap-2 text-[0.875rem] font-medium text-ink">
+              <span
+                aria-hidden
+                className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)}
+              />
+              {mode.label}
+            </div>
+            <div className="mt-1 text-[0.75rem] text-ink-light">{stageLabel}</div>
+          </div>
+          <div className="border-t border-rule pt-2">
+            <div className="mb-1 px-1 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-ink-faint">
+              Change mode
+            </div>
+            <div className="space-y-0.5">
+              {PAPER_WORKFLOW_MODES.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={option.id === mode.id}
+                  onClick={() => onChangeMode(option.id)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-[0.8125rem] text-ink-light transition-colors duration-150 ease-linear hover:bg-accent hover:text-ink",
+                    option.id === mode.id && "bg-accent text-ink",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn("size-2 shrink-0 rounded-full", option.dotClassName)}
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
 export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const sidebar = useSidebar();
   const { handleNewThread, routeThreadId } = useHandleNewThread();
   const { archiveThread, confirmAndDeleteThread, movePaper } = useThreadActions();
   const projects = useStore((state) => state.projects);
@@ -139,6 +238,13 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((state) => state.projectOrder);
   const threadLastVisitedAtById = useUiStateStore(
     (state) => state.threadLastVisitedAtById,
+  );
+  const paperWorkflowModeByThreadId = useUiStateStore(
+    (state) => state.paperWorkflowModeByThreadId,
+  );
+  const setPaperWorkflowMode = useUiStateStore((state) => state.setPaperWorkflowMode);
+  const activeThreadStageState = useStore((state) =>
+    routeThreadId ? (state.threadsById[routeThreadId]?.stageState ?? null) : null,
   );
   const setProjectExpanded = useUiStateStore(
     (state) => state.setProjectExpanded,
@@ -249,6 +355,53 @@ export default function Sidebar() {
     }) as Map<ProjectId | null, SidebarThreadEntry[]>;
   }, [draftThreadsByThreadId, draftsByThreadId, visibleThreadsById]);
   const recentThreads = threadEntriesByProjectId.get(null) ?? [];
+  const activePaperModeId = activeThreadStageState?.workflowMode
+    ? activeThreadStageState.workflowMode
+    : routeThreadId
+      ? (paperWorkflowModeByThreadId[routeThreadId] ?? null)
+    : null;
+  const activePaperMode = activePaperModeId ? PAPER_WORKFLOW_MODE_BY_ID[activePaperModeId] : null;
+  const activeStageLabel = useMemo(() => {
+    const workflowMode = activeThreadStageState?.workflowMode ?? activePaperModeId ?? "open";
+    const stageOrder = workflowStageOrder(workflowMode);
+    const stageId = activeThreadStageState?.currentStageId ?? stageOrder[0];
+    if (!stageId) {
+      return "Not started";
+    }
+    const index = stageOrder.indexOf(stageId);
+    return `Stage ${index + 1} of ${stageOrder.length} · ${workflowStageDisplayName(workflowMode, stageId)}`;
+  }, [
+    activePaperModeId,
+    activeThreadStageState?.currentStageId,
+    activeThreadStageState?.workflowMode,
+  ]);
+
+  const changeActivePaperWorkflowMode = async (mode: PaperWorkflowMode) => {
+    if (!routeThreadId) return;
+    if (!activeThreadStageState) {
+      setPaperWorkflowMode(routeThreadId, mode);
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    try {
+      await dispatchCommandAndSyncSnapshot(api, {
+        type: "project.workflow.set",
+        commandId: newCommandId(),
+        threadId: routeThreadId,
+        workflowMode: mode,
+        createdAt: new Date().toISOString(),
+      }, syncServerReadModel);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Failed to change mode",
+        description: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  };
 
   const resolveStatusForThread = (threadId: ThreadId): ThreadStatusPill | null => {
     const thread = visibleThreadsById.get(threadId);
@@ -584,13 +737,16 @@ export default function Sidebar() {
         */}
         <div
           className={cn(
-            "flex h-[52px] shrink-0 items-center gap-2 border-b border-sidebar-border pl-4 pr-2 text-sidebar-foreground",
+            "flex h-[52px] shrink-0 items-center gap-2 border-b border-sidebar-border pl-4 pr-2 text-sidebar-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2",
             isElectron && "drag-region",
           )}
         >
-          <BrandMark size={28} wordmarkClassName="text-lg" />
+          <BrandMark
+            size={28}
+            wordmarkClassName="text-lg group-data-[collapsible=icon]:hidden"
+          />
           <SidebarTrigger
-            className="ml-auto size-7 shrink-0 text-sidebar-foreground/60 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
+            className="ml-auto size-7 shrink-0 text-sidebar-foreground/60 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden"
             aria-label="Collapse sidebar"
           />
         </div>
@@ -599,16 +755,17 @@ export default function Sidebar() {
       <SidebarContent className="overflow-x-hidden">
         <SidebarGroup className="gap-3 px-3 py-3">
           <Button
-            className="w-full justify-start gap-2"
+            className="w-full justify-start gap-2 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:px-0"
             onClick={() => {
               void handleNewThread(null);
             }}
+            title="New paper"
           >
             <PlusIcon className="size-4" />
-            New Paper
+            <span className="group-data-[collapsible=icon]:hidden">New Paper</span>
           </Button>
 
-          <div className="space-y-1">
+          <div className="space-y-1 group-data-[collapsible=icon]:hidden">
             <div className="border-b border-sidebar-border/60 pb-2">
               <div className="flex items-center gap-2 px-2 py-1">
                 <FileTextIcon className="size-4 text-sidebar-foreground/70" />
@@ -1065,7 +1222,7 @@ export default function Sidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-sidebar-border px-2 py-1">
+      <SidebarFooter className="border-t border-sidebar-border px-2 py-1 group-data-[collapsible=icon]:items-center">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -1075,6 +1232,7 @@ export default function Sidebar() {
                 location.pathname.startsWith("/papers/")
               }
               className="gap-2 px-2 py-2"
+              tooltip="Papers"
               onClick={() => {
                 void navigate({ to: "/papers" });
               }}
@@ -1089,6 +1247,7 @@ export default function Sidebar() {
               size="sm"
               isActive={location.pathname.startsWith("/datasets")}
               className="gap-2 px-2 py-2"
+              tooltip="Datasets"
               onClick={() => {
                 void navigate({ to: "/datasets" });
               }}
@@ -1102,6 +1261,7 @@ export default function Sidebar() {
               size="sm"
               isActive={location.pathname.startsWith("/settings")}
               className="gap-2 px-2 py-2"
+              tooltip="Settings"
               onClick={() => {
                 void navigate({ to: "/settings" });
               }}
@@ -1111,6 +1271,14 @@ export default function Sidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {activePaperMode && routeThreadId ? (
+          <SidebarPaperModePill
+            collapsed={sidebar.state === "collapsed" && !sidebar.isMobile}
+            mode={activePaperMode}
+            stageLabel={activeStageLabel}
+            onChangeMode={changeActivePaperWorkflowMode}
+          />
+        ) : null}
       </SidebarFooter>
 
       {contextMenu ? (

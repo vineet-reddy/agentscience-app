@@ -12,9 +12,10 @@
  */
 
 import {
-  STAGE_DISPLAY_NAME,
-  STAGE_ORDER,
+  type ResearchWorkflowMode,
   type StageId,
+  workflowStageDisplayName,
+  workflowStageOrder,
 } from "@agentscience/contracts";
 import { AlertTriangleIcon } from "lucide-react";
 import { memo, useEffect, useState } from "react";
@@ -24,12 +25,14 @@ import { cn } from "~/lib/utils";
 
 interface StaleRecomputeBannerProps {
   staleStageIds: readonly StageId[];
+  workflowMode: ResearchWorkflowMode;
   onRecompute: (stageIds: readonly StageId[]) => void;
   onDismiss: () => void;
 }
 
 export const StaleRecomputeBanner = memo(function StaleRecomputeBanner({
   staleStageIds,
+  workflowMode,
   onRecompute,
   onDismiss,
 }: StaleRecomputeBannerProps) {
@@ -54,7 +57,9 @@ export const StaleRecomputeBanner = memo(function StaleRecomputeBanner({
     });
   };
 
-  const orderedSelection = STAGE_ORDER.filter((stageId) => selected.has(stageId));
+  const orderedSelection = workflowStageOrder(workflowMode).filter((stageId) =>
+    selected.has(stageId),
+  );
 
   return (
     <div className="rounded-xl border border-amber-500/35 bg-amber-500/[0.04] px-3 py-2.5">
@@ -86,7 +91,7 @@ export const StaleRecomputeBanner = memo(function StaleRecomputeBanner({
                   : "border-border bg-background text-muted-foreground hover:text-foreground",
               )}
             >
-              {STAGE_DISPLAY_NAME[stageId]}
+              {workflowStageDisplayName(workflowMode, stageId)}
             </button>
           );
         })}

@@ -214,7 +214,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useServerAvailableEditors, useServerConfig } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 
-import { StepperBar } from "./stages/StepperBar";
+import { ModeToggle } from "./stages/StepperBar";
 import { StageRail } from "./stages/StageRail";
 import { useThreadStageState } from "../stages/stageStore";
 
@@ -920,6 +920,9 @@ export default function ChatView({
   );
   const activeThread = serverThread ?? localDraftThread;
   const stageState = useThreadStageState(activeThread?.id ?? null);
+  const draftWorkflowMode = useUiStateStore(
+    (store) => store.paperWorkflowModeByThreadId[threadId] ?? "open",
+  );
   const [focusedStageId, setFocusedStageId] = useState<StageId | null>(null);
   // When the project advances, follow the new current stage.
   useEffect(() => {
@@ -3306,6 +3309,7 @@ export default function ChatView({
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode,
+                      workflowMode: draftWorkflowMode,
                       branch: activeThread.branch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
@@ -4276,7 +4280,8 @@ export default function ChatView({
           diffOpen={diffOpen}
           paperReviewAvailable={paperReviewAvailable}
           paperReviewOpen={paperReviewOpen}
-          stageMode={stageState && paperReviewOpen ? stageState.mode : undefined}
+          stageState={stageState}
+          focusedStageId={focusedStageId ?? undefined}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -4286,11 +4291,7 @@ export default function ChatView({
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
           onTogglePaperReview={onTogglePaperReview ?? (() => undefined)}
-          onChangeStageMode={
-            stageState && paperReviewOpen
-              ? (mode) => setStageMode(activeThread.id, mode)
-              : undefined
-          }
+          onFocusStage={(stageId) => setFocusedStageId(stageId)}
         />
       </header>
 
@@ -4300,14 +4301,6 @@ export default function ChatView({
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
-      {stageState && !paperReviewOpen && (
-        <StepperBar
-          state={stageState}
-          focusedStageId={focusedStageId ?? undefined}
-          onFocusStage={(stageId) => setFocusedStageId(stageId)}
-          onChangeMode={(mode) => setStageMode(activeThread.id, mode)}
-        />
-      )}
       {/* Main content area with optional plan sidebar */}
       <div className="flex min-h-0 min-w-0 flex-1">
         {/* Chat column */}
@@ -4669,6 +4662,22 @@ export default function ChatView({
                               orientation="vertical"
                               className="mx-0.5 hidden h-4 sm:block"
                             />
+
+                            {stageState ? (
+                              <>
+                                <ModeToggle
+                                  className="shrink-0 bg-background"
+                                  mode={stageState.mode}
+                                  onChangeMode={(mode) => setStageMode(activeThread.id, mode)}
+                                  size="compact"
+                                />
+
+                                <Separator
+                                  orientation="vertical"
+                                  className="mx-0.5 hidden h-4 sm:block"
+                                />
+                              </>
+                            ) : null}
 
                             <Button
                               variant="ghost"

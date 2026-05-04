@@ -5,24 +5,27 @@
  */
 
 import {
-  STAGE_DISPLAY_NAME,
-  STAGE_ORDER,
+  type ResearchWorkflowMode,
   type StageId,
+  workflowStageDisplayName,
+  workflowStageOrder,
 } from "@agentscience/contracts";
 import { memo } from "react";
 
 interface StageDividerProps {
   stageId: StageId;
+  workflowMode: ResearchWorkflowMode;
   /** Optional suffix (e.g. "approved", "auto-approved · 0.92"). */
   suffix?: string;
 }
 
 export const StageDivider = memo(function StageDivider({
   stageId,
+  workflowMode,
   suffix,
 }: StageDividerProps) {
-  const number = STAGE_ORDER.indexOf(stageId) + 1;
-  const name = STAGE_DISPLAY_NAME[stageId];
+  const number = workflowStageOrder(workflowMode).indexOf(stageId) + 1;
+  const name = workflowStageDisplayName(workflowMode, stageId);
   const label = suffix
     ? `Stage ${number} · ${name} · ${suffix}`
     : `Stage ${number} · ${name}`;
