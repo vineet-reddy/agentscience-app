@@ -28,7 +28,7 @@ import {
 } from "react";
 import { BrandMark } from "./BrandMark";
 import { APP_SESSION_BOOT_AT } from "../appSession";
-import { useComposerDraftStore } from "../composerDraftStore";
+import { type DraftThreadKind, useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
 import { useDesktopFullScreen } from "../hooks/useDesktopFullScreen";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -44,8 +44,8 @@ import {
 import { useUiStateStore } from "../uiStateStore";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
+  AGENT_WORKFLOW_MODES,
   PAPER_WORKFLOW_MODE_BY_ID,
-  PAPER_WORKFLOW_MODES,
   type PaperWorkflowMode,
   type PaperWorkflowModeOption,
 } from "../paperWorkflowModes";
@@ -116,14 +116,14 @@ function ThreadStatusDot({ status }: { status: ThreadStatusPill | null }) {
   );
 }
 
-function deriveDraftTitle(prompt: string | undefined): string {
+function deriveDraftTitle(prompt: string | undefined, kind: DraftThreadKind): string {
   const firstMeaningfulLine = prompt
     ?.split(/\r?\n/)
     .map((line) => line.trim())
     .find((line) => line.length > 0);
 
   if (!firstMeaningfulLine) {
-    return "New Paper";
+    return kind === "agent" ? "New Agent" : "New Paper";
   }
 
   return firstMeaningfulLine.length > 56
@@ -190,7 +190,7 @@ function SidebarPaperModePill({
               Change mode
             </div>
             <div className="space-y-0.5">
-              {PAPER_WORKFLOW_MODES.map((option) => (
+              {AGENT_WORKFLOW_MODES.map((option) => (
                 <button
                   key={option.id}
                   type="button"
@@ -349,17 +349,26 @@ export default function Sidebar() {
       draftTitleByThreadId: Object.fromEntries(
         Object.entries(draftsByThreadId).map(([threadId, draft]) => [
           threadId,
-          deriveDraftTitle(draft?.prompt),
+          deriveDraftTitle(
+            draft?.prompt,
+            draftThreadsByThreadId[threadId as ThreadId]?.kind ?? "paper",
+          ),
         ]),
       ),
     }) as Map<ProjectId | null, SidebarThreadEntry[]>;
   }, [draftThreadsByThreadId, draftsByThreadId, visibleThreadsById]);
   const recentThreads = threadEntriesByProjectId.get(null) ?? [];
-  const activePaperModeId = activeThreadStageState?.workflowMode
-    ? activeThreadStageState.workflowMode
-    : routeThreadId
-      ? (paperWorkflowModeByThreadId[routeThreadId] ?? null)
+  const activeDraftKind = routeThreadId
+    ? (draftThreadsByThreadId[routeThreadId]?.kind ?? null)
     : null;
+  const activePaperModeId =
+    activeThreadStageState?.workflowMode &&
+    activeThreadStageState.workflowMode !== "open" &&
+    activeThreadStageState.workflowMode !== "general-agent"
+      ? activeThreadStageState.workflowMode
+      : routeThreadId && activeDraftKind === "agent"
+        ? (paperWorkflowModeByThreadId[routeThreadId] ?? null)
+        : null;
   const activePaperMode = activePaperModeId ? PAPER_WORKFLOW_MODE_BY_ID[activePaperModeId] : null;
   const activeStageLabel = useMemo(() => {
     const workflowMode = activeThreadStageState?.workflowMode ?? activePaperModeId ?? "open";
@@ -763,6 +772,17 @@ export default function Sidebar() {
           >
             <PlusIcon className="size-4" />
             <span className="group-data-[collapsible=icon]:hidden">New Paper</span>
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:px-0"
+            onClick={() => {
+              void handleNewThread(null, { kind: "agent" });
+            }}
+            title="New agent"
+          >
+            <PlusIcon className="size-4" />
+            <span className="group-data-[collapsible=icon]:hidden">New Agent</span>
           </Button>
 
           <div className="space-y-1 group-data-[collapsible=icon]:hidden">

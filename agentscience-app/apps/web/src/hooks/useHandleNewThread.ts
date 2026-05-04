@@ -2,6 +2,7 @@ import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@agentscience/co
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 import {
+  type DraftThreadKind,
   type DraftThreadEnvMode,
   type DraftThreadState,
   useComposerDraftStore,
@@ -27,8 +28,9 @@ export function useHandleNewThread() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
+        kind?: DraftThreadKind;
       },
-    ): Promise<void> => {
+    ): Promise<ThreadId> => {
       const {
         clearProjectDraftThreadId,
         getDraftThread,
@@ -40,27 +42,31 @@ export function useHandleNewThread() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
+      const hasKindOption = options?.kind !== undefined;
+      const nextKind = options?.kind ?? "paper";
       const storedDraftThread = projectId ? getDraftThreadByProjectId(projectId) : null;
       const latestActiveDraftThread: DraftThreadState | null = routeThreadId
         ? getDraftThread(routeThreadId)
         : null;
-      if (storedDraftThread) {
+      if (storedDraftThread && storedDraftThread.kind === nextKind) {
         return (async () => {
-          if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+          if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption || hasKindOption) {
             setDraftThreadContext(storedDraftThread.threadId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
               ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
               ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+              ...(hasKindOption ? { kind: nextKind } : {}),
             });
           }
           setProjectDraftThreadId(projectId, storedDraftThread.threadId);
           if (routeThreadId === storedDraftThread.threadId) {
-            return;
+            return storedDraftThread.threadId;
           }
           await navigate({
             to: "/$threadId",
             params: { threadId: storedDraftThread.threadId },
           });
+          return storedDraftThread.threadId;
         })();
       }
 
@@ -69,17 +75,19 @@ export function useHandleNewThread() {
       if (
         latestActiveDraftThread &&
         routeThreadId &&
-        latestActiveDraftThread.projectId === projectId
+        latestActiveDraftThread.projectId === projectId &&
+        latestActiveDraftThread.kind === nextKind
       ) {
-        if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+        if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption || hasKindOption) {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+            ...(hasKindOption ? { kind: nextKind } : {}),
           });
         }
         setProjectDraftThreadId(projectId, routeThreadId);
-        return Promise.resolve();
+        return Promise.resolve(routeThreadId);
       }
 
       const threadId = newThreadId();
@@ -90,6 +98,7 @@ export function useHandleNewThread() {
           branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
           envMode: options?.envMode ?? "local",
+          kind: nextKind,
           runtimeMode: DEFAULT_RUNTIME_MODE,
         });
         applyStickyState(threadId);
@@ -98,6 +107,7 @@ export function useHandleNewThread() {
           to: "/$threadId",
           params: { threadId },
         });
+        return threadId;
       })();
     },
     [navigate, routeThreadId],

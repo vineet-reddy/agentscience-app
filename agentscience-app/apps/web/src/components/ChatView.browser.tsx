@@ -490,6 +490,7 @@ function setDraftThreadWithoutWorktree(): void {
       [THREAD_ID]: {
         projectId: PROJECT_ID,
         createdAt: NOW_ISO,
+        kind: "paper",
         runtimeMode: "full-access",
         interactionMode: "default",
         branch: null,
@@ -1696,6 +1697,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
+          kind: "paper",
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: null,
@@ -1772,6 +1774,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
+          kind: "paper",
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: "feature/draft",
@@ -1835,6 +1838,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
+          kind: "paper",
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: null,
@@ -1960,6 +1964,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
+          kind: "paper",
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: "main",
@@ -2060,6 +2065,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         [THREAD_ID]: {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
+          kind: "paper",
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: "main",

@@ -31,7 +31,7 @@ import {
 import { useStore } from "../store";
 import { cn } from "../lib/utils";
 import {
-  PAPER_WORKFLOW_MODES,
+  AGENT_WORKFLOW_MODES,
   type PaperWorkflowMode,
 } from "../paperWorkflowModes";
 import { useUiStateStore } from "../uiStateStore";
@@ -63,6 +63,9 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   );
   const isDraftThread = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
+  );
+  const draftThreadKind = useComposerDraftStore(
+    (store) => store.draftThreadsByThreadId[threadId]?.kind ?? "paper",
   );
   const selectedPaperMode = useUiStateStore(
     (store) => store.paperWorkflowModeByThreadId[threadId] ?? null,
@@ -297,9 +300,9 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     requestComposerFocus({ threadId });
   };
 
-  if (isDraftThread) {
+  if (isDraftThread && draftThreadKind === "agent") {
     return (
-      <NewPaperModePicker
+      <NewAgentModePicker
         selectedMode={selectedPaperMode}
         onSelectMode={handleModeSelect}
         onSkip={() => {
@@ -308,6 +311,10 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
         }}
       />
     );
+  }
+
+  if (isDraftThread) {
+    return <NewPaperDraftEmptyState />;
   }
 
   if (presentation.emptyStateCase === "D") {
@@ -446,7 +453,24 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   );
 }
 
-function NewPaperModePicker({
+function NewPaperDraftEmptyState() {
+  return (
+    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-16 pt-16 sm:pt-24">
+      <div className="w-full max-w-[680px]">
+        <header className="text-center">
+          <h1 className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
+            Create a new paper
+          </h1>
+          <p className="mx-auto mt-3 max-w-[520px] text-[0.9375rem] leading-relaxed text-ink-light">
+            Describe the research question, dataset, or scientific idea you want to turn into a paper.
+          </p>
+        </header>
+      </div>
+    </div>
+  );
+}
+
+function NewAgentModePicker({
   selectedMode,
   onSelectMode,
   onSkip,
@@ -460,15 +484,15 @@ function NewPaperModePicker({
       <div className="w-full max-w-[680px]">
         <header className="text-center">
           <h1 className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
-            How would you like to start?
+            Choose a research agent
           </h1>
           <p className="mx-auto mt-3 max-w-[520px] text-[0.9375rem] leading-relaxed text-ink-light">
-            Choose the research workflow that matches the artifact you want to produce.
+            Pick the specialist workflow for this research task, or keep it open-ended.
           </p>
         </header>
 
         <div className="mt-10 grid gap-3 border-y border-rule py-4 sm:grid-cols-2">
-          {PAPER_WORKFLOW_MODES.map((mode) => {
+          {AGENT_WORKFLOW_MODES.map((mode) => {
             const selected = selectedMode === mode.id;
             return (
               <button
@@ -505,7 +529,7 @@ function NewPaperModePicker({
             onClick={onSkip}
             className="inline-flex items-center rounded-[4px] border border-rule bg-background px-4 py-2 text-[0.8125rem] font-medium text-ink transition-colors duration-150 ease-linear hover:bg-snow-white-dark"
           >
-            Skip and describe your work below
+            Skip and chat about anything else
           </button>
         </div>
       </div>

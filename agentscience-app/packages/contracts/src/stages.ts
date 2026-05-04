@@ -80,6 +80,8 @@ export const ResearchWorkflowMode = Schema.Literals([
   "literature-review",
   "experimental-design",
   "data-analysis",
+  "grant-writing",
+  "general-agent",
   "open",
 ]);
 export type ResearchWorkflowMode = typeof ResearchWorkflowMode.Type;
@@ -92,6 +94,8 @@ export const RESEARCH_WORKFLOW_DISPLAY_NAME: Readonly<
   "literature-review": "Literature review",
   "experimental-design": "Experimental design",
   "data-analysis": "Data analysis",
+  "grant-writing": "Grant writer",
+  "general-agent": "General agent",
   open: "Open",
 } as const;
 
@@ -113,6 +117,8 @@ export const WORKFLOW_STAGE_ORDER: Readonly<
     "draft",
     "review",
   ],
+  "grant-writing": ["question", "novelty", "method", "draft", "review"],
+  "general-agent": ["question", "draft", "review"],
   open: STAGE_ORDER,
 } as const;
 
@@ -147,6 +153,26 @@ export const WORKFLOW_STAGE_DISPLAY_NAME: Readonly<
     analysis: "Analysis",
     figures: "Figures",
     draft: "Results",
+    review: "Review",
+  },
+  "grant-writing": {
+    question: "Opportunity",
+    novelty: "Fit",
+    data: "Evidence",
+    method: "Plan",
+    analysis: "Analysis",
+    figures: "Figures",
+    draft: "Narrative",
+    review: "Review",
+  },
+  "general-agent": {
+    question: "Scope",
+    novelty: "Context",
+    data: "Data",
+    method: "Plan",
+    analysis: "Analysis",
+    figures: "Figures",
+    draft: "Response",
     review: "Review",
   },
   open: STAGE_DISPLAY_NAME,

@@ -29,22 +29,33 @@ export const PAPER_WORKFLOW_MODES: readonly PaperWorkflowModeOption[] = [
     dotClassName: "bg-emerald-600",
   },
   {
+    id: "grant-writing",
+    label: "Grant writer",
+    description: "Shape aims, evidence, milestones, and reviewer-facing narrative.",
+    dotClassName: "bg-stone-800",
+  },
+  {
     id: "open",
     label: "Open",
-    description: "Use the full workflow and skip what does not apply.",
+    description: "Create a full research paper from question to final draft.",
     dotClassName: "bg-ink",
   },
 ] as const;
 
+export const AGENT_WORKFLOW_MODES: readonly PaperWorkflowModeOption[] =
+  PAPER_WORKFLOW_MODES.filter((mode) => mode.id !== "open");
+
 export const PAPER_WORKFLOW_MODE_BY_ID = Object.fromEntries(
   PAPER_WORKFLOW_MODES.map((mode) => [mode.id, mode]),
-) as Record<PaperWorkflowMode, PaperWorkflowModeOption>;
+) as Partial<Record<PaperWorkflowMode, PaperWorkflowModeOption>>;
 
 export function isPaperWorkflowMode(value: unknown): value is PaperWorkflowMode {
   return (
     value === "literature-review" ||
     value === "experimental-design" ||
     value === "data-analysis" ||
+    value === "grant-writing" ||
+    value === "general-agent" ||
     value === "open"
   );
 }

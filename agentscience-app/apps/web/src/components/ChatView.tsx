@@ -920,9 +920,10 @@ export default function ChatView({
   );
   const activeThread = serverThread ?? localDraftThread;
   const stageState = useThreadStageState(activeThread?.id ?? null);
-  const draftWorkflowMode = useUiStateStore(
-    (store) => store.paperWorkflowModeByThreadId[threadId] ?? "open",
-  );
+  const draftWorkflowMode = useUiStateStore((store) => {
+    if (draftThread?.kind !== "agent") return "open";
+    return store.paperWorkflowModeByThreadId[threadId] ?? "general-agent";
+  });
   const [focusedStageId, setFocusedStageId] = useState<StageId | null>(null);
   // When the project advances, follow the new current stage.
   useEffect(() => {
@@ -3309,7 +3310,8 @@ export default function ChatView({
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode,
-                      workflowMode: draftWorkflowMode,
+                      workflowMode:
+                        draftThread?.kind === "agent" ? draftWorkflowMode : "open",
                       branch: activeThread.branch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
