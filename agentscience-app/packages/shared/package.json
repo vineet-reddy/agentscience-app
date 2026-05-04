@@ -51,6 +51,18 @@
     "./projectScripts": {
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
+    },
+    "./stageMachine": {
+      "types": "./src/stageMachine.ts",
+      "import": "./src/stageMachine.ts"
+    },
+    "./stagePrompts": {
+      "types": "./src/stagePrompts.ts",
+      "import": "./src/stagePrompts.ts"
+    },
+    "./stagePromptBuilder": {
+      "types": "./src/stagePromptBuilder.ts",
+      "import": "./src/stagePromptBuilder.ts"
     }
   },
   "scripts": {
