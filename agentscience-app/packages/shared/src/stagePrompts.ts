@@ -18,6 +18,7 @@
 
 import type {
   HypothesisArtifact,
+  ResearchWorkflowMode,
   StageId,
 } from "@agentscience/contracts";
 
@@ -240,18 +241,234 @@ science here — only typesetting fixes.`,
   },
 } as const;
 
+const WORKFLOW_CHARTERS: Readonly<Record<ResearchWorkflowMode, string>> = {
+  "literature-review": `You are AgentScience running in Literature review mode.
+Your job is to map and synthesize prior work. Optimize for careful source
+selection, clear comparison, and precise researcher-readable synthesis. Do not turn the work
+into a data analysis or full experimental paper unless the user explicitly
+switches modes.`,
+  "experimental-design": `You are AgentScience running in Experimental design mode.
+Your job is to turn a research idea into a defensible experimental protocol or
+preregistration-ready methods artifact. Optimize for hypotheses, variables,
+controls, measurement validity, feasibility, analysis plans, and decision
+rules. Do not run analyses or draft results.`,
+  "data-analysis": `You are AgentScience running in Data analysis mode.
+Your job is to work from data toward credible findings. Optimize for dataset
+fit, method correctness, reproducible analysis, figures, and limitations.
+Do not broaden into a literature review unless it directly supports the
+analysis decision at the current stage.`,
+  open: `You are AgentScience running in Open mode.
+Your job is to take the user through the full paper workflow from question to
+review. Use the current stage to stay focused and avoid doing later work early.`,
+} as const;
+
+type StagePromptOverride = Partial<
+  Pick<StagePrompt, "systemInstructions" | "toolAllowlist" | "gateRubric">
+>;
+
+const WORKFLOW_STAGE_PROMPT_OVERRIDES: Readonly<
+  Partial<Record<ResearchWorkflowMode, Partial<Record<StageId, StagePromptOverride>>>>
+> = {
+  "literature-review": {
+    question: {
+      toolAllowlist: [STAGE_TOOLS.literatureSearch, STAGE_TOOLS.paperInspect, STAGE_TOOLS.think],
+      systemInstructions: `${baseRules}
+Stage: SCOPE.
+Goal: turn the user's prompt into a bounded literature review scope. Output a
+short review title, a one-paragraph scope statement, and assumptions that
+include inclusion criteria, exclusion criteria, and the audience for the
+review. Do not inspect datasets or plan analyses.`,
+      gateRubric: [
+        "Is the review scope narrow enough to search and synthesize well?",
+        "Are inclusion and exclusion criteria visible rather than implied?",
+        "Is the target audience clear?",
+      ],
+    },
+    novelty: {
+      toolAllowlist: [STAGE_TOOLS.literatureSearch, STAGE_TOOLS.paperInspect, STAGE_TOOLS.think],
+      systemInstructions: `${baseRules}
+Stage: EVIDENCE MAP.
+Goal: identify the most relevant prior work for the scoped review. Return a
+short evidence map as prior-work rows with paper id when available, title,
+claim, similarity, and a note explaining how each source affects the synthesis.
+Do not inspect datasets or run code.`,
+      gateRubric: [
+        "Do the sources cover the central claims in the scope?",
+        "Are disagreements or gaps surfaced, not smoothed over?",
+        "Are weak or indirect sources clearly labeled as such?",
+      ],
+    },
+    draft: {
+      toolAllowlist: [STAGE_TOOLS.literatureSearch, STAGE_TOOLS.paperInspect, STAGE_TOOLS.think],
+      systemInstructions: `${baseRules}
+Stage: SYNTHESIS.
+Goal: write review-style section drafts from the evidence map. Use section
+drafts for the main themes, points of disagreement, open questions, and a
+concise conclusion. Do not invent experiments or results.`,
+      gateRubric: [
+        "Does the synthesis compare evidence rather than list papers one by one?",
+        "Are claims tied back to the mapped sources?",
+        "Are limitations and unresolved questions explicit?",
+      ],
+    },
+    review: {
+      toolAllowlist: [STAGE_TOOLS.compileLatex, STAGE_TOOLS.buildPdf, STAGE_TOOLS.think],
+      systemInstructions: `${baseRules}
+Stage: REVIEW.
+Goal: compile the literature review artifact and surface the final manuscript
+preview. Make only organization, citation, and typesetting fixes here. Do not
+add new scientific claims.`,
+      gateRubric: [
+        "Does the final review preserve the synthesis from the prior stage?",
+        "Are citations and bibliography entries complete?",
+        "Are there layout or missing-reference issues the user should know about?",
+      ],
+    },
+  },
+  "experimental-design": {
+    question: {
+      systemInstructions: `${baseRules}
+Stage: QUESTION.
+Goal: turn the user's prompt into a testable study question with a clear
+hypothesis, population or system, intervention or exposure, comparator, and
+primary outcome when applicable. Do not run analyses.`,
+      gateRubric: [
+        "Is the study question testable rather than merely interesting?",
+        "Are variables and outcomes concrete enough to design around?",
+        "Are key assumptions visible?",
+      ],
+    },
+    novelty: {
+      systemInstructions: `${baseRules}
+Stage: BACKGROUND.
+Goal: check the prior work needed to justify the study design. Return rows for
+similar studies, known methods, and design pitfalls. Focus on what changes the
+experimental protocol; do not write a broad review.`,
+      gateRubric: [
+        "Does the background justify why the study is worth running?",
+        "Are known design pitfalls surfaced?",
+        "Are similar studies compared in a way that affects the method?",
+      ],
+    },
+    method: {
+      systemInstructions: `${baseRules}
+Stage: PROTOCOL DESIGN.
+Goal: write the experimental protocol in Markdown. Be explicit about design type,
+sample or cohort, controls, measures, endpoints, exclusion criteria, analysis
+plan, risks, and feasibility. Do not execute the analysis.`,
+      gateRubric: [
+        "Can another researcher execute the protocol from this artifact?",
+        "Are controls and confounds handled explicitly?",
+        "Are analysis choices specified before results exist?",
+      ],
+    },
+    draft: {
+      toolAllowlist: [STAGE_TOOLS.think],
+      systemInstructions: `${baseRules}
+Stage: PREREGISTRATION.
+Goal: convert the approved protocol design into preregistration-style section
+drafts: rationale, hypotheses, design, measures, analysis plan, decision rules,
+and limitations. Do not write results.`,
+      gateRubric: [
+        "Does the preregistration draft match the approved protocol design?",
+        "Are decision rules specified before data collection or analysis?",
+        "Would ambiguities block execution?",
+      ],
+    },
+    review: {
+      toolAllowlist: [STAGE_TOOLS.compileLatex, STAGE_TOOLS.buildPdf, STAGE_TOOLS.think],
+      systemInstructions: `${baseRules}
+Stage: REVIEW.
+Goal: compile the protocol or preregistration artifact and surface the final
+preview. Make only structure, clarity, citation, and typesetting fixes here.`,
+      gateRubric: [
+        "Does the final protocol avoid implying that results already exist?",
+        "Are references and design details complete?",
+        "Are there layout or missing-reference issues the user should know about?",
+      ],
+    },
+  },
+  "data-analysis": {
+    question: {
+      systemInstructions: `${baseRules}
+Stage: QUESTION.
+Goal: turn the user's prompt into an analysis question that can be answered
+from data. Output a short title, a one-paragraph statement, and assumptions
+about data availability, labels, variables, and measurement limits.`,
+      gateRubric: [
+        "Can this question be answered from data?",
+        "Are required variables or labels named explicitly?",
+        "Are measurement limits surfaced early?",
+      ],
+    },
+    data: {
+      systemInstructions: STAGE_PROMPTS.data.systemInstructions,
+    },
+    method: {
+      systemInstructions: `${baseRules}
+Stage: METHOD.
+Goal: specify the analysis plan before execution. Be explicit about variables,
+preprocessing, test statistic or model, multiple-testing correction,
+visualizations, and failure checks. Do not run the analysis yet.`,
+      gateRubric: [
+        "Does the method directly answer the analysis question?",
+        "Are preprocessing and exclusions specified before results?",
+        "Are statistical checks and uncertainty handled appropriately?",
+      ],
+    },
+    draft: {
+      systemInstructions: `${baseRules}
+Stage: RESULTS.
+Goal: write concise results-style section drafts from the approved analysis
+and figures. Include methods summary, results, limitations, and interpretation.
+Do not overclaim beyond the data.`,
+      gateRubric: [
+        "Do claims match the approved analysis result and figures?",
+        "Are limitations and uncertainty clear?",
+        "Is the result understandable without burying the reader in tooling details?",
+      ],
+    },
+  },
+} as const;
+
+export function workflowCharter(workflowMode: ResearchWorkflowMode): string {
+  return WORKFLOW_CHARTERS[workflowMode];
+}
+
+export function stagePromptForWorkflow(
+  workflowMode: ResearchWorkflowMode,
+  stageId: StageId,
+): StagePrompt {
+  const base = STAGE_PROMPTS[stageId];
+  const override = WORKFLOW_STAGE_PROMPT_OVERRIDES[workflowMode]?.[stageId];
+  if (!override) return base;
+  return {
+    ...base,
+    ...override,
+    stageId,
+    artifactKind: base.artifactKind,
+  };
+}
+
 /**
  * Returns the tool allowlist for a stage. Useful for both the agent runner
  * (filters available tools) and the gate card (renders the list to the user).
  */
-export function stageToolAllowlist(stageId: StageId): readonly StageTool[] {
-  return STAGE_PROMPTS[stageId].toolAllowlist;
+export function stageToolAllowlist(
+  stageId: StageId,
+  workflowMode: ResearchWorkflowMode = "open",
+): readonly StageTool[] {
+  return stagePromptForWorkflow(workflowMode, stageId).toolAllowlist;
 }
 
 /**
  * Returns true when a tool is permitted for the given stage. The server
  * uses this to reject out-of-stage tool calls.
  */
-export function isToolAllowedAtStage(stageId: StageId, tool: string): boolean {
-  return (STAGE_PROMPTS[stageId].toolAllowlist as readonly string[]).includes(tool);
+export function isToolAllowedAtStage(
+  stageId: StageId,
+  tool: string,
+  workflowMode: ResearchWorkflowMode = "open",
+): boolean {
+  return (stageToolAllowlist(stageId, workflowMode) as readonly string[]).includes(tool);
 }

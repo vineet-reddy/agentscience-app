@@ -266,6 +266,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               modelSelection: bootstrap.createThread.modelSelection,
               runtimeMode: bootstrap.createThread.runtimeMode,
               interactionMode: bootstrap.createThread.interactionMode,
+              ...(bootstrap.createThread.workflowMode !== undefined
+                ? { workflowMode: bootstrap.createThread.workflowMode }
+                : {}),
               branch: bootstrap.createThread.branch,
               worktreePath: bootstrap.createThread.worktreePath,
               createdAt: bootstrap.createThread.createdAt,

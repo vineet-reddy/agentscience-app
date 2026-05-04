@@ -17,6 +17,7 @@ import {
   type StageStartCommand,
   type ProjectModeSetCommand,
   type ProjectRecomputeCommand,
+  type ProjectWorkflowModeSetCommand,
 } from "@agentscience/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -214,6 +215,19 @@ function setMode(input: {
   };
 }
 
+function setWorkflowMode(input: {
+  workflowMode: "literature-review" | "experimental-design" | "data-analysis" | "open";
+  at: string;
+}): ProjectWorkflowModeSetCommand {
+  return {
+    type: "project.workflow.set",
+    commandId: cmdId(`workflow-${input.workflowMode}`),
+    threadId: THREAD,
+    workflowMode: input.workflowMode,
+    createdAt: input.at,
+  };
+}
+
 function recompute(input: {
   stageIds: StageId[];
   at: string;
@@ -258,6 +272,18 @@ describe("createInitialStageState", () => {
     });
     expect(state.mode).toBe("auto");
     expect(state.autoConfidenceThreshold).toBe(0.92);
+  });
+
+  it("seeds a mode-specific workflow profile", () => {
+    const state = createInitialStageState({
+      now: T0,
+      workflowMode: "literature-review",
+    });
+
+    expect(state.workflowMode).toBe("literature-review");
+    expect(state.currentStageId).toBe("question");
+    expect(state.stages.question?.status).toBe("active");
+    expect(state.stages.data?.status).toBe("pending");
   });
 });
 
@@ -314,6 +340,49 @@ describe("manual mode happy path", () => {
     expect(state.currentStageId).toBe("review");
     expect(isProjectComplete(state)).toBe(true);
     expect(getCompletedStageIds(state)).toEqual(order);
+  });
+
+  it("advances through only the selected workflow's stages", () => {
+    let state = createInitialStageState({
+      now: tick(0),
+      workflowMode: "literature-review",
+    });
+    const order: StageId[] = ["question", "novelty", "draft", "review"];
+    let t = 1;
+
+    for (const stageId of order) {
+      state = expectOk(
+        applyStageCommand(
+          state,
+          propose({ stageId, confidence: 0.8, at: tick(t++) }),
+        ),
+      );
+      state = expectOk(
+        applyStageCommand(state, approve({ stageId, at: tick(t++) })),
+      );
+    }
+
+    expect(state.currentStageId).toBe("review");
+    expect(state.stages.data?.status).toBe("pending");
+    expect(state.stages.method?.status).toBe("pending");
+    expect(isProjectComplete(state)).toBe(true);
+    expect(getCompletedStageIds(state)).toEqual(order);
+  });
+
+  it("uses the data-analysis profile order instead of forcing novelty first", () => {
+    let state = createInitialStageState({
+      now: T0,
+      workflowMode: "data-analysis",
+    });
+
+    state = expectOk(
+      applyStageCommand(state, propose({ stageId: "question", confidence: 0.8, at: T1 })),
+    );
+    state = expectOk(applyStageCommand(state, approve({ stageId: "question", at: T2 })));
+
+    expect(state.currentStageId).toBe("data");
+    expect(state.stages.novelty?.status).toBe("pending");
+    expect(state.stages.data?.status).toBe("active");
   });
 });
 
@@ -539,6 +608,28 @@ describe("project.mode.set", () => {
     expect(state.mode).toBe("auto");
     // Already-pending gate is preserved; auto does not retroactively approve.
     expect(state.stages.question?.status).toBe("awaiting_approval");
+  });
+});
+
+describe("project.workflow.set", () => {
+  it("switches profiles and points at the first unfinished stage in the new profile", () => {
+    let state = createInitialStageState({ now: T0 });
+    state = expectOk(
+      applyStageCommand(state, propose({ stageId: "question", confidence: 0.8, at: T1 })),
+    );
+    state = expectOk(applyStageCommand(state, approve({ stageId: "question", at: T2 })));
+
+    state = expectOk(
+      applyStageCommand(
+        state,
+        setWorkflowMode({ workflowMode: "data-analysis", at: tick(3) }),
+      ),
+    );
+
+    expect(state.workflowMode).toBe("data-analysis");
+    expect(state.currentStageId).toBe("data");
+    expect(state.stages.novelty?.status).toBe("pending");
+    expect(state.stages.data?.status).toBe("active");
   });
 });
 

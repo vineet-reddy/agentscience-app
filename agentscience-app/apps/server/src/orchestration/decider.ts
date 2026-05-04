@@ -225,10 +225,16 @@ export const decideOrchestrationCommand = Effect.fn(
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
           interactionMode: command.interactionMode,
+          ...(command.workflowMode !== undefined
+            ? { workflowMode: command.workflowMode }
+            : {}),
           branch: command.branch,
           worktreePath: command.worktreePath,
           stageState: createInitialStageState({
             now: command.createdAt,
+            ...(command.workflowMode !== undefined
+              ? { workflowMode: command.workflowMode }
+              : {}),
           }),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
@@ -823,6 +829,7 @@ export const decideOrchestrationCommand = Effect.fn(
     case "stage.discuss":
     case "stage.skip":
     case "project.mode.set":
+    case "project.workflow.set":
     case "project.recompute": {
       const thread = yield* requireThread({
         readModel,

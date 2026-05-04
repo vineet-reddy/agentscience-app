@@ -16,15 +16,20 @@
  */
 
 import {
-  STAGE_DISPLAY_NAME,
-  STAGE_ORDER,
+  DEFAULT_RESEARCH_WORKFLOW_MODE,
+  RESEARCH_WORKFLOW_DISPLAY_NAME,
+  workflowStageDisplayName,
+  workflowStageOrder,
+  type ProjectStageState,
+  type ResearchWorkflowMode,
   type StageId,
 } from "@agentscience/contracts";
 
 import {
-  STAGE_PROMPTS,
   isToolAllowedAtStage,
+  stagePromptForWorkflow,
   stageToolAllowlist,
+  workflowCharter,
   type StageTool,
 } from "./stagePrompts";
 
@@ -35,14 +40,37 @@ export interface StageAgentInputs {
   readonly allowedTools: readonly StageTool[];
 }
 
-export function buildStageAgentInputs(stageId: StageId): StageAgentInputs {
-  const number = STAGE_ORDER.indexOf(stageId) + 1;
-  const name = STAGE_DISPLAY_NAME[stageId];
-  const prompt = STAGE_PROMPTS[stageId];
-  const tools = stageToolAllowlist(stageId);
+export function buildStageAgentInputs(
+  input:
+    | StageId
+    | {
+        readonly stageId: StageId;
+        readonly workflowMode?: ResearchWorkflowMode | undefined;
+      }
+    | ProjectStageState,
+): StageAgentInputs {
+  const stageId =
+    typeof input === "string"
+      ? input
+      : "currentStageId" in input
+        ? input.currentStageId
+        : input.stageId;
+  const workflowMode: ResearchWorkflowMode =
+    typeof input === "string"
+      ? DEFAULT_RESEARCH_WORKFLOW_MODE
+      : "workflowMode" in input
+        ? (input.workflowMode ?? DEFAULT_RESEARCH_WORKFLOW_MODE)
+        : (input.workflowMode ?? DEFAULT_RESEARCH_WORKFLOW_MODE);
+  const order = workflowStageOrder(workflowMode);
+  const number = order.indexOf(stageId) + 1;
+  const name = workflowStageDisplayName(workflowMode, stageId);
+  const prompt = stagePromptForWorkflow(workflowMode, stageId);
+  const tools = stageToolAllowlist(stageId, workflowMode);
   const rubric = prompt.gateRubric.map((line) => `  - ${line}`).join("\n");
   const systemMessage = [
-    `# AgentScience — stage ${number}/${STAGE_ORDER.length} · ${name.toUpperCase()}`,
+    `# AgentScience — ${RESEARCH_WORKFLOW_DISPLAY_NAME[workflowMode]} · stage ${number}/${order.length} · ${name.toUpperCase()}`,
+    "",
+    workflowCharter(workflowMode).trim(),
     "",
     prompt.systemInstructions.trim(),
     "",
@@ -106,11 +134,12 @@ export interface ToolGateResult {
 export function gateToolForStage(
   stageId: StageId,
   toolName: string,
+  workflowMode: ResearchWorkflowMode = DEFAULT_RESEARCH_WORKFLOW_MODE,
 ): ToolGateResult {
-  if (isToolAllowedAtStage(stageId, toolName)) return { allowed: true };
-  const allowed = stageToolAllowlist(stageId);
+  if (isToolAllowedAtStage(stageId, toolName, workflowMode)) return { allowed: true };
+  const allowed = stageToolAllowlist(stageId, workflowMode);
   return {
     allowed: false,
-    reason: `Tool "${toolName}" is not permitted at stage ${stageId}. Allowed tools: ${allowed.join(", ")}.`,
+    reason: `Tool "${toolName}" is not permitted at stage ${stageId} in ${RESEARCH_WORKFLOW_DISPLAY_NAME[workflowMode]} mode. Allowed tools: ${allowed.join(", ")}.`,
   };
 }

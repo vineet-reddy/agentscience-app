@@ -427,7 +427,7 @@ const make = Effect.gen(function* () {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
     const stageInstructions =
-      thread.stageState != null ? buildStageAgentInputs(thread.stageState.currentStageId) : null;
+      thread.stageState != null ? buildStageAgentInputs(thread.stageState) : null;
     const providerMessageText =
       stageInstructions !== null
         ? [stageInstructions.systemMessage, "## User request", input.messageText].join("\n\n")

@@ -32,6 +32,19 @@ describe("buildStageAgentInputs", () => {
       expect(inputs.allowedTools.length).toBeGreaterThan(0);
     }
   });
+
+  it("injects only the selected workflow profile", () => {
+    const inputs = buildStageAgentInputs({
+      workflowMode: "literature-review",
+      stageId: "novelty",
+    });
+
+    expect(inputs.systemMessage).toMatch(/Literature review · stage 2\/4 · EVIDENCE MAP/i);
+    expect(inputs.systemMessage).toContain("running in Literature review mode");
+    expect(inputs.systemMessage).not.toContain("running in Experimental design mode");
+    expect(inputs.systemMessage).not.toContain("running in Data analysis mode");
+    expect(inputs.systemMessage).not.toContain("Question, Novelty, Data, Method, Analysis");
+  });
 });
 
 describe("gateToolForStage", () => {

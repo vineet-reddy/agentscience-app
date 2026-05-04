@@ -1,8 +1,9 @@
 /**
  * Stage machine for the AgentScience research workflow.
  *
- * A research project (one OrchestrationThread) progresses through 8 sequential
- * stages: Question, Novelty, Data, Method, Analysis, Figures, Draft, Review.
+ * A research project (one OrchestrationThread) progresses through a workflow
+ * profile. Profiles reuse the canonical stage ids below, but each profile can
+ * expose a narrower stage order and mode-specific display names.
  *
  * The data model in this file is intentionally pure (no I/O, no UI) and is the
  * single source of truth for stage state shared between the contracts package,
@@ -69,6 +70,99 @@ export const STAGE_DISPLAY_NAME: Readonly<Record<StageId, string>> = {
 
 export function stageIndex(stageId: StageId): number {
   return STAGE_ORDER.indexOf(stageId);
+}
+
+// ---------------------------------------------------------------------------
+// Research workflow profile
+// ---------------------------------------------------------------------------
+
+export const ResearchWorkflowMode = Schema.Literals([
+  "literature-review",
+  "experimental-design",
+  "data-analysis",
+  "open",
+]);
+export type ResearchWorkflowMode = typeof ResearchWorkflowMode.Type;
+
+export const DEFAULT_RESEARCH_WORKFLOW_MODE: ResearchWorkflowMode = "open";
+
+export const RESEARCH_WORKFLOW_DISPLAY_NAME: Readonly<
+  Record<ResearchWorkflowMode, string>
+> = {
+  "literature-review": "Literature review",
+  "experimental-design": "Experimental design",
+  "data-analysis": "Data analysis",
+  open: "Open",
+} as const;
+
+/**
+ * Mode-specific stage plans. These keep the active workflow tight while
+ * preserving the existing stage/artifact schema and reducer machinery.
+ */
+export const WORKFLOW_STAGE_ORDER: Readonly<
+  Record<ResearchWorkflowMode, readonly StageId[]>
+> = {
+  "literature-review": ["question", "novelty", "draft", "review"],
+  "experimental-design": ["question", "novelty", "method", "draft", "review"],
+  "data-analysis": [
+    "question",
+    "data",
+    "method",
+    "analysis",
+    "figures",
+    "draft",
+    "review",
+  ],
+  open: STAGE_ORDER,
+} as const;
+
+export const WORKFLOW_STAGE_DISPLAY_NAME: Readonly<
+  Record<ResearchWorkflowMode, Readonly<Record<StageId, string>>>
+> = {
+  "literature-review": {
+    question: "Scope",
+    novelty: "Evidence map",
+    data: "Data",
+    method: "Method",
+    analysis: "Analysis",
+    figures: "Figures",
+    draft: "Synthesis",
+    review: "Review",
+  },
+  "experimental-design": {
+    question: "Question",
+    novelty: "Background",
+    data: "Data",
+    method: "Protocol design",
+    analysis: "Analysis",
+    figures: "Figures",
+    draft: "Preregistration",
+    review: "Review",
+  },
+  "data-analysis": {
+    question: "Question",
+    novelty: "Novelty",
+    data: "Data",
+    method: "Method",
+    analysis: "Analysis",
+    figures: "Figures",
+    draft: "Results",
+    review: "Review",
+  },
+  open: STAGE_DISPLAY_NAME,
+} as const;
+
+export function workflowStageOrder(
+  workflowMode: ResearchWorkflowMode | null | undefined,
+): readonly StageId[] {
+  return WORKFLOW_STAGE_ORDER[workflowMode ?? DEFAULT_RESEARCH_WORKFLOW_MODE];
+}
+
+export function workflowStageDisplayName(
+  workflowMode: ResearchWorkflowMode | null | undefined,
+  stageId: StageId,
+): string {
+  return WORKFLOW_STAGE_DISPLAY_NAME[workflowMode ?? DEFAULT_RESEARCH_WORKFLOW_MODE][stageId];
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +461,9 @@ export type ProjectStage = typeof ProjectStage.Type;
  * New threads from this version forward always have a non-null state.
  */
 export const ProjectStageState = Schema.Struct({
+  workflowMode: ResearchWorkflowMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_RESEARCH_WORKFLOW_MODE),
+  ),
   mode: ProjectMode,
   currentStageId: StageId,
   autoConfidenceThreshold: Confidence,
@@ -493,6 +590,16 @@ export const ProjectModeSetCommand = Schema.Struct({
 });
 export type ProjectModeSetCommand = typeof ProjectModeSetCommand.Type;
 
+export const ProjectWorkflowModeSetCommand = Schema.Struct({
+  type: Schema.Literal("project.workflow.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  workflowMode: ResearchWorkflowMode,
+  createdAt: IsoDateTime,
+});
+export type ProjectWorkflowModeSetCommand =
+  typeof ProjectWorkflowModeSetCommand.Type;
+
 export const ProjectRecomputeCommand = Schema.Struct({
   type: Schema.Literal("project.recompute"),
   commandId: CommandId,
@@ -515,6 +622,7 @@ export const StageCommand = Schema.Union([
   StageDiscussCommand,
   StageSkipCommand,
   ProjectModeSetCommand,
+  ProjectWorkflowModeSetCommand,
   ProjectRecomputeCommand,
 ]);
 export type StageCommand = typeof StageCommand.Type;

@@ -15,8 +15,9 @@
 import {
   DEFAULT_AUTO_CONFIDENCE_THRESHOLD,
   DEFAULT_PROJECT_MODE,
-  FIRST_STAGE_ID,
+  DEFAULT_RESEARCH_WORKFLOW_MODE,
   STAGE_ORDER,
+  workflowStageOrder,
   type Concern,
   type Confidence,
   type IsoDateTime,
@@ -25,6 +26,7 @@ import {
   type ProjectRecomputeCommand,
   type ProjectStage,
   type ProjectStageState,
+  type ProjectWorkflowModeSetCommand,
   type StageApproveCommand,
   type StageArtifact,
   type StageArtifactProposedCommand,
@@ -35,6 +37,7 @@ import {
   type StageSkipCommand,
   type StageStartCommand,
   type StageStatus,
+  type ResearchWorkflowMode,
 } from "@agentscience/contracts";
 
 // ---------------------------------------------------------------------------
@@ -62,10 +65,14 @@ export const STAGE_DEPENDS_ON: Readonly<Record<StageId, readonly StageId[]>> = {
  * All stages that transitively depend on `stageId`, in canonical display order.
  * `stageId` itself is NOT included.
  */
-export function getDownstreamStages(stageId: StageId): StageId[] {
+export function getDownstreamStages(
+  stageId: StageId,
+  workflowMode: ResearchWorkflowMode = DEFAULT_RESEARCH_WORKFLOW_MODE,
+): StageId[] {
+  const order = workflowStageOrder(workflowMode);
   const downstream = new Set<StageId>();
   const visit = (s: StageId): void => {
-    for (const candidate of STAGE_ORDER) {
+    for (const candidate of order) {
       if (downstream.has(candidate)) continue;
       const deps = STAGE_DEPENDS_ON[candidate];
       if (deps.includes(s)) {
@@ -75,7 +82,7 @@ export function getDownstreamStages(stageId: StageId): StageId[] {
     }
   };
   visit(stageId);
-  return STAGE_ORDER.filter((s) => downstream.has(s));
+  return order.filter((s) => downstream.has(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -117,10 +124,15 @@ const err = (error: StageMachineError): StageMachineResult => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function nextStageId(stageId: StageId): StageId | null {
-  const idx = STAGE_ORDER.indexOf(stageId);
-  if (idx < 0 || idx === STAGE_ORDER.length - 1) return null;
-  return STAGE_ORDER[idx + 1]!;
+function stageOrderForState(state: ProjectStageState): readonly StageId[] {
+  return workflowStageOrder(state.workflowMode);
+}
+
+function nextStageId(state: ProjectStageState, stageId: StageId): StageId | null {
+  const order = stageOrderForState(state);
+  const idx = order.indexOf(stageId);
+  if (idx < 0 || idx === order.length - 1) return null;
+  return order[idx + 1]!;
 }
 
 function makePendingStage(stageId: StageId): ProjectStage {
@@ -184,21 +196,25 @@ function expectStatus(
  */
 export function createInitialStageState(input: {
   now: IsoDateTime;
+  workflowMode?: ResearchWorkflowMode;
   mode?: ProjectMode;
   autoConfidenceThreshold?: Confidence;
 }): ProjectStageState {
+  const workflowMode = input.workflowMode ?? DEFAULT_RESEARCH_WORKFLOW_MODE;
+  const firstStageId = workflowStageOrder(workflowMode)[0]!;
   const stages = {} as Record<StageId, ProjectStage>;
   for (const stageId of STAGE_ORDER) {
     stages[stageId] = makePendingStage(stageId);
   }
-  stages[FIRST_STAGE_ID] = {
-    ...stages[FIRST_STAGE_ID]!,
+  stages[firstStageId] = {
+    ...stages[firstStageId]!,
     status: "active",
     enteredAt: input.now,
   };
   return {
+    workflowMode,
     mode: input.mode ?? DEFAULT_PROJECT_MODE,
-    currentStageId: FIRST_STAGE_ID,
+    currentStageId: firstStageId,
     autoConfidenceThreshold:
       input.autoConfidenceThreshold ?? DEFAULT_AUTO_CONFIDENCE_THRESHOLD,
     stages,
@@ -230,6 +246,8 @@ export function applyStageCommand(
       return applySkip(state, command);
     case "project.mode.set":
       return applyModeSet(state, command);
+    case "project.workflow.set":
+      return applyWorkflowModeSet(state, command);
     case "project.recompute":
       return applyRecompute(state, command);
   }
@@ -301,7 +319,7 @@ function applyApprove(
   const stage = expectStatus(state, cmd.stageId, ["awaiting_approval"]);
   if (!("status" in stage)) return err(stage);
   const approvedAt = cmd.createdAt;
-  const upcomingId = nextStageId(cmd.stageId);
+  const upcomingId = nextStageId(state, cmd.stageId);
   const baseNext = withStage(
     state,
     cmd.stageId,
@@ -345,7 +363,7 @@ function applyRevise(
     "revised",
   ]);
   if (!("status" in stage)) return err(stage);
-  const downstream = getDownstreamStages(cmd.stageId);
+  const downstream = getDownstreamStages(cmd.stageId, state.workflowMode);
   const updatedAt = cmd.createdAt;
   const stagesNext: Record<StageId, ProjectStage> = { ...state.stages };
   stagesNext[cmd.stageId] = {
@@ -399,7 +417,7 @@ function applySkip(
   ]);
   if (!("status" in stage)) return err(stage);
   const updatedAt = cmd.createdAt;
-  const upcomingId = nextStageId(cmd.stageId);
+  const upcomingId = nextStageId(state, cmd.stageId);
   const baseNext = withStage(
     state,
     cmd.stageId,
@@ -438,6 +456,86 @@ function applyModeSet(
   return ok({ ...state, mode: cmd.mode, updatedAt: cmd.createdAt });
 }
 
+function applyWorkflowModeSet(
+  state: ProjectStageState,
+  cmd: ProjectWorkflowModeSetCommand,
+): StageMachineResult {
+  if (state.workflowMode === cmd.workflowMode) {
+    return ok({ ...state, updatedAt: cmd.createdAt });
+  }
+
+  const nextOrder = workflowStageOrder(cmd.workflowMode);
+  const nextOrderSet = new Set<StageId>(nextOrder);
+  const activeInNewOrder = nextOrder.find((stageId) => {
+    const status = state.stages[stageId]?.status;
+    return status === "active" || status === "awaiting_approval" || status === "revised";
+  });
+  const firstOpen =
+    activeInNewOrder ??
+    nextOrder.find((stageId) => {
+      const status = state.stages[stageId]?.status;
+      return status !== "approved" && status !== "skipped";
+    }) ??
+    nextOrder[nextOrder.length - 1]!;
+  const currentIndex = nextOrder.indexOf(firstOpen);
+
+  const stagesNext: Record<StageId, ProjectStage> = { ...state.stages };
+  for (const stageId of STAGE_ORDER) {
+    const stage = stagesNext[stageId];
+    if (!stage) continue;
+    const inWorkflow = nextOrderSet.has(stageId);
+    const isCurrent = stageId === firstOpen;
+    const status = stage.status;
+
+    if (!inWorkflow) {
+      stagesNext[stageId] =
+        status === "active" || status === "awaiting_approval" || status === "revised"
+          ? {
+              ...stage,
+              status: "pending",
+              enteredAt: null,
+              proposedAt: null,
+              confidence: null,
+              concerns: [],
+            }
+          : stage;
+      continue;
+    }
+
+    if (isCurrent) {
+      stagesNext[stageId] = {
+        ...stage,
+        status:
+          status === "approved" || status === "skipped" || status === "awaiting_approval"
+            ? status
+            : "active",
+        enteredAt: stage.enteredAt ?? cmd.createdAt,
+        stale: false,
+      };
+      continue;
+    }
+
+    const stageIndex = nextOrder.indexOf(stageId);
+    const isDownstream = currentIndex >= 0 && stageIndex > currentIndex;
+    stagesNext[stageId] = {
+      ...stage,
+      status:
+        status === "active" || status === "awaiting_approval" || status === "revised"
+          ? "pending"
+          : status,
+      stale: isDownstream && stage.artifact !== null ? true : stage.stale,
+    };
+  }
+
+  return ok({
+    ...state,
+    workflowMode: cmd.workflowMode,
+    currentStageId: firstOpen,
+    stages: stagesNext,
+    updatedAt: cmd.createdAt,
+  });
+}
+
 // project.recompute: resets the chosen stale stages back to active so the
 // agent can regenerate them. The earliest such stage becomes currentStageId.
 function applyRecompute(
@@ -468,7 +566,7 @@ function applyRecompute(
   }
   // Earliest selected stage becomes the current focus.
   const earliest =
-    STAGE_ORDER.find((s) => cmd.stageIds.includes(s)) ?? state.currentStageId;
+    stageOrderForState(state).find((s) => cmd.stageIds.includes(s)) ?? state.currentStageId;
   return ok({
     ...state,
     currentStageId: earliest,
@@ -503,18 +601,18 @@ export function shouldAutoApprove(input: {
 // ---------------------------------------------------------------------------
 
 export function getStaleStageIds(state: ProjectStageState): StageId[] {
-  return STAGE_ORDER.filter((s) => state.stages[s]?.stale === true);
+  return stageOrderForState(state).filter((s) => state.stages[s]?.stale === true);
 }
 
 export function getCompletedStageIds(state: ProjectStageState): StageId[] {
-  return STAGE_ORDER.filter((s) => {
+  return stageOrderForState(state).filter((s) => {
     const stage = state.stages[s];
     return stage?.status === "approved" || stage?.status === "skipped";
   });
 }
 
 export function isProjectComplete(state: ProjectStageState): boolean {
-  return STAGE_ORDER.every((s) => {
+  return stageOrderForState(state).every((s) => {
     const status = state.stages[s]?.status;
     return status === "approved" || status === "skipped";
   });

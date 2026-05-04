@@ -4,6 +4,8 @@ import {
   ProjectModeSetCommand,
   ProjectRecomputeCommand,
   ProjectStageState,
+  ProjectWorkflowModeSetCommand,
+  ResearchWorkflowMode,
   StageApproveCommand,
   StageArtifactProposedCommand,
   StageDiscussCommand,
@@ -327,6 +329,7 @@ export const OrchestrationThread = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  workflowMode: Schema.optional(ResearchWorkflowMode),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
@@ -392,6 +395,7 @@ const ThreadCreateCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  workflowMode: Schema.optional(ResearchWorkflowMode),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
@@ -468,6 +472,7 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  workflowMode: Schema.optional(ResearchWorkflowMode),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
@@ -597,6 +602,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   StageDiscussCommand,
   StageSkipCommand,
   ProjectModeSetCommand,
+  ProjectWorkflowModeSetCommand,
   ProjectRecomputeCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
@@ -629,6 +635,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   StageDiscussCommand,
   StageSkipCommand,
   ProjectModeSetCommand,
+  ProjectWorkflowModeSetCommand,
   ProjectRecomputeCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
@@ -793,6 +800,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  workflowMode: Schema.optional(ResearchWorkflowMode),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   stageState: Schema.optional(Schema.NullOr(ProjectStageState)),
