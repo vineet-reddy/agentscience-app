@@ -439,7 +439,7 @@ function NewPaperDraftEmptyState() {
       <div className="w-full max-w-[680px]">
         <header className="text-center">
           <h1 className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
-            Create a new paper
+            Create a new paper end-to-end
           </h1>
           <p className="mx-auto mt-3 max-w-[520px] text-[0.9375rem] leading-relaxed text-ink-light">
             Describe the research question, dataset, or scientific idea you want to turn into a

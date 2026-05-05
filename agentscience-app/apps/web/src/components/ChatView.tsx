@@ -1,5 +1,6 @@
 import {
   type ApprovalRequestId,
+  type CodexModelOptions,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_RESEARCH_DEPTH,
   DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
@@ -718,6 +719,7 @@ export default function ChatView({
     Schema.Boolean,
   );
   const [maxModeDialogOpen, setMaxModeDialogOpen] = useState(false);
+  const standardCodexModelSelectionBeforeMaxRef = useRef<ModelSelection | null>(null);
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
@@ -2196,6 +2198,9 @@ export default function ChatView({
       setComposerDraftResearchDepth(threadId, depth, { persistSticky: true });
 
       if (depth === "max" && selectedProvider === "codex") {
+        if (researchDepth !== "max") {
+          standardCodexModelSelectionBeforeMaxRef.current = selectedModelSelection;
+        }
         const caps = getProviderModelCapabilities(selectedProviderModels, selectedModel, "codex");
         const supportsXHigh = caps.reasoningEffortLevels.some((level) => level.value === "xhigh");
         const existingCodexOptions = composerModelOptions?.codex ?? {};
@@ -2208,6 +2213,23 @@ export default function ChatView({
             ...(caps.supportsFastMode ? { fastMode: false } : {}),
           },
         });
+      } else if (depth === "standard" && selectedProvider === "codex") {
+        const previousSelection = standardCodexModelSelectionBeforeMaxRef.current;
+        const fallbackOptions = getDefaultProviderModelOptions(
+          selectedProviderModels,
+          "codex",
+          selectedModel,
+        );
+        const restoredOptions =
+          previousSelection?.provider === "codex"
+            ? ((previousSelection.options ?? {}) as CodexModelOptions)
+            : fallbackOptions;
+        setComposerDraftModelSelection(threadId, {
+          provider: "codex",
+          model: previousSelection?.provider === "codex" ? previousSelection.model : selectedModel,
+          options: (restoredOptions ?? {}) as CodexModelOptions,
+        });
+        standardCodexModelSelectionBeforeMaxRef.current = null;
       }
 
       scheduleComposerFocus();
@@ -2217,6 +2239,7 @@ export default function ChatView({
       researchDepth,
       scheduleComposerFocus,
       selectedModel,
+      selectedModelSelection,
       selectedProvider,
       selectedProviderModels,
       setComposerDraftModelSelection,
