@@ -4486,12 +4486,12 @@ export default function ChatView({
                     )}
 
                     {!isComposerApprovalState && pendingUserInputs.length === 0 ? (
-                      <div className="mb-2 flex justify-end">
+                      <div className="pointer-events-none absolute right-3 top-2 z-10 sm:right-4 sm:top-2.5">
                         <div
                           className={cn(
-                            "inline-flex h-7 items-center rounded-full border bg-muted/35 p-0.5 text-[11px] font-medium shadow-sm",
+                            "pointer-events-auto inline-flex h-7 items-center rounded-full border bg-background/92 p-0.5 text-[11px] font-medium shadow-sm backdrop-blur-sm",
                             researchDepth === "max"
-                              ? "border-warning/45 bg-warning/10"
+                              ? "border-warning/45 bg-warning/8"
                               : "border-border/70",
                           )}
                           aria-label="Answer mode"
@@ -4502,7 +4502,7 @@ export default function ChatView({
                             className={cn(
                               "h-6 rounded-full px-2.5 transition-colors",
                               researchDepth === "standard"
-                                ? "bg-background text-foreground shadow-sm"
+                                ? "bg-muted text-foreground shadow-sm"
                                 : "text-muted-foreground hover:text-foreground",
                             )}
                             aria-pressed={researchDepth === "standard"}
@@ -4516,7 +4516,7 @@ export default function ChatView({
                             className={cn(
                               "h-6 rounded-full px-2.5 transition-colors",
                               researchDepth === "max"
-                                ? "bg-warning text-warning-foreground shadow-sm"
+                                ? "bg-warning/18 text-foreground shadow-sm ring-1 ring-warning/35"
                                 : "text-muted-foreground hover:text-foreground",
                             )}
                             aria-pressed={researchDepth === "max"}
