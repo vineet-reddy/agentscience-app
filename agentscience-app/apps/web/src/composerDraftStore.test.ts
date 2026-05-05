@@ -619,6 +619,21 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
   });
 
+  it("keeps Max selected when a draft thread is promoted", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId);
+    store.setPrompt(threadId, "promote me");
+    store.setResearchDepth(threadId, "max");
+
+    clearPromotedDraftThread(threadId);
+
+    const promotedDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toBeNull();
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
+    expect(promotedDraft?.prompt).toBe("");
+    expect(promotedDraft?.researchDepth).toBe("max");
+  });
+
   it("does not clear composer drafts for existing server threads during promotion cleanup", () => {
     const store = useComposerDraftStore.getState();
     store.setPrompt(threadId, "keep me");

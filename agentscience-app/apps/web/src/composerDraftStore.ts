@@ -261,6 +261,7 @@ interface ComposerDraftStoreState {
   clearProjectDraftThreadId: (projectId: ProjectId | null) => void;
   clearProjectDraftThreadById: (projectId: ProjectId | null, threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
+  clearPromotedDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
   setTerminalContexts: (threadId: ThreadId, contexts: TerminalContextDraft[]) => void;
@@ -457,6 +458,23 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.interactionMode === null &&
     draft.researchDepth === null
   );
+}
+
+function promotedComposerSettingsDraft(
+  draft: ComposerThreadDraftState | undefined,
+): ComposerThreadDraftState | null {
+  if (!draft) {
+    return null;
+  }
+  const settingsDraft: ComposerThreadDraftState = {
+    ...createEmptyThreadDraft(),
+    modelSelectionByProvider: draft.modelSelectionByProvider,
+    activeProvider: draft.activeProvider,
+    runtimeMode: draft.runtimeMode,
+    interactionMode: draft.interactionMode,
+    researchDepth: draft.researchDepth,
+  };
+  return shouldRemoveDraft(settingsDraft) ? null : settingsDraft;
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
@@ -1564,6 +1582,45 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           };
         });
       },
+      clearPromotedDraftThread: (threadId) => {
+        if (threadId.length === 0) {
+          return;
+        }
+        const existing = get().draftsByThreadId[threadId];
+        if (existing) {
+          for (const image of existing.images) {
+            revokeObjectPreviewUrl(image.previewUrl);
+          }
+        }
+        set((state) => {
+          const hasDraftThread = state.draftThreadsByThreadId[threadId] !== undefined;
+          const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
+            threadId,
+          );
+          if (!hasDraftThread && !hasProjectMapping) {
+            return state;
+          }
+          const preservedDraft = promotedComposerSettingsDraft(state.draftsByThreadId[threadId]);
+          const nextProjectDraftThreadIdByProjectId = Object.fromEntries(
+            Object.entries(state.projectDraftThreadIdByProjectId).filter(
+              ([, draftThreadId]) => draftThreadId !== threadId,
+            ),
+          ) as Record<ProjectId, ThreadId>;
+          const { [threadId]: _removedDraftThread, ...restDraftThreadsByThreadId } =
+            state.draftThreadsByThreadId;
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (preservedDraft) {
+            nextDraftsByThreadId[threadId] = preservedDraft;
+          } else {
+            delete nextDraftsByThreadId[threadId];
+          }
+          return {
+            draftsByThreadId: nextDraftsByThreadId,
+            draftThreadsByThreadId: restDraftThreadsByThreadId,
+            projectDraftThreadIdByProjectId: nextProjectDraftThreadIdByProjectId,
+          };
+        });
+      },
       setStickyModelSelection: (modelSelection) => {
         const normalized = normalizeModelSelection(modelSelection);
         set((state) => {
@@ -2289,7 +2346,7 @@ export function clearPromotedDraftThread(threadId: ThreadId): void {
   if (!useComposerDraftStore.getState().getDraftThread(threadId)) {
     return;
   }
-  useComposerDraftStore.getState().clearDraftThread(threadId);
+  useComposerDraftStore.getState().clearPromotedDraftThread(threadId);
 }
 
 export function clearPromotedDraftThreads(serverThreadIds: Iterable<ThreadId>): void {
