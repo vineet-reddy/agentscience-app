@@ -23,6 +23,27 @@ export function paperReviewReadyPdfKey(
   return `${snapshot.preview.relativePath}:${snapshot.preview.updatedAt}:${snapshot.preview.url}`;
 }
 
+export function paperReviewPreviewKey(
+  snapshot: PaperReviewSnapshot | null | undefined,
+): string | null {
+  if (
+    !snapshot?.reviewRecommended ||
+    snapshot.preview.kind === "empty" ||
+    !snapshot.preview.relativePath ||
+    !snapshot.preview.updatedAt ||
+    !snapshot.preview.url
+  ) {
+    return null;
+  }
+
+  return [
+    snapshot.preview.kind,
+    snapshot.preview.relativePath,
+    snapshot.preview.updatedAt,
+    snapshot.preview.url,
+  ].join(":");
+}
+
 function resolvePaperReviewRequestUrl(url: string): string {
   return new URL(
     url,
@@ -41,6 +62,9 @@ function normalizeSnapshotUrls(snapshot: PaperReviewSnapshot): PaperReviewSnapsh
       : {}),
     ...(snapshot.pdf
       ? { pdf: { ...snapshot.pdf, url: resolvePaperReviewRequestUrl(snapshot.pdf.url) } }
+      : {}),
+    ...(snapshot.figure
+      ? { figure: { ...snapshot.figure, url: resolvePaperReviewRequestUrl(snapshot.figure.url) } }
       : {}),
     ...(snapshot.bibliography
       ? {

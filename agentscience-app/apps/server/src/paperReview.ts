@@ -80,6 +80,7 @@ const SOURCE_PRIORITY = ["paper.tex", "paper.md"] as const;
 const NOTES_PRIORITY = ["figure-descriptions.md", "experiment-log.md"] as const;
 const BIB_PRIORITY = ["references.bib"] as const;
 const FIGURES_DIRNAME = "figures";
+const FIGURE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".svg"] as const;
 const PAPER_TOOLCHAIN_ENV_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_DIR";
 const PAPER_TOOLCHAIN_ENV_BIN_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR";
 const PAPER_TOOLCHAIN_DIRNAME = "paper-toolchain";
@@ -447,15 +448,93 @@ async function discoverPriorityArtifact(
 type WorkspaceArtifactSnapshot = {
   readonly source: ExistingArtifact | null;
   readonly pdf: ExistingArtifact | null;
+  readonly figure: ExistingArtifact | null;
   readonly bibliography: ExistingArtifact | null;
   readonly notes: ExistingArtifact | null;
 };
+
+function isFigurePath(relativePath: string): boolean {
+  const normalized = relativePath.toLowerCase();
+  return FIGURE_EXTENSIONS.some((extension) => normalized.endsWith(extension));
+}
+
+async function discoverFigureArtifact(
+  threadId: ThreadId,
+  workspaceRoot: string,
+): Promise<ExistingArtifact | null> {
+  const queue = [workspaceRoot];
+  const candidates: ExistingArtifact[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+      const absolutePath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        const relativeDirectory = path.relative(workspaceRoot, absolutePath).replaceAll("\\", "/");
+        if (
+          relativeDirectory === "node_modules" ||
+          relativeDirectory === "paper-toolchain" ||
+          relativeDirectory.startsWith("node_modules/")
+        ) {
+          continue;
+        }
+        queue.push(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      const relativePath = path.relative(workspaceRoot, absolutePath).replaceAll("\\", "/");
+      if (!isFigurePath(relativePath)) {
+        continue;
+      }
+      const artifact = await toArtifact(threadId, workspaceRoot, relativePath, {
+        kind: "figure",
+        label: "Figure",
+      });
+      if (artifact) {
+        candidates.push(artifact);
+      }
+    }
+  }
+
+  return (
+    candidates.toSorted((left, right) => {
+      const figureDirectoryRank = (artifact: ExistingArtifact) =>
+        artifact.relativePath.startsWith(`${FIGURES_DIRNAME}/`) ? 0 : 1;
+      const rankDelta = figureDirectoryRank(left) - figureDirectoryRank(right);
+      if (rankDelta !== 0) {
+        return rankDelta;
+      }
+      const updatedDelta = right.updatedAtMs - left.updatedAtMs;
+      if (updatedDelta !== 0) {
+        return updatedDelta;
+      }
+      return left.relativePath.localeCompare(right.relativePath);
+    })[0] ?? null
+  );
+}
 
 async function discoverWorkspaceArtifacts(
   threadId: ThreadId,
   workspaceRoot: string,
 ): Promise<WorkspaceArtifactSnapshot> {
   const source = await discoverSourceArtifact(threadId, workspaceRoot);
+  const figure = await discoverFigureArtifact(threadId, workspaceRoot);
   const bibliography = await discoverPriorityArtifact(threadId, workspaceRoot, BIB_PRIORITY, {
     kind: "bibliography",
     label: "References",
@@ -469,6 +548,7 @@ async function discoverWorkspaceArtifacts(
   return {
     source,
     pdf,
+    figure,
     bibliography,
     notes,
   };
@@ -617,6 +697,7 @@ async function resolvePresentedWorkspaceArtifacts(input: {
   readonly pdf: ExistingArtifact | null;
   readonly bibliography: ExistingArtifact | null;
   readonly notes: ExistingArtifact | null;
+  readonly figure: ExistingArtifact | null;
 } | null> {
   const workspaceRoot = await resolvePresentedWorkspaceRoot({
     threadWorkspaceRoot: input.threadWorkspaceRoot,
@@ -676,6 +757,7 @@ async function resolvePresentedWorkspaceArtifacts(input: {
       kind: "notes",
       label: "Figure notes",
     }));
+  const figure = await discoverFigureArtifact(input.threadId, workspaceRoot);
   const pdf =
     (explicitPdfPath
       ? await toArtifactFromAbsolutePath(input.threadId, workspaceRoot, explicitPdfPath, {
@@ -684,7 +766,7 @@ async function resolvePresentedWorkspaceArtifacts(input: {
         })
       : null) ?? (await discoverPdfArtifact(input.threadId, workspaceRoot, source));
 
-  if (!source && !pdf) {
+  if (!source && !pdf && !figure) {
     return null;
   }
 
@@ -692,6 +774,7 @@ async function resolvePresentedWorkspaceArtifacts(input: {
     workspaceRoot,
     source,
     pdf,
+    figure,
     bibliography,
     notes,
   };
@@ -722,7 +805,7 @@ async function resolveManuscriptWorkspaceRoot(input: {
       input.threadId,
       candidateWorkspaceRoot,
     );
-    if (candidateArtifacts.source || candidateArtifacts.pdf) {
+    if (candidateArtifacts.source || candidateArtifacts.pdf || candidateArtifacts.figure) {
       return candidateWorkspaceRoot;
     }
   }
@@ -887,7 +970,22 @@ async function newestSourceDependencyTime(input: {
 function previewForState(input: {
   readonly source: ExistingArtifact | null;
   readonly pdf: ExistingArtifact | null;
+  readonly figure: ExistingArtifact | null;
 }): PaperReviewPreview {
+  const figureIsNewest =
+    input.figure &&
+    (!input.pdf || input.figure.updatedAtMs > input.pdf.updatedAtMs) &&
+    (!input.source || input.figure.updatedAtMs >= input.source.updatedAtMs);
+
+  if (figureIsNewest) {
+    return {
+      kind: "image",
+      relativePath: input.figure.relativePath,
+      url: input.figure.url,
+      updatedAt: input.figure.updatedAt,
+    };
+  }
+
   if (input.pdf) {
     return {
       kind: "pdf",
@@ -897,12 +995,30 @@ function previewForState(input: {
     };
   }
 
+  if (input.figure && !input.source) {
+    return {
+      kind: "image",
+      relativePath: input.figure.relativePath,
+      url: input.figure.url,
+      updatedAt: input.figure.updatedAt,
+    };
+  }
+
   if (input.source) {
     return {
       kind: input.source.kind === "markdown" ? "markdown" : "latex",
       relativePath: input.source.relativePath,
       url: input.source.url,
       updatedAt: input.source.updatedAt,
+    };
+  }
+
+  if (input.figure) {
+    return {
+      kind: "image",
+      relativePath: input.figure.relativePath,
+      url: input.figure.url,
+      updatedAt: input.figure.updatedAt,
     };
   }
 
@@ -949,6 +1065,7 @@ async function inspectThreadWorkspace(
       workspaceRoot: null,
       source: null,
       pdf: null,
+      figure: null,
       bibliography: null,
       notes: null,
       preview: { kind: "empty", relativePath: null, url: null, updatedAt: null },
@@ -1000,6 +1117,9 @@ async function inspectThreadWorkspace(
       kind: "notes",
       label: "Figure notes",
     }));
+  const figure =
+    resolvedPresentedWorkspace?.figure ??
+    (await discoverFigureArtifact(thread.id, manuscriptWorkspaceRoot));
   const pdf =
     resolvedPresentedWorkspace?.pdf ??
     (await discoverPdfArtifact(thread.id, manuscriptWorkspaceRoot, source));
@@ -1065,9 +1185,11 @@ async function inspectThreadWorkspace(
     preview: previewForState({
       source,
       pdf,
+      figure,
     }),
     compile,
-    reviewRecommended: Boolean(source || pdf),
+    figure,
+    reviewRecommended: Boolean(source || pdf || figure),
   };
 }
 
@@ -1287,6 +1409,7 @@ const makePaperReviewService = Effect.gen(function* () {
         workspaceRoot: null,
         source: null,
         pdf: null,
+        figure: null,
         bibliography: null,
         notes: null,
         preview: { kind: "empty", relativePath: null, url: null, updatedAt: null },

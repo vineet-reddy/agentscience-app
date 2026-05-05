@@ -28,6 +28,7 @@ describe("PaperReviewSnapshot", () => {
         updatedAt: "2026-04-15T12:00:10.000Z",
         contentType: "application/pdf",
       },
+      figure: null,
       bibliography: null,
       notes: null,
       preview: {

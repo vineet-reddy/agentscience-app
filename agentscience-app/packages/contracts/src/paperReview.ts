@@ -28,6 +28,7 @@ export const PaperReviewArtifactKind = Schema.Literals([
   "latex",
   "markdown",
   "pdf",
+  "figure",
   "bibliography",
   "notes",
 ]);
@@ -44,7 +45,13 @@ export const PaperReviewArtifact = Schema.Struct({
 });
 export type PaperReviewArtifact = typeof PaperReviewArtifact.Type;
 
-export const PaperReviewPreviewKind = Schema.Literals(["empty", "latex", "markdown", "pdf"]);
+export const PaperReviewPreviewKind = Schema.Literals([
+  "empty",
+  "latex",
+  "markdown",
+  "pdf",
+  "image",
+]);
 export type PaperReviewPreviewKind = typeof PaperReviewPreviewKind.Type;
 
 export const PaperReviewPreview = Schema.Struct({
@@ -92,6 +99,7 @@ export const PaperReviewSnapshot = Schema.Struct({
   workspaceRoot: Schema.NullOr(Schema.String),
   source: Schema.NullOr(PaperReviewArtifact),
   pdf: Schema.NullOr(PaperReviewArtifact),
+  figure: Schema.NullOr(PaperReviewArtifact),
   bibliography: Schema.NullOr(PaperReviewArtifact),
   notes: Schema.NullOr(PaperReviewArtifact),
   preview: PaperReviewPreview,
