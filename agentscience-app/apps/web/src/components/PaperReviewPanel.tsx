@@ -169,10 +169,11 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
         </div>
       ) : null}
 
-      {snapshot?.compile.status === "unavailable" && snapshot?.source?.kind === "latex" ? (
+      {snapshot?.compile.status === "unavailable" &&
+      (snapshot?.source?.kind === "latex" || snapshot?.source?.kind === "markdown") ? (
         <div className="border-b border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground sm:px-5">
-          No LaTeX engine was detected, so the manuscript source is shown directly. Once a paper
-          engine is available, the PDF preview will populate automatically.
+          No paper engine was detected, so the source is shown directly. Once a paper engine is
+          available, the PDF preview will populate automatically.
         </div>
       ) : null}
 

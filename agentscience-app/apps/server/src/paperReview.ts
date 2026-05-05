@@ -81,6 +81,7 @@ const NOTES_PRIORITY = ["figure-descriptions.md", "experiment-log.md"] as const;
 const BIB_PRIORITY = ["references.bib"] as const;
 const FIGURES_DIRNAME = "figures";
 const FIGURE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".svg"] as const;
+const GENERATED_REVIEW_DIRNAME = ".agentscience-review";
 const PAPER_TOOLCHAIN_ENV_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_DIR";
 const PAPER_TOOLCHAIN_ENV_BIN_DIR = "AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR";
 const PAPER_TOOLCHAIN_DIRNAME = "paper-toolchain";
@@ -356,6 +357,375 @@ async function toArtifact(
   };
 }
 
+function generatedMarkdownBaseName(sourceRelativePath: string): string {
+  const withoutExtension = sourceRelativePath.replace(/\.[^.\\/]+$/, "");
+  const normalized = withoutExtension
+    .replaceAll("\\", "/")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return (normalized || "document").slice(0, 96);
+}
+
+function generatedMarkdownLatexRelativePath(source: PaperReviewArtifact): string {
+  return `${GENERATED_REVIEW_DIRNAME}/${generatedMarkdownBaseName(source.relativePath)}.tex`;
+}
+
+function generatedMarkdownPdfRelativePath(source: PaperReviewArtifact): string {
+  return `${GENERATED_REVIEW_DIRNAME}/${generatedMarkdownBaseName(source.relativePath)}.pdf`;
+}
+
+async function discoverGeneratedMarkdownPdfArtifact(
+  threadId: ThreadId,
+  workspaceRoot: string,
+  source: ExistingArtifact | null,
+): Promise<ExistingArtifact | null> {
+  if (source?.kind !== "markdown") {
+    return null;
+  }
+  return toArtifact(threadId, workspaceRoot, generatedMarkdownPdfRelativePath(source), {
+    kind: "pdf",
+    label: "Preview PDF",
+  });
+}
+
+function escapeLatexText(value: string): string {
+  let output = "";
+  for (const char of value) {
+    switch (char) {
+      case "\\":
+        output += "\\textbackslash{}";
+        break;
+      case "{":
+        output += "\\{";
+        break;
+      case "}":
+        output += "\\}";
+        break;
+      case "$":
+        output += "\\$";
+        break;
+      case "&":
+        output += "\\&";
+        break;
+      case "%":
+        output += "\\%";
+        break;
+      case "#":
+        output += "\\#";
+        break;
+      case "_":
+        output += "\\_";
+        break;
+      case "^":
+        output += "\\textasciicircum{}";
+        break;
+      case "~":
+        output += "\\textasciitilde{}";
+        break;
+      default:
+        output += char;
+    }
+  }
+  return output;
+}
+
+function escapeLatexUrl(value: string): string {
+  return value.replace(/[{}\\]/g, "");
+}
+
+function renderInlineMarkdownToLatex(value: string): string {
+  let output = "";
+  let index = 0;
+
+  while (index < value.length) {
+    if (value[index] === "`") {
+      const end = value.indexOf("`", index + 1);
+      if (end > index) {
+        output += `\\texttt{${escapeLatexText(value.slice(index + 1, end))}}`;
+        index = end + 1;
+        continue;
+      }
+    }
+
+    if (value.startsWith("**", index)) {
+      const end = value.indexOf("**", index + 2);
+      if (end > index + 2) {
+        output += `\\textbf{${escapeLatexText(value.slice(index + 2, end))}}`;
+        index = end + 2;
+        continue;
+      }
+    }
+
+    if (value[index] === "*") {
+      const end = value.indexOf("*", index + 1);
+      if (end > index + 1) {
+        output += `\\emph{${escapeLatexText(value.slice(index + 1, end))}}`;
+        index = end + 1;
+        continue;
+      }
+    }
+
+    if (value[index] === "[") {
+      const labelEnd = value.indexOf("]", index + 1);
+      const urlStart = labelEnd >= 0 ? value.indexOf("(", labelEnd) : -1;
+      const urlEnd = urlStart === labelEnd + 1 ? value.indexOf(")", urlStart + 1) : -1;
+      if (labelEnd > index && urlStart === labelEnd + 1 && urlEnd > urlStart + 1) {
+        output += `\\href{${escapeLatexUrl(value.slice(urlStart + 1, urlEnd))}}{${renderInlineMarkdownToLatex(value.slice(index + 1, labelEnd))}}`;
+        index = urlEnd + 1;
+        continue;
+      }
+    }
+
+    output += escapeLatexText(value[index] ?? "");
+    index += 1;
+  }
+
+  return output;
+}
+
+function markdownHeadingTitle(markdown: string, fallback: string): string {
+  for (const line of markdown.replaceAll("\r\n", "\n").split("\n")) {
+    const match = /^#\s+(.+?)\s*$/.exec(line);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return fallback;
+}
+
+function markdownWithoutLeadingTitle(markdown: string): string {
+  const lines = markdown.replaceAll("\r\n", "\n").split("\n");
+  const firstContentIndex = lines.findIndex((line) => line.trim().length > 0);
+  if (firstContentIndex < 0 || !/^#\s+/.test(lines[firstContentIndex] ?? "")) {
+    return markdown;
+  }
+  return [...lines.slice(0, firstContentIndex), ...lines.slice(firstContentIndex + 1)].join("\n");
+}
+
+function latexSectionCommand(level: number): string {
+  if (level <= 1) return "section";
+  if (level === 2) return "subsection";
+  if (level === 3) return "subsubsection";
+  return "paragraph";
+}
+
+function markdownTableCells(line: string): string[] {
+  const trimmed = line.trim();
+  const withoutEdges = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  return withoutEdges.split("|").map((cell) => cell.trim());
+}
+
+function isMarkdownTableSeparator(line: string): boolean {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function renderMarkdownTableToLatex(lines: readonly string[]): string {
+  const rows = lines.map(markdownTableCells).filter((row) => row.length > 0);
+  const columnCount = Math.max(...rows.map((row) => row.length), 1);
+  const columnSpec = Array.from(
+    { length: columnCount },
+    () => ">{\\raggedright\\arraybackslash}X",
+  ).join("|");
+  const bodyRows = rows
+    .filter((_, index) => index !== 1)
+    .map((row, index) => {
+      const cells = Array.from({ length: columnCount }, (_, cellIndex) =>
+        renderInlineMarkdownToLatex(row[cellIndex] ?? ""),
+      ).join(" & ");
+      return index === 0 ? `${cells} \\\\ \\hline` : `${cells} \\\\`;
+    })
+    .join("\n");
+
+  return [
+    "\\begin{table}[htbp]",
+    "\\small",
+    "\\begin{tabularx}{\\linewidth}{|" + columnSpec + "|}",
+    "\\hline",
+    bodyRows,
+    "\\hline",
+    "\\end{tabularx}",
+    "\\end{table}",
+  ].join("\n");
+}
+
+function renderMarkdownBodyToLatex(markdown: string): string {
+  const lines = markdown.replaceAll("\r\n", "\n").split("\n");
+  const output: string[] = [];
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let listKind: "itemize" | "enumerate" | null = null;
+  let codeLines: string[] | null = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    output.push(renderInlineMarkdownToLatex(paragraph.join(" ").trim()));
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listKind || listItems.length === 0) return;
+    output.push(
+      [`\\begin{${listKind}}`, ...listItems.map((item) => `\\item ${item}`), `\\end{${listKind}}`].join(
+        "\n",
+      ),
+    );
+    listItems = [];
+    listKind = null;
+  };
+
+  const flushBlocks = () => {
+    flushParagraph();
+    flushList();
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+
+    if (codeLines) {
+      if (/^```/.test(line.trim())) {
+        output.push(["\\begin{verbatim}", ...codeLines, "\\end{verbatim}"].join("\n"));
+        codeLines = null;
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+
+    if (/^```/.test(line.trim())) {
+      flushBlocks();
+      codeLines = [];
+      continue;
+    }
+
+    if (line.trim().length === 0) {
+      flushBlocks();
+      continue;
+    }
+
+    const nextLine = lines[index + 1] ?? "";
+    if (line.includes("|") && isMarkdownTableSeparator(nextLine)) {
+      flushBlocks();
+      const tableLines = [line, nextLine];
+      index += 2;
+      while (index < lines.length && (lines[index] ?? "").includes("|")) {
+        tableLines.push(lines[index] ?? "");
+        index += 1;
+      }
+      index -= 1;
+      output.push(renderMarkdownTableToLatex(tableLines));
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+    if (heading?.[1] && heading[2]) {
+      flushBlocks();
+      const command = latexSectionCommand(heading[1].length);
+      output.push(`\\${command}{${renderInlineMarkdownToLatex(heading[2])}}`);
+      continue;
+    }
+
+    const unordered = /^\s*[-*+]\s+(.+)$/.exec(line);
+    const ordered = /^\s*\d+[.)]\s+(.+)$/.exec(line);
+    if (unordered?.[1] || ordered?.[1]) {
+      flushParagraph();
+      const nextKind = unordered ? "itemize" : "enumerate";
+      if (listKind && listKind !== nextKind) {
+        flushList();
+      }
+      listKind = nextKind;
+      listItems.push(renderInlineMarkdownToLatex((unordered?.[1] ?? ordered?.[1] ?? "").trim()));
+      continue;
+    }
+
+    const quote = /^\s*>\s?(.*)$/.exec(line);
+    if (quote) {
+      flushBlocks();
+      output.push(`\\begin{quote}${renderInlineMarkdownToLatex(quote[1] ?? "")}\\end{quote}`);
+      continue;
+    }
+
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      flushBlocks();
+      output.push("\\medskip\\hrule\\medskip");
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line.trim());
+  }
+
+  if (codeLines) {
+    output.push(["\\begin{verbatim}", ...codeLines, "\\end{verbatim}"].join("\n"));
+  }
+  flushBlocks();
+
+  return output.join("\n\n");
+}
+
+function renderMarkdownDocumentToLatex(markdown: string, fallbackTitle: string): string {
+  const title = markdownHeadingTitle(markdown, fallbackTitle);
+  const body = renderMarkdownBodyToLatex(markdownWithoutLeadingTitle(markdown));
+  return [
+    "\\documentclass[11pt]{article}",
+    "\\usepackage[margin=1in]{geometry}",
+    "\\usepackage[T1]{fontenc}",
+    "\\usepackage[utf8]{inputenc}",
+    "\\usepackage{array}",
+    "\\usepackage{tabularx}",
+    "\\usepackage{xcolor}",
+    "\\usepackage{hyperref}",
+    "\\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=black}",
+    "\\setlength{\\parindent}{0pt}",
+    "\\setlength{\\parskip}{0.75em}",
+    `\\title{${escapeLatexText(title)}}`,
+    "\\date{}",
+    "\\begin{document}",
+    "\\maketitle",
+    body,
+    "\\end{document}",
+    "",
+  ].join("\n");
+}
+
+async function writeFileIfChanged(absolutePath: string, contents: string): Promise<void> {
+  try {
+    const existing = await fs.readFile(absolutePath, "utf8");
+    if (existing === contents) {
+      return;
+    }
+  } catch {
+    // Missing files are written below.
+  }
+  await fs.writeFile(absolutePath, contents, "utf8");
+}
+
+async function prepareMarkdownLatexSource(input: {
+  readonly workspaceRoot: string;
+  readonly source: PaperReviewArtifact;
+}): Promise<PaperReviewArtifact> {
+  const markdownPath = path.join(input.workspaceRoot, input.source.relativePath);
+  const markdown = await fs.readFile(markdownPath, "utf8");
+  const latexRelativePath = generatedMarkdownLatexRelativePath(input.source);
+  const latexAbsolutePath = path.join(input.workspaceRoot, latexRelativePath);
+  await fs.mkdir(path.dirname(latexAbsolutePath), { recursive: true });
+  await writeFileIfChanged(
+    latexAbsolutePath,
+    renderMarkdownDocumentToLatex(
+      markdown,
+      path.basename(input.source.relativePath, path.extname(input.source.relativePath)),
+    ),
+  );
+
+  return {
+    ...input.source,
+    kind: "latex",
+    label: "Generated LaTeX",
+    relativePath: latexRelativePath,
+    url: input.source.url,
+    contentType: toContentType(latexRelativePath),
+  };
+}
+
 async function discoverSourceArtifact(
   threadId: ThreadId,
   workspaceRoot: string,
@@ -488,6 +858,7 @@ async function discoverFigureArtifact(
         if (
           relativeDirectory === "node_modules" ||
           relativeDirectory === "paper-toolchain" ||
+          relativeDirectory === GENERATED_REVIEW_DIRNAME ||
           relativeDirectory.startsWith("node_modules/")
         ) {
           continue;
@@ -1120,9 +1491,15 @@ async function inspectThreadWorkspace(
   const figure =
     resolvedPresentedWorkspace?.figure ??
     (await discoverFigureArtifact(thread.id, manuscriptWorkspaceRoot));
-  const pdf =
+  const generatedMarkdownPdf = await discoverGeneratedMarkdownPdfArtifact(
+    thread.id,
+    manuscriptWorkspaceRoot,
+    source,
+  );
+  const discoveredPdf =
     resolvedPresentedWorkspace?.pdf ??
     (await discoverPdfArtifact(thread.id, manuscriptWorkspaceRoot, source));
+  const pdf = generatedMarkdownPdf ?? discoveredPdf;
   const dependencyTime = await newestSourceDependencyTime({
     workspaceRoot: manuscriptWorkspaceRoot,
     source,
@@ -1139,9 +1516,10 @@ async function inspectThreadWorkspace(
     dependencyTime !== null &&
     lastBuildAttemptAtMs !== null &&
     dependencyTime <= lastBuildAttemptAtMs;
+  const buildPdf = source?.kind === "markdown" ? generatedMarkdownPdf : pdf;
   const rawNeedsBuild =
-    source?.kind === "latex" &&
-    (pdf === null || (dependencyTime !== null && pdf.updatedAtMs < dependencyTime));
+    (source?.kind === "latex" || source?.kind === "markdown") &&
+    (buildPdf === null || (dependencyTime !== null && buildPdf.updatedAtMs < dependencyTime));
   const needsBuild = rawNeedsBuild && !successfulBuildCoversDependencies;
   const shouldShowBuildError =
     Boolean(compileState?.lastError) &&
@@ -1159,7 +1537,7 @@ async function inspectThreadWorkspace(
           : "idle"
         : pdf
           ? "ready"
-          : source?.kind === "latex" && compiler.kind === "none"
+          : (source?.kind === "latex" || source?.kind === "markdown") && compiler.kind === "none"
             ? "unavailable"
             : "idle";
 
@@ -1167,7 +1545,8 @@ async function inspectThreadWorkspace(
     status: inferredCompileStatus,
     compiler: compiler.kind,
     compilerLabel: compiler.label,
-    canCompile: compiler.kind !== "none" && source?.kind === "latex",
+    canCompile:
+      compiler.kind !== "none" && (source?.kind === "latex" || source?.kind === "markdown"),
     needsBuild: Boolean(needsBuild),
     lastBuiltAt: compileState?.lastBuiltAt ?? pdf?.updatedAt ?? null,
     lastError: compileState?.lastError ?? null,
@@ -1221,11 +1600,18 @@ async function runLatexBuild(input: {
   readonly compiler: ResolvedCompiler & { kind: Exclude<PaperReviewCompilerKind, "none"> };
 }): Promise<{ outputExcerpt: string | null }> {
   const env = compileEnv(input.workspaceRoot, input.compiler.pathDir);
+  const source =
+    input.source.kind === "markdown"
+      ? await prepareMarkdownLatexSource({
+          workspaceRoot: input.workspaceRoot,
+          source: input.source,
+        })
+      : input.source;
 
   if (input.compiler.kind === "managed-tectonic") {
     const result = await runProcess(
       input.compiler.command,
-      ["-X", "compile", "--keep-intermediates", "--keep-logs", input.source.relativePath],
+      ["-X", "compile", "--keep-intermediates", "--keep-logs", source.relativePath],
       {
         cwd: input.workspaceRoot,
         env,
@@ -1246,7 +1632,7 @@ async function runLatexBuild(input: {
         "-interaction=nonstopmode",
         "-halt-on-error",
         "-recorder",
-        input.source.relativePath,
+        source.relativePath,
       ],
       {
         cwd: input.workspaceRoot,
@@ -1264,7 +1650,7 @@ async function runLatexBuild(input: {
     "-interaction=nonstopmode",
     "-halt-on-error",
     "-recorder",
-    input.source.relativePath,
+    source.relativePath,
   ];
   const firstPass = await runProcess(input.compiler.command, baseArgs, {
     cwd: input.workspaceRoot,
@@ -1277,7 +1663,7 @@ async function runLatexBuild(input: {
   if (input.bibliography && input.compiler.bibtexCommand) {
     const bibtexResult = await runProcess(
       input.compiler.bibtexCommand,
-      [path.basename(input.source.relativePath, path.extname(input.source.relativePath))],
+      [path.basename(source.relativePath, path.extname(source.relativePath))],
       {
         cwd: input.workspaceRoot,
         env,
@@ -1335,7 +1721,10 @@ const makePaperReviewService = Effect.gen(function* () {
     if (!thread.workspaceRoot || !snapshot.workspaceRoot) {
       return false;
     }
-    if (!snapshot.source || snapshot.source.kind !== "latex") {
+    if (
+      !snapshot.source ||
+      (snapshot.source.kind !== "latex" && snapshot.source.kind !== "markdown")
+    ) {
       return false;
     }
     if (!snapshot.compile.canCompile || snapshot.compile.compiler === "none") {

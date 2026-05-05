@@ -15,6 +15,7 @@ async function importPaperReviewModule() {
 async function installFakeManagedLatexmkToolchain(input: {
   readonly toolchainRoot: string;
   readonly invocationLogPath: string;
+  readonly createPdfForSource?: boolean;
 }): Promise<string> {
   const toolchainBinDir = path.join(input.toolchainRoot, "bin");
   const latexmkPath = path.join(
@@ -35,6 +36,15 @@ async function installFakeManagedLatexmkToolchain(input: {
       "  exit 0",
       "fi",
       `printf '%s\\n' "$@" >> ${JSON.stringify(input.invocationLogPath)}`,
+      ...(input.createPdfForSource
+        ? [
+            'SOURCE=""',
+            'for arg in "$@"; do SOURCE="$arg"; done',
+            'PDF="${SOURCE%.*}.pdf"',
+            'mkdir -p "$(dirname "$PDF")"',
+            "printf '%s\\n' '%PDF-1.4 test' > \"$PDF\"",
+          ]
+        : []),
       "echo 'latexmk ok'",
     ].join("\n"),
     { mode: 0o755 },
@@ -646,6 +656,113 @@ describe("paper review helpers", () => {
         "-interaction=nonstopmode",
         "-halt-on-error",
       ]);
+    } finally {
+      if (previousPaperToolchainBinDir === undefined) {
+        delete process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
+      } else {
+        process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR = previousPaperToolchainBinDir;
+      }
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+      await fs.rm(toolchainRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("renders promoted markdown documents to a generated PDF preview", async () => {
+    const { PaperReviewServiceLive, PaperReviewService } = await importPaperReviewModule();
+    const { Effect, Layer, Stream } = await import("effect");
+    const { OrchestrationEngineService } =
+      await import("./orchestration/Services/OrchestrationEngine");
+
+    const previousPaperToolchainBinDir = process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
+    const workspaceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "agentscience-paper-review-markdown-"),
+    );
+    const toolchainRoot = await fs.mkdtemp(path.join(os.tmpdir(), "agentscience-paper-toolchain-"));
+    const invocationLogPath = path.join(workspaceRoot, "latexmk-args.txt");
+
+    try {
+      process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR = await installFakeManagedLatexmkToolchain({
+        toolchainRoot,
+        invocationLogPath,
+        createPdfForSource: true,
+      });
+
+      await fs.writeFile(
+        path.join(workspaceRoot, "paper.md"),
+        [
+          "# Literature Review",
+          "",
+          "A concise **academic** summary with `code` and [a source](https://example.org).",
+          "",
+          "| Theme | Evidence |",
+          "| --- | --- |",
+          "| Seizure behavior | Zebrafish locomotor bursts |",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const OrchestrationEngineTest = Layer.succeed(
+        OrchestrationEngineService,
+        OrchestrationEngineService.of({
+          getReadModel: () =>
+            Effect.succeed({
+              snapshotSequence: 0,
+              projects: [],
+              threads: [
+                {
+                  id: TEST_THREAD_ID,
+                  projectId: null,
+                  folderSlug: "thread-review-test",
+                  resolvedWorkspacePath: workspaceRoot,
+                  title: "Markdown review",
+                  modelSelection: { provider: "codex", model: "gpt-5.4" },
+                  runtimeMode: "full-access",
+                  interactionMode: "default",
+                  branch: null,
+                  worktreePath: null,
+                  latestTurn: null,
+                  createdAt: "2026-04-15T12:00:00.000Z",
+                  updatedAt: "2026-04-15T12:05:00.000Z",
+                  archivedAt: null,
+                  deletedAt: null,
+                  messages: [],
+                  proposedPlans: [],
+                  activities: [],
+                  checkpoints: [],
+                  session: null,
+                },
+              ],
+              updatedAt: "2026-04-15T12:05:00.000Z",
+            }),
+          dispatch: () => Effect.die("not implemented"),
+          readEvents: () => Stream.empty,
+          streamDomainEvents: Stream.empty,
+        }),
+      );
+
+      const program = Effect.gen(function* () {
+        const service = yield* PaperReviewService;
+        return yield* service.compile(TEST_THREAD_ID);
+      }).pipe(Effect.provide(PaperReviewServiceLive.pipe(Layer.provide(OrchestrationEngineTest))));
+
+      const snapshot = await Effect.runPromise(program);
+      const invocationArgs = await fs.readFile(invocationLogPath, "utf8");
+      const generatedTex = await fs.readFile(
+        path.join(workspaceRoot, ".agentscience-review", "paper.tex"),
+        "utf8",
+      );
+
+      expect(snapshot.source?.kind).toBe("markdown");
+      expect(snapshot.source?.relativePath).toBe("paper.md");
+      expect(snapshot.pdf?.relativePath).toBe(".agentscience-review/paper.pdf");
+      expect(snapshot.preview.kind).toBe("pdf");
+      expect(snapshot.preview.relativePath).toBe(".agentscience-review/paper.pdf");
+      expect(snapshot.compile.status).toBe("ready");
+      expect(snapshot.compile.canCompile).toBe(true);
+      expect(invocationArgs).toContain(".agentscience-review/paper.tex");
+      expect(generatedTex).toContain("\\title{Literature Review}");
+      expect(generatedTex).toContain("\\begin{tabularx}");
     } finally {
       if (previousPaperToolchainBinDir === undefined) {
         delete process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;
