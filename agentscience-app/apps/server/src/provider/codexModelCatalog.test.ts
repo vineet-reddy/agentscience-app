@@ -22,7 +22,7 @@ const model = (
 
 describe("codex model catalog", () => {
   it("filters ChatGPT-only models out of API key accounts", () => {
-    const models = [model("gpt-5.5"), model("gpt-5.3-codex-spark", ["chatgpt"]), model("gpt-5.4")];
+    const models = [model("gpt-5.5"), model("gpt-5.4-mini", ["chatgpt"]), model("gpt-5.4")];
 
     expect(
       modelsForCodexAccount(models, {
@@ -38,16 +38,25 @@ describe("codex model catalog", () => {
         planType: "plus",
         sparkEnabled: false,
       }).map((entry) => entry.slug),
-    ).toEqual(["gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4"]);
+    ).toEqual(["gpt-5.5", "gpt-5.4-mini", "gpt-5.4"]);
   });
 
   it("lets the remote catalog replace and prepend bundled models", () => {
     expect(
       mergeCodexCatalogModels(
-        [model("gpt-5.4"), model("gpt-5.3-codex")],
+        [model("gpt-5.4"), model("gpt-5.5")],
         [model("gpt-5.4-mini"), model("gpt-5.4")],
       ).map((entry) => entry.slug),
-    ).toEqual(["gpt-5.4-mini", "gpt-5.4", "gpt-5.3-codex"]);
+    ).toEqual(["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"]);
+  });
+
+  it("keeps removed Codex models out of the selectable catalog", () => {
+    expect(
+      mergeCodexCatalogModels(
+        [model("gpt-5.5"), model("gpt-5.3-codex"), model("gpt-5.2")],
+        [model("gpt-5.3-codex-spark"), model("gpt-5.2-codex"), model("gpt-5.4")],
+      ).map((entry) => entry.slug),
+    ).toEqual(["gpt-5.4", "gpt-5.5"]);
   });
 
   it("parses the AgentScience app model catalog response", async () => {
@@ -58,8 +67,8 @@ describe("codex model catalog", () => {
             codex: {
               models: [
                 {
-                  slug: "gpt-5.3-codex-spark",
-                  name: "GPT-5.3 Codex Spark",
+                  slug: "gpt-5.4-mini",
+                  name: "GPT-5.4 Mini",
                   availableFor: ["chatgpt"],
                   capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
                 },
@@ -70,7 +79,7 @@ describe("codex model catalog", () => {
       );
 
     await expect(fetchCodexModelCatalog("https://agentscience.app", fetchImpl)).resolves.toEqual([
-      model("gpt-5.3-codex-spark", ["chatgpt"], "GPT-5.3 Codex Spark"),
+      model("gpt-5.4-mini", ["chatgpt"], "GPT-5.4 Mini"),
     ]);
   });
 });

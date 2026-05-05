@@ -10,6 +10,12 @@ export type CodexCatalogModel = ServerProviderModel & {
 
 const CATALOG_PATH = "/api/v1/app/model-catalog";
 const CATALOG_TIMEOUT_MS = 1_500;
+const REMOVED_MODEL_SLUGS = new Set([
+  "gpt-5.3-codex",
+  "gpt-5.3-codex-spark",
+  "gpt-5.2-codex",
+  "gpt-5.2",
+]);
 type CatalogFetch = (input: URL, init: RequestInit) => Promise<Response>;
 
 export const DEFAULT_CODEX_GPT_CAPABILITIES: ModelCapabilities = {
@@ -114,15 +120,19 @@ export function mergeCodexCatalogModels(
   remoteModels: ReadonlyArray<CodexCatalogModel>,
 ): ReadonlyArray<CodexCatalogModel> {
   const bySlug = new Map<string, CodexCatalogModel>();
-  for (const model of builtInModels) {
+  const activeBuiltInModels = builtInModels.filter((model) => !REMOVED_MODEL_SLUGS.has(model.slug));
+  const activeRemoteModels = remoteModels.filter((model) => !REMOVED_MODEL_SLUGS.has(model.slug));
+  for (const model of activeBuiltInModels) {
     bySlug.set(model.slug, model);
   }
-  for (const model of remoteModels) {
+  for (const model of activeRemoteModels) {
     bySlug.set(model.slug, model);
   }
-  return [...remoteModels.map((model) => bySlug.get(model.slug)!), ...builtInModels].filter(
-    (model, index, all) => all.findIndex((candidate) => candidate.slug === model.slug) === index,
-  );
+  return [...activeRemoteModels.map((model) => bySlug.get(model.slug)!), ...activeBuiltInModels]
+    .filter(
+      (model, index, all) => all.findIndex((candidate) => candidate.slug === model.slug) === index,
+    )
+    .filter((model) => !REMOVED_MODEL_SLUGS.has(model.slug));
 }
 
 export function modelsForCodexAccount(

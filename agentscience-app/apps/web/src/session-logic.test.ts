@@ -12,7 +12,6 @@ import {
   deriveImplicitPendingUserInput,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
-  PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
   deriveTimelineEntries,
@@ -1382,20 +1381,5 @@ describe("deriveActiveWorkStartedAt", () => {
         "2026-02-27T21:11:00.000Z",
       ),
     ).toBe("2026-02-27T21:11:00.000Z");
-  });
-});
-
-describe("PROVIDER_OPTIONS", () => {
-  it("keeps Cursor as a placeholder while Codex remains available", () => {
-    const cursor = PROVIDER_OPTIONS.find((option) => option.value === "cursor");
-    expect(PROVIDER_OPTIONS).toEqual([
-      { value: "codex", label: "Codex", available: true },
-      { value: "cursor", label: "Cursor", available: false },
-    ]);
-    expect(cursor).toEqual({
-      value: "cursor",
-      label: "Cursor",
-      available: false,
-    });
   });
 });

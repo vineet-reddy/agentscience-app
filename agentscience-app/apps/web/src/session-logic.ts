@@ -4,7 +4,6 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
-  type ProviderKind,
   type ToolLifecycleItemType,
   type UserInputQuestion,
   type ThreadId,
@@ -19,17 +18,6 @@ import type {
   ThreadSession,
   TurnDiffSummary,
 } from "./types";
-
-export type ProviderPickerKind = ProviderKind | "cursor";
-
-export const PROVIDER_OPTIONS: Array<{
-  value: ProviderPickerKind;
-  label: string;
-  available: boolean;
-}> = [
-  { value: "codex", label: "Codex", available: true },
-  { value: "cursor", label: "Cursor", available: false },
-];
 
 export interface WorkLogEntry {
   id: string;

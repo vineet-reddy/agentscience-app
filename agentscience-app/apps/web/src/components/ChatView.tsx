@@ -126,7 +126,7 @@ import {
   resolveSelectableProvider,
 } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
-import { resolveAppModelSelection } from "../modelSelection";
+import { getSelectableModelOptionsByProvider, resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
@@ -173,7 +173,7 @@ import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
+import { ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
@@ -1532,10 +1532,14 @@ export default function ChatView({
   const gitStatusQuery = useGitStatus(gitCwd);
   const availableEditors = useServerAvailableEditors();
   const modelOptionsByProvider = useMemo(
-    () => ({
-      codex: providerStatuses.find((provider) => provider.provider === "codex")?.models ?? [],
-    }),
-    [providerStatuses],
+    () =>
+      getSelectableModelOptionsByProvider(
+        settings,
+        providerStatuses,
+        selectedProvider,
+        selectedModel,
+      ),
+    [providerStatuses, selectedModel, selectedProvider, settings],
   );
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
     const currentOptions = modelOptionsByProvider[selectedProvider];
@@ -1545,19 +1549,18 @@ export default function ChatView({
   }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
   const searchableModelOptions = useMemo(
     () =>
-      AVAILABLE_PROVIDER_OPTIONS.filter(
-        (option) => lockedProvider === null || option.value === lockedProvider,
-      ).flatMap((option) =>
-        modelOptionsByProvider[option.value].map(({ slug, name }) => ({
-          provider: option.value,
-          providerLabel: option.label,
-          slug,
-          name,
-          searchSlug: slug.toLowerCase(),
-          searchName: name.toLowerCase(),
-          searchProvider: option.label.toLowerCase(),
-        })),
-      ),
+      (lockedProvider === null || lockedProvider === "codex"
+        ? modelOptionsByProvider.codex
+        : []
+      ).map(({ slug, name }) => ({
+        provider: "codex" as const,
+        providerLabel: "Codex",
+        slug,
+        name,
+        searchSlug: slug.toLowerCase(),
+        searchName: name.toLowerCase(),
+        searchProvider: "codex",
+      })),
     [lockedProvider, modelOptionsByProvider],
   );
   const workspaceEntriesQuery = useQuery(
