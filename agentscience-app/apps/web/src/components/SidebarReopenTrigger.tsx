@@ -11,12 +11,11 @@ interface SidebarReopenTriggerProps {
  * button lives on the content side (not next to the traffic lights) so its
  * position is identical in windowed and fullscreen modes.
  *
- * Returns `null` on desktop because the collapsed icon rail stays visible
- * there; mobile still needs an in-header trigger for the sheet.
+ * Returns `null` while the sidebar is already open.
  */
 export function SidebarReopenTrigger({ className }: SidebarReopenTriggerProps) {
-  const { isMobile, open } = useSidebar();
-  if (open || !isMobile) return null;
+  const { open } = useSidebar();
+  if (open) return null;
 
   return (
     <SidebarTrigger

@@ -303,7 +303,7 @@ function Sidebar({
 }
 
 function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar, openMobile } = useSidebar();
+  const { open, toggleSidebar, openMobile } = useSidebar();
 
   return (
     <Button
@@ -318,7 +318,7 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<t
       variant="ghost"
       {...props}
     >
-      {openMobile ? <PanelLeftCloseIcon /> : <PanelLeftIcon />}
+      {open || openMobile ? <PanelLeftCloseIcon /> : <PanelLeftIcon />}
       <span className="sr-only">Toggle Sidebar</span>
     </Button>
   );
@@ -371,9 +371,7 @@ function SidebarRail({
   const resolvedResizable = sidebarInstance?.resizable ?? null;
   const canResize = resolvedResizable !== null && open;
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
-  const railTitle = canResize
-    ? "Drag to resize · push past the edge to close"
-    : "Toggle Sidebar";
+  const railTitle = canResize ? "Drag to resize · push past the edge to close" : "Toggle Sidebar";
 
   const stopResize = React.useCallback(
     (pointerId: number, options?: { persistWidth?: boolean }) => {
