@@ -1,4 +1,9 @@
-import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@agentscience/contracts";
+import {
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type ProjectId,
+  ThreadId,
+} from "@agentscience/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 import {
@@ -100,6 +105,7 @@ export function useHandleNewThread() {
           envMode: options?.envMode ?? "local",
           kind: nextKind,
           runtimeMode: DEFAULT_RUNTIME_MODE,
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         });
         applyStickyState(threadId);
 

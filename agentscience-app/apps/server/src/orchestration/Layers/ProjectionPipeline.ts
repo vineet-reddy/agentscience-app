@@ -186,7 +186,7 @@ function parseStoredThreadMetadata(valueJson: string): StoredThreadMetadata | nu
     return {
       modelSelection: parsed.modelSelection ?? null,
       runtimeMode:
-        typeof parsed.runtimeMode === "string" ? parsed.runtimeMode : "full-access",
+        typeof parsed.runtimeMode === "string" ? parsed.runtimeMode : "approval-required",
       interactionMode:
         typeof parsed.interactionMode === "string" ? parsed.interactionMode : "default",
       branch: typeof parsed.branch === "string" ? parsed.branch : null,

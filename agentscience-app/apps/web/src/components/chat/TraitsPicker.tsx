@@ -76,7 +76,7 @@ function getSelectedTraits(
   // Fast mode
   const fastModeEnabled =
     caps.supportsFastMode &&
-    (modelOptions as { fastMode?: boolean } | undefined)?.fastMode === true;
+    ((modelOptions as { fastMode?: boolean } | undefined)?.fastMode ?? true) === true;
 
   // Context window
   const contextWindowOptions: ReadonlyArray<{ value: string; label: string; isDefault?: boolean }> =
