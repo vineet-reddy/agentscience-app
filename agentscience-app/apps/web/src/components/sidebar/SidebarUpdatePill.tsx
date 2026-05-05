@@ -1,11 +1,17 @@
-import { DownloadIcon, RotateCwIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { DownloadIcon, LoaderIcon, RotateCwIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { isElectron } from "../../env";
+import {
+  describeAgentScienceRuntimeStatus,
+  shouldShowAgentScienceRuntimeNotice,
+} from "../../lib/agentScienceRuntimeStatus";
 import {
   setDesktopUpdateStateQueryData,
   useDesktopUpdateState,
 } from "../../lib/desktopUpdateReactQuery";
+import { readNativeApi } from "../../nativeApi";
+import { useServerRuntime } from "../../rpc/serverState";
 import { toastManager } from "../ui/toast";
 import {
   getArm64IntelBuildWarningDescription,
@@ -24,9 +30,24 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 export function SidebarUpdatePill() {
   const queryClient = useQueryClient();
   const state = useDesktopUpdateState().data ?? null;
+  const runtime = useServerRuntime();
+  const agentScienceRuntime = runtime?.agentScience ?? null;
+  const agentScienceDescriptor = describeAgentScienceRuntimeStatus(agentScienceRuntime);
+  const agentScienceNoticeKey = agentScienceRuntime
+    ? [
+        agentScienceRuntime.checkedAt,
+        agentScienceRuntime.state,
+        agentScienceRuntime.updateAvailable ? "update" : "current",
+        agentScienceRuntime.refreshRecommended ? "refresh" : "fresh",
+      ].join(":")
+    : "none";
   const [dismissed, setDismissed] = useState(false);
+  const [runtimeDismissed, setRuntimeDismissed] = useState(false);
+  const [runtimeUpdating, setRuntimeUpdating] = useState(false);
 
   const visible = isElectron && shouldShowDesktopUpdateButton(state) && !dismissed;
+  const runtimeVisible =
+    shouldShowAgentScienceRuntimeNotice(agentScienceRuntime) && !runtimeDismissed;
   const tooltip = state ? getDesktopUpdateButtonTooltip(state) : "Update available";
   const disabled = isDesktopUpdateButtonDisabled(state);
   const action = state ? resolveDesktopUpdateButtonAction(state) : "none";
@@ -34,6 +55,10 @@ export function SidebarUpdatePill() {
   const showArm64Warning = isElectron && shouldShowArm64IntelBuildWarning(state);
   const arm64Description =
     state && showArm64Warning ? getArm64IntelBuildWarningDescription(state) : null;
+
+  useEffect(() => {
+    setRuntimeDismissed(false);
+  }, [agentScienceNoticeKey]);
 
   const handleAction = useCallback(() => {
     const bridge = window.desktopBridge;
@@ -97,7 +122,39 @@ export function SidebarUpdatePill() {
     }
   }, [action, disabled, queryClient, state]);
 
-  if (!visible && !showArm64Warning) return null;
+  const handleRuntimeAction = useCallback(() => {
+    const bridge = readNativeApi();
+    if (!bridge || runtimeUpdating) return;
+    setRuntimeUpdating(true);
+    void bridge.server
+      .applyAgentScienceRuntimeUpdates()
+      .then((nextStatus) => {
+        if (nextStatus.updateAvailable || nextStatus.refreshRecommended) {
+          toastManager.add({
+            type: "warning",
+            title: "AgentScience still needs attention",
+            description:
+              "The runtime update finished, but one or more managed tools still need review.",
+          });
+          return;
+        }
+        toastManager.add({
+          type: "success",
+          title: "AgentScience updated",
+          description: "Managed tools and instructions are current.",
+        });
+      })
+      .catch((error) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not update AgentScience",
+          description: error instanceof Error ? error.message : "Managed runtime update failed.",
+        });
+      })
+      .finally(() => setRuntimeUpdating(false));
+  }, [runtimeUpdating]);
+
+  if (!visible && !runtimeVisible && !showArm64Warning) return null;
 
   return (
     <div className="flex flex-col gap-1">
@@ -169,6 +226,53 @@ export function SidebarUpdatePill() {
               <TooltipPopup side="top">Dismiss until next launch</TooltipPopup>
             </Tooltip>
           )}
+        </div>
+      )}
+      {runtimeVisible && (
+        <div
+          className={`group/runtime-update relative flex h-7 w-full items-center rounded-lg bg-warning/12 text-xs font-medium text-warning-foreground ${
+            runtimeUpdating ? " cursor-wait opacity-75" : ""
+          }`}
+        >
+          <div className="pointer-events-none absolute inset-0 rounded-lg transition-colors group-has-[button.runtime-update-main:hover]/runtime-update:bg-warning/18" />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={agentScienceDescriptor.noticeTitle ?? "Update AgentScience runtime"}
+                  disabled={runtimeUpdating}
+                  className="runtime-update-main relative flex h-full flex-1 items-center gap-2 px-2 enabled:cursor-pointer"
+                  onClick={handleRuntimeAction}
+                >
+                  {runtimeUpdating ? (
+                    <LoaderIcon className="size-3.5 animate-spin" />
+                  ) : (
+                    <DownloadIcon className="size-3.5" />
+                  )}
+                  <span>{runtimeUpdating ? "Updating AgentScience" : "Update AgentScience"}</span>
+                </button>
+              }
+            />
+            <TooltipPopup side="top">
+              {agentScienceDescriptor.noticeDescription ?? "Update managed AgentScience tools"}
+            </TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Dismiss AgentScience runtime update"
+                  className="mr-1 inline-flex size-5 items-center justify-center rounded-md text-warning-foreground/60 transition-colors hover:text-warning-foreground"
+                  onClick={() => setRuntimeDismissed(true)}
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Dismiss until next runtime check</TooltipPopup>
+          </Tooltip>
         </div>
       )}
     </div>
