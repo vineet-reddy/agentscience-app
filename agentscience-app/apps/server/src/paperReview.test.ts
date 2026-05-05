@@ -130,7 +130,7 @@ describe("paper review helpers", () => {
     expect(snapshot.notes?.relativePath).toBe("figure-descriptions.md");
     expect(snapshot.reviewRecommended).toBe(true);
 
-    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(workspaceRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it("surfaces the newest workspace figure as a canvas preview", async () => {
@@ -199,7 +199,7 @@ describe("paper review helpers", () => {
     expect(snapshot.preview.relativePath).toBe("figures/effect.png");
     expect(snapshot.reviewRecommended).toBe(true);
 
-    await fs.rm(workspaceRoot, { recursive: true, force: true });
+    await fs.rm(workspaceRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   });
 
   it("does not rebuild when only review notes are newer than a compiled PDF", async () => {
@@ -762,7 +762,12 @@ describe("paper review helpers", () => {
       expect(snapshot.compile.canCompile).toBe(true);
       expect(invocationArgs).toContain(".agentscience-review/paper.tex");
       expect(generatedTex).toContain("\\title{Literature Review}");
+      expect(generatedTex).toContain("\\usepackage{lmodern}");
       expect(generatedTex).toContain("\\begin{tabularx}");
+      expect((await fs.stat(path.join(workspaceRoot, ".tmp"))).isDirectory()).toBe(true);
+      expect(
+        (await fs.stat(path.join(workspaceRoot, ".texlive", "texmf-var"))).isDirectory(),
+      ).toBe(true);
     } finally {
       if (previousPaperToolchainBinDir === undefined) {
         delete process.env.AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR;

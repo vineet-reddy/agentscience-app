@@ -670,6 +670,7 @@ function renderMarkdownDocumentToLatex(markdown: string, fallbackTitle: string):
     "\\usepackage[margin=1in]{geometry}",
     "\\usepackage[T1]{fontenc}",
     "\\usepackage[utf8]{inputenc}",
+    "\\usepackage{lmodern}",
     "\\usepackage{array}",
     "\\usepackage{tabularx}",
     "\\usepackage{xcolor}",
@@ -1593,12 +1594,26 @@ function compileEnv(workspaceRoot: string, pathDir: string | undefined): NodeJS.
   };
 }
 
+async function prepareCompileEnvironment(workspaceRoot: string): Promise<void> {
+  await Promise.all(
+    [
+      path.join(workspaceRoot, ".cache"),
+      path.join(workspaceRoot, ".config"),
+      path.join(workspaceRoot, ".tmp"),
+      path.join(workspaceRoot, ".texlive", "texmf-var"),
+      path.join(workspaceRoot, ".texlive", "texmf-config"),
+      path.join(workspaceRoot, ".texlive", "texmf-home"),
+    ].map((directory) => fs.mkdir(directory, { recursive: true })),
+  );
+}
+
 async function runLatexBuild(input: {
   readonly workspaceRoot: string;
   readonly source: PaperReviewArtifact;
   readonly bibliography: PaperReviewArtifact | null;
   readonly compiler: ResolvedCompiler & { kind: Exclude<PaperReviewCompilerKind, "none"> };
 }): Promise<{ outputExcerpt: string | null }> {
+  await prepareCompileEnvironment(input.workspaceRoot);
   const env = compileEnv(input.workspaceRoot, input.compiler.pathDir);
   const source =
     input.source.kind === "markdown"
