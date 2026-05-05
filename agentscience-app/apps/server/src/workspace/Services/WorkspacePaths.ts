@@ -95,6 +95,15 @@ export interface WorkspacePathsShape {
     projectFolderSlug: string | null;
     folderSlug: string;
   }) => string;
+
+  /**
+   * Resolve an agent workspace path beneath the workspace root.
+   */
+  readonly resolveAgentPath: (input: {
+    workspaceRoot: string;
+    projectFolderSlug: string | null;
+    folderSlug: string;
+  }) => string;
 }
 
 /**

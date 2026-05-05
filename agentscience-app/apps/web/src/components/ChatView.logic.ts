@@ -33,7 +33,8 @@ export function buildLocalDraftThread(
     projectId: draftThread.projectId,
     folderSlug: threadId,
     resolvedWorkspacePath: null,
-    title: "New thread",
+    title: draftThread.kind === "agent" ? "New agent" : "New paper",
+    workspaceKind: draftThread.kind,
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,
     interactionMode: draftThread.interactionMode,
@@ -48,6 +49,7 @@ export function buildLocalDraftThread(
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],
+    stageState: null,
   };
 }
 

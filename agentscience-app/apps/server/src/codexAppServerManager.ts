@@ -734,7 +734,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: input.cwd ?? null,
-        ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
+        ...mapCodexRuntimeMode(input.runtimeMode ?? "approval-required"),
       };
       const workspaceWriteConfig = buildCodexWorkspaceWriteConfig(resolvedCwd);
 

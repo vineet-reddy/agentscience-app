@@ -12,11 +12,13 @@ import {
   OrchestrationReadModel,
   OrchestrationSessionStatus,
   OrchestrationThreadActivityTone,
+  ProjectStageState,
   type OrchestrationThread,
   ProjectScript,
   ProjectId,
   ThreadId,
   TurnId,
+  type WorkspaceKind,
 } from "@agentscience/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -31,6 +33,7 @@ import { DeviceStateRepositoryLive } from "../../persistence/Layers/DeviceState.
 import { DeviceStateRepository } from "../../persistence/Services/DeviceState.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
+  getValidatedAgentWorkspaceRoot,
   getValidatedPaperWorkspaceRoot,
   getValidatedProjectWorkspaceRoot,
 } from "../../workspace/roots.ts";
@@ -51,6 +54,7 @@ const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 
 type WorkspaceMetadata = {
   readonly workspaceRoot: string | null;
+  readonly workspaceKind: WorkspaceKind;
 };
 
 const ProjectionTurnState = Schema.Literals([
@@ -83,6 +87,7 @@ const ProjectionThreadRowSchema = Schema.Struct({
   interactionMode: Schema.Literals(["default", "plan"]),
   modelSelection: Schema.fromJsonString(ModelSelection),
   latestTurnId: Schema.NullOr(TurnId),
+  stageState: Schema.NullOr(Schema.fromJsonString(ProjectStageState)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
   archivedAt: Schema.NullOr(Schema.String),
@@ -177,8 +182,10 @@ function parseWorkspaceMetadata(valueJson: string): WorkspaceMetadata | null {
     return null;
   }
   const workspaceRoot = (parsedJson as { workspaceRoot?: unknown }).workspaceRoot;
+  const workspaceKind = (parsedJson as { workspaceKind?: unknown }).workspaceKind;
   return {
     workspaceRoot: typeof workspaceRoot === "string" ? workspaceRoot : null,
+    workspaceKind: workspaceKind === "agent" ? "agent" : "paper",
   };
 }
 
@@ -238,11 +245,17 @@ function resolveThreadWorkspacePath(input: {
   if (input.projectId !== null && projectWorkspaceRoot === null) {
     return null;
   }
-  return getValidatedPaperWorkspaceRoot({
-    containerRoot: input.settingsWorkspaceRoot,
-    paperWorkspaceRoot: threadMetadata.workspaceRoot,
-    projectWorkspaceRoot,
-  });
+  return threadMetadata.workspaceKind === "agent"
+    ? getValidatedAgentWorkspaceRoot({
+        containerRoot: input.settingsWorkspaceRoot,
+        agentWorkspaceRoot: threadMetadata.workspaceRoot,
+        projectWorkspaceRoot,
+      })
+    : getValidatedPaperWorkspaceRoot({
+        containerRoot: input.settingsWorkspaceRoot,
+        paperWorkspaceRoot: threadMetadata.workspaceRoot,
+        projectWorkspaceRoot,
+      });
 }
 
 function toLatestTurnState(
@@ -265,10 +278,7 @@ function compareActivities(
     return -1;
   }
 
-  return (
-    left.createdAt.localeCompare(right.createdAt) ||
-    left.id.localeCompare(right.id)
-  );
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
 function buildCheckpointsFromTurns(
@@ -321,9 +331,8 @@ function buildLatestTurn(input: {
   const targetTurnId =
     input.sessionActiveTurnId ?? input.threadLatestTurnId ?? concreteTurns.at(-1)?.turnId ?? null;
   const turn =
-    (targetTurnId
-      ? concreteTurns.find((entry) => entry.turnId === targetTurnId)
-      : null) ?? concreteTurns.at(-1);
+    (targetTurnId ? concreteTurns.find((entry) => entry.turnId === targetTurnId) : null) ??
+    concreteTurns.at(-1);
   if (!turn) {
     return null;
   }
@@ -387,6 +396,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           model_selection_json AS "modelSelection",
           latest_turn_id AS "latestTurnId",
+          stage_state_json AS "stageState",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
@@ -612,6 +622,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           model_selection_json AS "modelSelection",
           latest_turn_id AS "latestTurnId",
+          stage_state_json AS "stageState",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
@@ -706,7 +717,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
             readProjectionStateSummary(undefined).pipe(
               Effect.mapError(
-                toPersistenceSqlError("ProjectionSnapshotQuery.getSnapshot:readProjectionState:query"),
+                toPersistenceSqlError(
+                  "ProjectionSnapshotQuery.getSnapshot:readProjectionState:query",
+                ),
               ),
             ),
             deviceStateRepository.listByPrefix({ prefix: PROJECT_METADATA_PREFIX }),
@@ -734,7 +747,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             }
           }
 
-          const messagesByThread = new Map<string, Array<OrchestrationThread["messages"][number]>>();
+          const messagesByThread = new Map<
+            string,
+            Array<OrchestrationThread["messages"][number]>
+          >();
           for (const row of messageRows) {
             const threadMessages = messagesByThread.get(row.threadId) ?? [];
             threadMessages.push({
@@ -749,10 +765,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });
-            messagesByThread.set(
-              row.threadId,
-              threadMessages.slice(-MAX_THREAD_MESSAGES),
-            );
+            messagesByThread.set(row.threadId, threadMessages.slice(-MAX_THREAD_MESSAGES));
           }
 
           const sessionsByThread = new Map<string, OrchestrationThread["session"]>();
@@ -783,10 +796,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });
-            proposedPlansByThread.set(
-              row.threadId,
-              threadPlans.slice(-MAX_THREAD_PROPOSED_PLANS),
-            );
+            proposedPlansByThread.set(row.threadId, threadPlans.slice(-MAX_THREAD_PROPOSED_PLANS));
           }
 
           const activitiesByThread = new Map<
@@ -873,6 +883,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 threadMetadataById,
               }),
               title: row.title,
+              workspaceKind: threadMetadataById.get(row.threadId)?.workspaceKind ?? "paper",
               modelSelection: row.modelSelection,
               runtimeMode: row.runtimeMode,
               interactionMode: row.interactionMode,
@@ -892,6 +903,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               activities: activitiesByThread.get(row.threadId) ?? [],
               checkpoints: buildCheckpointsFromTurns(threadTurns),
               session,
+              ...(row.stageState !== null ? { stageState: row.stageState } : {}),
             };
           });
 
@@ -947,7 +959,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Effect.gen(function* () {
       const threadRow = yield* getThreadRow({ threadId }).pipe(
         Effect.mapError(
-          toPersistenceSqlError("ProjectionSnapshotQuery.getThreadCheckpointContext:getThread:query"),
+          toPersistenceSqlError(
+            "ProjectionSnapshotQuery.getThreadCheckpointContext:getThread:query",
+          ),
         ),
       );
       if (Option.isNone(threadRow)) {
@@ -957,7 +971,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       const [turnRows, threadStateRow, settings, projectStateRow] = yield* Effect.all([
         listTurnRowsByThreadId({ threadId }).pipe(
           Effect.mapError(
-            toPersistenceSqlError("ProjectionSnapshotQuery.getThreadCheckpointContext:listTurns:query"),
+            toPersistenceSqlError(
+              "ProjectionSnapshotQuery.getThreadCheckpointContext:listTurns:query",
+            ),
           ),
         ),
         deviceStateRepository.getByKey({ key: `${THREAD_METADATA_PREFIX}${threadId}` }),

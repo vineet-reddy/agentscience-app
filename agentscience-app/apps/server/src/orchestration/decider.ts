@@ -2,7 +2,13 @@ import type {
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
+  ThreadId,
 } from "@agentscience/contracts";
+import {
+  createInitialStageState,
+  applyStageCommand,
+  shouldAutoApprove,
+} from "@agentscience/shared/stageMachine";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -21,10 +27,7 @@ import {
 } from "./commandInvariants.ts";
 
 const nowIso = () => new Date().toISOString();
-const defaultMetadata: Omit<
-  OrchestrationEvent,
-  "sequence" | "type" | "payload"
-> = {
+const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
   eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
   aggregateKind: "thread",
   aggregateId: "" as OrchestrationEvent["aggregateId"],
@@ -55,17 +58,36 @@ function withEventBase(
   };
 }
 
-export const decideOrchestrationCommand = Effect.fn(
-  "decideOrchestrationCommand",
-)(function* ({
+function stageStateEvent(input: {
+  readonly command: Pick<OrchestrationCommand, "commandId">;
+  readonly threadId: ThreadId;
+  readonly stageState: NonNullable<OrchestrationReadModel["threads"][number]["stageState"]>;
+  readonly occurredAt: string;
+}): Omit<OrchestrationEvent, "sequence"> {
+  return {
+    ...withEventBase({
+      aggregateKind: "thread",
+      aggregateId: input.threadId,
+      occurredAt: input.occurredAt,
+      commandId: input.command.commandId,
+    }),
+    type: "thread.stage-state-updated",
+    payload: {
+      threadId: input.threadId,
+      stageState: input.stageState,
+      updatedAt: input.occurredAt,
+    },
+  };
+}
+
+export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
   command,
   readModel,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
-  | Omit<OrchestrationEvent, "sequence">
-  | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
+  Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
   OrchestrationCommandInvariantError
 > {
   switch (command.type) {
@@ -127,9 +149,7 @@ export const decideOrchestrationCommand = Effect.fn(
           ...(command.defaultModelSelection !== undefined
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
-          ...(command.scripts !== undefined
-            ? { scripts: command.scripts }
-            : {}),
+          ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -192,11 +212,17 @@ export const decideOrchestrationCommand = Effect.fn(
           projectId: command.projectId,
           folderSlug: command.folderSlug,
           title: command.title,
+          ...(command.workspaceKind !== undefined ? { workspaceKind: command.workspaceKind } : {}),
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
           interactionMode: command.interactionMode,
+          ...(command.workflowMode !== undefined ? { workflowMode: command.workflowMode } : {}),
           branch: command.branch,
           worktreePath: command.worktreePath,
+          stageState: createInitialStageState({
+            now: command.createdAt,
+            ...(command.workflowMode !== undefined ? { workflowMode: command.workflowMode } : {}),
+          }),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -211,9 +237,7 @@ export const decideOrchestrationCommand = Effect.fn(
         threadId: command.threadId,
       });
       const targetProjectId =
-        command.type === "paper.move"
-          ? command.targetProjectId
-          : command.projectId;
+        command.type === "paper.move" ? command.targetProjectId : command.projectId;
       if (targetProjectId === thread.projectId) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -357,9 +381,7 @@ export const decideOrchestrationCommand = Effect.fn(
             ? { modelSelection: command.modelSelection }
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
-          ...(command.worktreePath !== undefined
-            ? { worktreePath: command.worktreePath }
-            : {}),
+          ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -427,9 +449,7 @@ export const decideOrchestrationCommand = Effect.fn(
         : null;
       const sourcePlan =
         sourceProposedPlan && sourceThread
-          ? sourceThread.proposedPlans.find(
-              (entry) => entry.id === sourceProposedPlan.planId,
-            )
+          ? sourceThread.proposedPlans.find((entry) => entry.id === sourceProposedPlan.planId)
           : null;
       if (sourceProposedPlan && !sourcePlan) {
         return yield* new OrchestrationCommandInvariantError({
@@ -478,9 +498,7 @@ export const decideOrchestrationCommand = Effect.fn(
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
-          ...(command.titleSeed !== undefined
-            ? { titleSeed: command.titleSeed }
-            : {}),
+          ...(command.titleSeed !== undefined ? { titleSeed: command.titleSeed } : {}),
           runtimeMode: targetThread.runtimeMode,
           interactionMode: targetThread.interactionMode,
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
@@ -762,8 +780,7 @@ export const decideOrchestrationCommand = Effect.fn(
         typeof command.activity.payload === "object" &&
         command.activity.payload !== null &&
         "requestId" in command.activity.payload &&
-        typeof (command.activity.payload as { requestId?: unknown })
-          .requestId === "string"
+        typeof (command.activity.payload as { requestId?: unknown }).requestId === "string"
           ? ((command.activity.payload as { requestId: string })
               .requestId as OrchestrationEvent["metadata"]["requestId"])
           : undefined;
@@ -781,6 +798,75 @@ export const decideOrchestrationCommand = Effect.fn(
           activity: command.activity,
         },
       };
+    }
+
+    case "stage.start":
+    case "stage.artifact.proposed":
+    case "stage.approve":
+    case "stage.revise":
+    case "stage.discuss":
+    case "stage.skip":
+    case "project.mode.set":
+    case "project.workflow.set":
+    case "project.recompute": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const currentStageState = thread.stageState;
+      if (currentStageState == null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' does not have an active stage workflow.`,
+        });
+      }
+      const result = applyStageCommand(currentStageState, command);
+      if (!result.ok) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Stage transition rejected: ${JSON.stringify(result.error)}`,
+        });
+      }
+
+      const occurredAt = command.createdAt;
+      const proposedEvent = stageStateEvent({
+        command,
+        threadId: command.threadId,
+        stageState: result.state,
+        occurredAt,
+      });
+
+      if (
+        command.type === "stage.artifact.proposed" &&
+        shouldAutoApprove({
+          state: result.state,
+          stageId: command.stageId,
+          confidence: command.confidence,
+        })
+      ) {
+        const approved = applyStageCommand(result.state, {
+          type: "stage.approve",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          stageId: command.stageId,
+          auto: true,
+          createdAt: occurredAt,
+        });
+        if (approved.ok) {
+          return [
+            proposedEvent,
+            stageStateEvent({
+              command,
+              threadId: command.threadId,
+              stageState: approved.state,
+              occurredAt,
+            }),
+          ];
+        }
+      }
+
+      return proposedEvent;
     }
 
     default: {

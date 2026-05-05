@@ -4,6 +4,7 @@ import type {
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
+  ProjectStageState,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -13,10 +14,11 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  WorkspaceKind,
 } from "@agentscience/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
-export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
 
 export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
@@ -96,6 +98,7 @@ export interface Thread {
   folderSlug: string;
   resolvedWorkspacePath: string | null;
   title: string;
+  workspaceKind?: WorkspaceKind;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
@@ -112,6 +115,7 @@ export interface Thread {
   worktreePath: string | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  stageState?: ProjectStageState | null;
 }
 
 export interface SidebarThreadSummary {

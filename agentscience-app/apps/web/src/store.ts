@@ -256,6 +256,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     folderSlug: thread.folderSlug,
     resolvedWorkspacePath: thread.resolvedWorkspacePath,
     title: thread.title,
+    workspaceKind: thread.workspaceKind ?? "paper",
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
@@ -272,6 +273,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     worktreePath: thread.worktreePath,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
+    stageState: thread.stageState ?? null,
   };
 }
 
@@ -865,6 +867,9 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         folderSlug: event.payload.folderSlug,
         resolvedWorkspacePath: null,
         title: event.payload.title,
+        workspaceKind:
+          event.payload.workspaceKind ??
+          (event.payload.workflowMode && event.payload.workflowMode !== "open" ? "agent" : "paper"),
         modelSelection: event.payload.modelSelection,
         runtimeMode: event.payload.runtimeMode,
         interactionMode: event.payload.interactionMode,
@@ -880,6 +885,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         activities: [],
         checkpoints: [],
         session: null,
+        stageState: event.payload.stageState ?? null,
       });
       const threads =
         existing && existingIndex >= 0
@@ -1118,6 +1124,14 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
         interactionMode: event.payload.interactionMode,
+        updatedAt: event.payload.updatedAt,
+      }));
+    }
+
+    case "thread.stage-state-updated": {
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        stageState: event.payload.stageState,
         updatedAt: event.payload.updatedAt,
       }));
     }

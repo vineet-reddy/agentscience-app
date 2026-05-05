@@ -21,43 +21,38 @@ const makeTempDir = Effect.fn("makeTempDir")(function* () {
 
 it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
   describe("ensureRoot", () => {
-    it.effect(
-      "creates the workspace root and its Papers and Projects directories",
-      () =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const workspaceLayout = yield* WorkspaceLayout;
-          const tempDir = yield* makeTempDir();
-          const workspaceRoot = path.join(tempDir, "AgentScience");
+    it.effect("creates the workspace root and its Papers, Agents, and Projects directories", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceLayout = yield* WorkspaceLayout;
+        const tempDir = yield* makeTempDir();
+        const workspaceRoot = path.join(tempDir, "AgentScience");
 
-          yield* workspaceLayout.ensureRoot(workspaceRoot);
+        yield* workspaceLayout.ensureRoot(workspaceRoot);
 
-          for (const directoryPath of [
-            workspaceRoot,
-            path.join(workspaceRoot, "Papers"),
-            path.join(workspaceRoot, "Projects"),
-          ]) {
-            const stat = yield* fileSystem.stat(directoryPath);
-            expect(stat.type).toBe("Directory");
-          }
-        }),
+        for (const directoryPath of [
+          workspaceRoot,
+          path.join(workspaceRoot, "Papers"),
+          path.join(workspaceRoot, "Agents"),
+          path.join(workspaceRoot, "Projects"),
+        ]) {
+          const stat = yield* fileSystem.stat(directoryPath);
+          expect(stat.type).toBe("Directory");
+        }
+      }),
     );
   });
 
   describe("ensureProjectWorkspace", () => {
-    it.effect("creates the project workspace and papers subdirectory", () =>
+    it.effect("creates the project workspace with papers and agents subdirectories", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const workspaceLayout = yield* WorkspaceLayout;
         const tempDir = yield* makeTempDir();
         const containerRoot = path.join(tempDir, "AgentScience");
-        const projectWorkspaceRoot = path.join(
-          containerRoot,
-          "Projects",
-          "demo-project",
-        );
+        const projectWorkspaceRoot = path.join(containerRoot, "Projects", "demo-project");
 
         yield* workspaceLayout.ensureRoot(containerRoot);
         yield* workspaceLayout.ensureProjectWorkspace({
@@ -68,10 +63,15 @@ it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
         for (const directoryPath of [
           projectWorkspaceRoot,
           path.join(projectWorkspaceRoot, "papers"),
+          path.join(projectWorkspaceRoot, "agents"),
         ]) {
           const stat = yield* fileSystem.stat(directoryPath);
           expect(stat.type).toBe("Directory");
         }
+        const ignoreFile = yield* fileSystem.readFileString(
+          path.join(projectWorkspaceRoot, ".agentscienceignore"),
+        );
+        expect(ignoreFile).toContain(".agentscience-review/");
       }),
     );
 
@@ -135,43 +135,37 @@ it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
 
         const stat = yield* fileSystem.stat(paperWorkspaceRoot);
         expect(stat.type).toBe("Directory");
+        const ignoreFile = yield* fileSystem.readFileString(
+          path.join(paperWorkspaceRoot, ".agentscienceignore"),
+        );
+        expect(ignoreFile).toContain(".agentscience-review/");
       }),
     );
 
-    it.effect(
-      "creates a project paper workspace beneath the project papers directory",
-      () =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const workspaceLayout = yield* WorkspaceLayout;
-          const tempDir = yield* makeTempDir();
-          const containerRoot = path.join(tempDir, "AgentScience");
-          const projectWorkspaceRoot = path.join(
-            containerRoot,
-            "Projects",
-            "demo-project",
-          );
-          const paperWorkspaceRoot = path.join(
-            projectWorkspaceRoot,
-            "papers",
-            "demo-paper",
-          );
+    it.effect("creates a project paper workspace beneath the project papers directory", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceLayout = yield* WorkspaceLayout;
+        const tempDir = yield* makeTempDir();
+        const containerRoot = path.join(tempDir, "AgentScience");
+        const projectWorkspaceRoot = path.join(containerRoot, "Projects", "demo-project");
+        const paperWorkspaceRoot = path.join(projectWorkspaceRoot, "papers", "demo-paper");
 
-          yield* workspaceLayout.ensureRoot(containerRoot);
-          yield* workspaceLayout.ensureProjectWorkspace({
-            containerRoot,
-            projectWorkspaceRoot,
-          });
-          yield* workspaceLayout.ensurePaperWorkspace({
-            containerRoot,
-            paperWorkspaceRoot,
-            projectWorkspaceRoot,
-          });
+        yield* workspaceLayout.ensureRoot(containerRoot);
+        yield* workspaceLayout.ensureProjectWorkspace({
+          containerRoot,
+          projectWorkspaceRoot,
+        });
+        yield* workspaceLayout.ensurePaperWorkspace({
+          containerRoot,
+          paperWorkspaceRoot,
+          projectWorkspaceRoot,
+        });
 
-          const stat = yield* fileSystem.stat(paperWorkspaceRoot);
-          expect(stat.type).toBe("Directory");
-        }),
+        const stat = yield* fileSystem.stat(paperWorkspaceRoot);
+        expect(stat.type).toBe("Directory");
+      }),
     );
 
     it.effect("rejects using the container root as the paper workspace", () =>
@@ -215,26 +209,80 @@ it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
       }),
     );
 
-    it.effect("rejects project paper workspaces when the parent project root is not canonical", () =>
+    it.effect(
+      "rejects project paper workspaces when the parent project root is not canonical",
+      () =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const workspaceLayout = yield* WorkspaceLayout;
+          const tempDir = yield* makeTempDir();
+          const containerRoot = path.join(tempDir, "AgentScience");
+          const rogueProjectRoot = path.join(tempDir, "rogue-project");
+          const roguePaperRoot = path.join(rogueProjectRoot, "papers", "demo-paper");
+
+          yield* workspaceLayout.ensureRoot(containerRoot);
+
+          const exit = yield* workspaceLayout
+            .ensurePaperWorkspace({
+              containerRoot,
+              projectWorkspaceRoot: rogueProjectRoot,
+              paperWorkspaceRoot: roguePaperRoot,
+            })
+            .pipe(Effect.exit);
+
+          expect(exit._tag).toBe("Failure");
+        }),
+    );
+  });
+
+  describe("ensureAgentWorkspace", () => {
+    it.effect("creates an unassigned agent workspace beneath Agents", () =>
       Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const workspaceLayout = yield* WorkspaceLayout;
         const tempDir = yield* makeTempDir();
         const containerRoot = path.join(tempDir, "AgentScience");
-        const rogueProjectRoot = path.join(tempDir, "rogue-project");
-        const roguePaperRoot = path.join(rogueProjectRoot, "papers", "demo-paper");
+        const agentWorkspaceRoot = path.join(containerRoot, "Agents", "demo-agent");
 
         yield* workspaceLayout.ensureRoot(containerRoot);
+        yield* workspaceLayout.ensureAgentWorkspace({
+          containerRoot,
+          agentWorkspaceRoot,
+        });
 
-        const exit = yield* workspaceLayout
-          .ensurePaperWorkspace({
-            containerRoot,
-            projectWorkspaceRoot: rogueProjectRoot,
-            paperWorkspaceRoot: roguePaperRoot,
-          })
-          .pipe(Effect.exit);
+        const stat = yield* fileSystem.stat(agentWorkspaceRoot);
+        expect(stat.type).toBe("Directory");
+        const ignoreFile = yield* fileSystem.readFileString(
+          path.join(agentWorkspaceRoot, ".agentscienceignore"),
+        );
+        expect(ignoreFile).toContain(".agentscience-review/");
+      }),
+    );
 
-        expect(exit._tag).toBe("Failure");
+    it.effect("creates a project agent workspace beneath the project agents directory", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const workspaceLayout = yield* WorkspaceLayout;
+        const tempDir = yield* makeTempDir();
+        const containerRoot = path.join(tempDir, "AgentScience");
+        const projectWorkspaceRoot = path.join(containerRoot, "Projects", "demo-project");
+        const agentWorkspaceRoot = path.join(projectWorkspaceRoot, "agents", "demo-agent");
+
+        yield* workspaceLayout.ensureRoot(containerRoot);
+        yield* workspaceLayout.ensureProjectWorkspace({
+          containerRoot,
+          projectWorkspaceRoot,
+        });
+        yield* workspaceLayout.ensureAgentWorkspace({
+          containerRoot,
+          agentWorkspaceRoot,
+          projectWorkspaceRoot,
+        });
+
+        const stat = yield* fileSystem.stat(agentWorkspaceRoot);
+        expect(stat.type).toBe("Directory");
       }),
     );
   });
@@ -249,21 +297,9 @@ it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
           const workspaceLayout = yield* WorkspaceLayout;
           const tempDir = yield* makeTempDir();
           const containerRoot = path.join(tempDir, "AgentScience");
-          const projectWorkspaceRoot = path.join(
-            containerRoot,
-            "Projects",
-            "demo-project",
-          );
-          const fromPaperWorkspaceRoot = path.join(
-            containerRoot,
-            "Papers",
-            "demo-paper",
-          );
-          const toPaperWorkspaceRoot = path.join(
-            projectWorkspaceRoot,
-            "papers",
-            "demo-paper",
-          );
+          const projectWorkspaceRoot = path.join(containerRoot, "Projects", "demo-project");
+          const fromPaperWorkspaceRoot = path.join(containerRoot, "Papers", "demo-paper");
+          const toPaperWorkspaceRoot = path.join(projectWorkspaceRoot, "papers", "demo-paper");
 
           yield* workspaceLayout.ensureRoot(containerRoot);
           yield* workspaceLayout.ensureProjectWorkspace({
@@ -283,9 +319,9 @@ it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
 
           const movedStat = yield* fileSystem.stat(toPaperWorkspaceRoot);
           expect(movedStat.type).toBe("Directory");
-          const missing = yield* fileSystem.stat(fromPaperWorkspaceRoot).pipe(
-            Effect.catch(() => Effect.succeed(null)),
-          );
+          const missing = yield* fileSystem
+            .stat(fromPaperWorkspaceRoot)
+            .pipe(Effect.catch(() => Effect.succeed(null)));
           expect(missing).toBeNull();
         }),
     );
@@ -334,10 +370,7 @@ it.layer(TestLayer)("WorkspaceLayoutLive", (it) => {
 
         yield* workspaceLayout.ensureRoot(fromWorkspaceRoot);
         yield* fileSystem.makeDirectory(toWorkspaceRoot, { recursive: true });
-        yield* fileSystem.writeFileString(
-          path.join(toWorkspaceRoot, "keep.txt"),
-          "occupied",
-        );
+        yield* fileSystem.writeFileString(path.join(toWorkspaceRoot, "keep.txt"), "occupied");
 
         const exit = yield* workspaceLayout
           .moveWorkspaceRoot({

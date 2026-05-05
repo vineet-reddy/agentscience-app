@@ -24,11 +24,23 @@ export interface WorkspaceLayoutShape {
     paperWorkspaceRoot: string;
     projectWorkspaceRoot?: string | null;
   }) => Effect.Effect<void, WorkspaceLayoutError>;
+  readonly ensureAgentWorkspace: (input: {
+    containerRoot: string;
+    agentWorkspaceRoot: string;
+    projectWorkspaceRoot?: string | null;
+  }) => Effect.Effect<void, WorkspaceLayoutError>;
   readonly movePaperWorkspace: (input: {
     containerRoot: string;
     fromPaperWorkspaceRoot: string;
     fromProjectWorkspaceRoot?: string | null;
     toPaperWorkspaceRoot: string;
+    toProjectWorkspaceRoot?: string | null;
+  }) => Effect.Effect<void, WorkspaceLayoutError>;
+  readonly moveAgentWorkspace: (input: {
+    containerRoot: string;
+    fromAgentWorkspaceRoot: string;
+    fromProjectWorkspaceRoot?: string | null;
+    toAgentWorkspaceRoot: string;
     toProjectWorkspaceRoot?: string | null;
   }) => Effect.Effect<void, WorkspaceLayoutError>;
   readonly moveWorkspaceRoot: (input: {

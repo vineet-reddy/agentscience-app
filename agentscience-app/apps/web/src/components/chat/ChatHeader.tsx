@@ -1,8 +1,4 @@
-import {
-  type EditorId,
-  type ProjectScript,
-  type ThreadId,
-} from "@agentscience/contracts";
+import { type EditorId, type ProjectScript, type ThreadId } from "@agentscience/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { BookOpenTextIcon, DiffIcon, TerminalSquareIcon } from "lucide-react";
@@ -31,6 +27,7 @@ interface ChatHeaderProps {
   diffOpen: boolean;
   paperReviewAvailable: boolean;
   paperReviewOpen: boolean;
+  activeWorkStatusLabel?: string | null;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -57,6 +54,7 @@ export const ChatHeader = memo(function ChatHeader({
   diffOpen,
   paperReviewAvailable,
   paperReviewOpen,
+  activeWorkStatusLabel,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -81,6 +79,20 @@ export const ChatHeader = memo(function ChatHeader({
             <span className="min-w-0 truncate">{activeProjectName}</span>
           </Badge>
         )}
+        {activeWorkStatusLabel ? (
+          <div
+            className="ml-auto hidden shrink-0 items-center gap-1.5 pr-1 text-[0.8125rem] text-ink-light @2xl/header-actions:flex"
+            role="status"
+            aria-live="polite"
+          >
+            <span>{activeWorkStatusLabel}</span>
+            <span className="inline-flex w-4 justify-start" aria-hidden>
+              <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+              <span className="animate-[pulse_1s_ease-in-out_infinite_150ms]">.</span>
+              <span className="animate-[pulse_1s_ease-in-out_infinite_300ms]">.</span>
+            </span>
+          </div>
+        ) : null}
         {/* {activeProjectName && !isGitRepo && (
           <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
             No Git
@@ -99,10 +111,7 @@ export const ChatHeader = memo(function ChatHeader({
           />
         )} */}
         {activeProjectName && (
-          <OpenInPicker
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
+          <OpenInPicker availableEditors={availableEditors} openInCwd={openInCwd} />
         )}
         {/* {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />} */}
         {terminalAvailable && (

@@ -79,30 +79,6 @@ const BUILT_IN_MODELS: ReadonlyArray<CodexCatalogModel> = [
     isCustom: false,
     capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
   },
-  {
-    slug: "gpt-5.3-codex",
-    name: "GPT-5.3 Codex",
-    isCustom: false,
-    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
-  },
-  {
-    slug: "gpt-5.3-codex-spark",
-    name: "GPT-5.3 Codex Spark",
-    isCustom: false,
-    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
-  },
-  {
-    slug: "gpt-5.2-codex",
-    name: "GPT-5.2 Codex",
-    isCustom: false,
-    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
-  },
-  {
-    slug: "gpt-5.2",
-    name: "GPT-5.2",
-    isCustom: false,
-    capabilities: DEFAULT_CODEX_GPT_CAPABILITIES,
-  },
 ];
 
 export function getCodexModelCapabilities(model: string | null | undefined): ModelCapabilities {

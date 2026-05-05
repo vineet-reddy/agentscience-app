@@ -249,7 +249,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         cwd: persistedCwd,
         ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
         ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
-        runtimeMode: input.binding.runtimeMode ?? "full-access",
+        runtimeMode: input.binding.runtimeMode ?? "approval-required",
       });
       if (resumed.provider !== adapter.provider) {
         return yield* toValidationError(

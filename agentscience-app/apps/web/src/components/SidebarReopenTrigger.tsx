@@ -11,8 +11,7 @@ interface SidebarReopenTriggerProps {
  * button lives on the content side (not next to the traffic lights) so its
  * position is identical in windowed and fullscreen modes.
  *
- * Returns `null` when the sidebar is open; the sidebar header hosts the
- * collapse control in that state.
+ * Returns `null` while the sidebar is already open.
  */
 export function SidebarReopenTrigger({ className }: SidebarReopenTriggerProps) {
   const { open } = useSidebar();

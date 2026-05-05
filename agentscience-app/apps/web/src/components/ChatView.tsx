@@ -1,6 +1,7 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
@@ -125,7 +126,7 @@ import {
   resolveSelectableProvider,
 } from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
-import { resolveAppModelSelection } from "../modelSelection";
+import { getSelectableModelOptionsByProvider, resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
@@ -143,6 +144,7 @@ import {
   useComposerDatasetMentionStore,
   useComposerDatasetMentionsForThread,
 } from "../composerDatasetMentionStore";
+import { useComposerAutoSubmitStore } from "../composerAutoSubmitStore";
 import { useComposerFocusStore } from "../composerFocusStore";
 import {
   datasetToSlug,
@@ -172,7 +174,7 @@ import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
+import { ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
@@ -232,6 +234,52 @@ const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
+
+function derivePaperWorkStatusLabel(entries: ReturnType<typeof deriveWorkLogEntries>): string {
+  const latest = entries.at(-1);
+  const text = [
+    latest?.label,
+    latest?.toolTitle,
+    latest?.detail,
+    latest?.command,
+    latest?.rawCommand,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (text.includes("figure") || text.includes("plot") || text.includes("chart")) {
+    return "Creating figures";
+  }
+  if (
+    text.includes("python") ||
+    text.includes("analysis") ||
+    text.includes("statistic") ||
+    text.includes("model")
+  ) {
+    return "Analyzing data";
+  }
+  if (text.includes("dataset") || text.includes("registry") || text.includes("data")) {
+    return "Finding data";
+  }
+  if (
+    text.includes("search") ||
+    text.includes("literature") ||
+    text.includes("paper") ||
+    text.includes("citation")
+  ) {
+    return "Checking novelty";
+  }
+  if (
+    text.includes("latex") ||
+    text.includes("pdf") ||
+    text.includes("manuscript") ||
+    text.includes("compile")
+  ) {
+    return "Writing paper";
+  }
+  return "Working";
+}
 
 const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
 const MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES = 512 * 1024;
@@ -903,16 +951,17 @@ export default function ChatView({
         ? buildLocalDraftThread(
             threadId,
             draftThread,
-            fallbackDraftProject?.defaultModelSelection ?? {
-              provider: "codex",
-              model: DEFAULT_MODEL_BY_PROVIDER.codex,
-            },
+            fallbackDraftProject?.defaultModelSelection ?? DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
             localDraftError,
           )
         : undefined,
     [draftThread, fallbackDraftProject?.defaultModelSelection, localDraftError, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
+  const draftWorkflowMode = useUiStateStore((store) => {
+    if (draftThread?.kind !== "agent") return "open";
+    return store.paperWorkflowModeByThreadId[threadId] ?? "general-agent";
+  });
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -1202,6 +1251,11 @@ export default function ChatView({
     threadError: activeThread?.error,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const activeWorkflowMode =
+    activeThread?.stageState?.workflowMode ??
+    (draftThread?.kind === "agent" ? draftWorkflowMode : "open");
+  const activeWorkStatusLabel =
+    isWorking && activeWorkflowMode === "open" ? derivePaperWorkStatusLabel(workLogEntries) : null;
   const nowIso = new Date(nowTick).toISOString();
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
@@ -1479,10 +1533,14 @@ export default function ChatView({
   const gitStatusQuery = useGitStatus(gitCwd);
   const availableEditors = useServerAvailableEditors();
   const modelOptionsByProvider = useMemo(
-    () => ({
-      codex: providerStatuses.find((provider) => provider.provider === "codex")?.models ?? [],
-    }),
-    [providerStatuses],
+    () =>
+      getSelectableModelOptionsByProvider(
+        settings,
+        providerStatuses,
+        selectedProvider,
+        selectedModel,
+      ),
+    [providerStatuses, selectedModel, selectedProvider, settings],
   );
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
     const currentOptions = modelOptionsByProvider[selectedProvider];
@@ -1492,19 +1550,18 @@ export default function ChatView({
   }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
   const searchableModelOptions = useMemo(
     () =>
-      AVAILABLE_PROVIDER_OPTIONS.filter(
-        (option) => lockedProvider === null || option.value === lockedProvider,
-      ).flatMap((option) =>
-        modelOptionsByProvider[option.value].map(({ slug, name }) => ({
-          provider: option.value,
-          providerLabel: option.label,
-          slug,
-          name,
-          searchSlug: slug.toLowerCase(),
-          searchName: name.toLowerCase(),
-          searchProvider: option.label.toLowerCase(),
-        })),
-      ),
+      (lockedProvider === null || lockedProvider === "codex"
+        ? modelOptionsByProvider.codex
+        : []
+      ).map(({ slug, name }) => ({
+        provider: "codex" as const,
+        providerLabel: "Codex",
+        slug,
+        name,
+        searchSlug: slug.toLowerCase(),
+        searchName: name.toLowerCase(),
+        searchProvider: "codex",
+      })),
     [lockedProvider, modelOptionsByProvider],
   );
   const workspaceEntriesQuery = useQuery(
@@ -1751,12 +1808,21 @@ export default function ChatView({
   const composerFocusToken = useComposerFocusStore((store) => store.token);
   const composerFocusTargetThreadId = useComposerFocusStore((store) => store.threadId);
   const consumeComposerFocus = useComposerFocusStore((store) => store.consume);
+  const composerAutoSubmitToken = useComposerAutoSubmitStore((store) => store.token);
+  const composerAutoSubmitThreadId = useComposerAutoSubmitStore((store) => store.threadId);
+  const consumeComposerAutoSubmit = useComposerAutoSubmitStore((store) => store.consume);
   useEffect(() => {
     if (composerFocusToken === 0) return;
     if (composerFocusTargetThreadId !== threadId) return;
     scheduleComposerFocus();
     consumeComposerFocus();
-  }, [composerFocusToken, composerFocusTargetThreadId, threadId, scheduleComposerFocus, consumeComposerFocus]);
+  }, [
+    composerFocusToken,
+    composerFocusTargetThreadId,
+    threadId,
+    scheduleComposerFocus,
+    consumeComposerFocus,
+  ]);
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
       if (!activeThread) {
@@ -3174,9 +3240,11 @@ export default function ChatView({
                       projectId: activeProject?.id ?? null,
                       folderSlug: nextThreadFolderSlug(activeProject?.id ?? null, title),
                       title,
+                      workspaceKind: draftThread?.kind ?? "paper",
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode,
+                      workflowMode: draftThread?.kind === "agent" ? draftWorkflowMode : "open",
                       branch: activeThread.branch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
@@ -3246,6 +3314,31 @@ export default function ChatView({
       resetLocalDispatch();
     }
   };
+
+  useEffect(() => {
+    if (composerAutoSubmitToken === 0) return;
+    if (composerAutoSubmitThreadId !== threadId) return;
+    if (!activeThread) return;
+    if (!composerSendState.hasSendableContent) return;
+    if (isSendBusy || isConnecting || sendInFlightRef.current) return;
+
+    scheduleComposerFocus();
+    void (async () => {
+      await onSend();
+      consumeComposerAutoSubmit(composerAutoSubmitToken);
+    })();
+  }, [
+    activeThread,
+    composerAutoSubmitThreadId,
+    composerAutoSubmitToken,
+    composerSendState.hasSendableContent,
+    consumeComposerAutoSubmit,
+    isConnecting,
+    isSendBusy,
+    onSend,
+    scheduleComposerFocus,
+    threadId,
+  ]);
 
   const onInterrupt = async () => {
     const api = readNativeApi();
@@ -3579,6 +3672,7 @@ export default function ChatView({
         projectId: activeProject?.id ?? null,
         folderSlug: nextThreadFolderSlug(activeProject?.id ?? null, nextThreadTitle),
         title: nextThreadTitle,
+        workspaceKind: "paper",
         modelSelection: nextThreadModelSelection,
         runtimeMode,
         interactionMode: "default",
@@ -4147,6 +4241,7 @@ export default function ChatView({
           diffOpen={diffOpen}
           paperReviewAvailable={paperReviewAvailable}
           paperReviewOpen={paperReviewOpen}
+          activeWorkStatusLabel={activeWorkStatusLabel}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -4437,10 +4532,7 @@ export default function ChatView({
                           <PlusIcon />
                         </Button>
 
-                        <Separator
-                          orientation="vertical"
-                          className="mx-0.5 hidden h-4 sm:block"
-                        />
+                        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
 
                         {/* Provider/model picker */}
                         <ProviderModelPicker
@@ -4526,13 +4618,13 @@ export default function ChatView({
                               }
                               title={
                                 runtimeMode === "full-access"
-                                  ? "Auto — the agent runs actions on its own. Click to have it ask first."
-                                  : "Ask first — the agent checks with you before each action. Click to let it run on its own."
+                                  ? "Auto — the agent takes the lead and only stops for major scientific decisions. Click to switch to Manual."
+                                  : "Manual — the agent works more hands-on with you before major assumptions. Click to switch to Auto."
                               }
                             >
                               {runtimeMode === "full-access" ? <ZapIcon /> : <HandIcon />}
                               <span className="sr-only sm:not-sr-only">
-                                {runtimeMode === "full-access" ? "Auto" : "Ask first"}
+                                {runtimeMode === "full-access" ? "Auto" : "Manual"}
                               </span>
                             </Button>
 

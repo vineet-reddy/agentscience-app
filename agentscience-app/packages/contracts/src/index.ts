@@ -11,6 +11,7 @@ export * from "./orchestration";
 export * from "./editor";
 export * from "./project";
 export * from "./paperReview";
+export * from "./stages";
 export * from "./localPapers";
 export * from "./agentScienceAuth";
 export * from "./rpc";

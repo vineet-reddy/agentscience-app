@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fetchPaperReviewBytes,
   fetchPaperReviewSnapshot,
+  paperReviewPreviewKey,
   paperReviewReadyPdfKey,
 } from "./paperReview";
 
@@ -22,6 +23,7 @@ describe("paperReview", () => {
       workspaceRoot: "/tmp/paper",
       source: null,
       pdf: null,
+      figure: null,
       bibliography: null,
       notes: null,
       preview: {
@@ -71,6 +73,48 @@ describe("paperReview", () => {
     ).toBeNull();
   });
 
+  it("keys any reviewable workspace preview for auto-opening the canvas", () => {
+    expect(
+      paperReviewPreviewKey({
+        threadId,
+        threadTitle: "Paper thread",
+        workspaceRoot: "/tmp/paper",
+        source: null,
+        pdf: null,
+        figure: {
+          kind: "figure",
+          label: "Figure",
+          relativePath: "figures/effect.png",
+          url: `/api/paper-review/${threadId}/files/figures/effect.png`,
+          sizeBytes: 42,
+          updatedAt: "2026-04-16T08:00:00.000Z",
+          contentType: "image/png",
+        },
+        bibliography: null,
+        notes: null,
+        preview: {
+          kind: "image",
+          relativePath: "figures/effect.png",
+          url: `/api/paper-review/${threadId}/files/figures/effect.png`,
+          updatedAt: "2026-04-16T08:00:00.000Z",
+        },
+        compile: {
+          status: "idle",
+          compiler: "none",
+          compilerLabel: null,
+          canCompile: false,
+          needsBuild: false,
+          lastBuiltAt: null,
+          lastError: null,
+          outputExcerpt: null,
+        },
+        reviewRecommended: true,
+      }),
+    ).toBe(
+      `image:figures/effect.png:2026-04-16T08:00:00.000Z:/api/paper-review/${threadId}/files/figures/effect.png`,
+    );
+  });
+
   it("targets the desktop backend origin and normalizes artifact URLs", async () => {
     vi.stubGlobal("window", {
       desktopBridge: {
@@ -97,6 +141,7 @@ describe("paperReview", () => {
             contentType: "application/x-tex",
           },
           pdf: null,
+          figure: null,
           bibliography: null,
           notes: null,
           preview: {

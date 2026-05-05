@@ -12,6 +12,7 @@ import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
 import { toastManager } from "./ui/toast";
 import PdfPreviewSurface from "./PdfPreviewSurface";
+import ChatMarkdown from "./ChatMarkdown";
 
 type PaperReviewTab = "preview" | "source";
 
@@ -46,17 +47,28 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
   });
 
   const snapshot = snapshotQuery.data;
-  const showPreviewTab = snapshot?.preview.kind === "pdf";
-  const activeTab: PaperReviewTab = showPreviewTab ? (selectedTab ?? "preview") : "source";
+  const showPreviewTab =
+    snapshot?.preview.kind === "pdf" ||
+    snapshot?.preview.kind === "markdown" ||
+    snapshot?.preview.kind === "image";
   const sourceUrl = snapshot?.source?.url ?? null;
+  const showSourceTab = sourceUrl !== null;
+  const activeTab: PaperReviewTab = showPreviewTab
+    ? selectedTab === "source" && showSourceTab
+      ? "source"
+      : "preview"
+    : "source";
   const sourceQuery = useQuery({
     queryKey: ["paper-review", threadId, "source", sourceUrl],
     queryFn: () => fetchPaperReviewText(sourceUrl as string),
-    enabled:
-      sourceUrl !== null &&
-      (activeTab === "source" ||
-        snapshot?.preview.kind !== "pdf" ||
-        snapshot?.compile.status === "error"),
+    enabled: sourceUrl !== null && activeTab === "source",
+  });
+  const previewTextUrl =
+    snapshot?.preview.kind === "markdown" && snapshot.preview.url ? snapshot.preview.url : null;
+  const previewTextQuery = useQuery({
+    queryKey: ["paper-review", threadId, "preview-text", previewTextUrl],
+    queryFn: () => fetchPaperReviewText(previewTextUrl as string),
+    enabled: previewTextUrl !== null && activeTab === "preview",
   });
 
   useEffect(() => {
@@ -103,18 +115,20 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
                 Preview
               </button>
             ) : null}
-            <button
-              type="button"
-              className={cn(
-                "rounded-full px-3 py-1.5 text-xs transition-colors",
-                activeTab === "source"
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground/80 hover:text-foreground",
-              )}
-              onClick={() => setSelectedTab(showPreviewTab ? "source" : null)}
-            >
-              Source
-            </button>
+            {showSourceTab ? (
+              <button
+                type="button"
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs transition-colors",
+                  activeTab === "source"
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground/80 hover:text-foreground",
+                )}
+                onClick={() => setSelectedTab(showPreviewTab ? "source" : null)}
+              >
+                Source
+              </button>
+            ) : null}
           </div>
           <div className="flex items-center gap-1.5">
             {statusLabel ? (
@@ -155,10 +169,11 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
         </div>
       ) : null}
 
-      {snapshot?.compile.status === "unavailable" && snapshot?.source?.kind === "latex" ? (
+      {snapshot?.compile.status === "unavailable" &&
+      (snapshot?.source?.kind === "latex" || snapshot?.source?.kind === "markdown") ? (
         <div className="border-b border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground sm:px-5">
-          No LaTeX engine was detected, so the manuscript source is shown directly. Once a paper
-          engine is available, the PDF preview will populate automatically.
+          No paper engine was detected, so the source is shown directly. Once a paper engine is
+          available, the PDF preview will populate automatically.
         </div>
       ) : null}
 
@@ -170,6 +185,44 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
         ) : snapshot?.reviewRecommended ? (
           activeTab === "preview" && snapshot.preview.kind === "pdf" && snapshot.preview.url ? (
             <PdfPreviewSurface title={snapshot.threadTitle} url={snapshot.preview.url} />
+          ) : activeTab === "preview" &&
+            snapshot.preview.kind === "image" &&
+            snapshot.preview.url ? (
+            <div className="flex h-full flex-col overflow-y-auto bg-background">
+              <div className="border-b border-border/80 px-5 py-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                {snapshot.preview.relativePath ?? "Figure"}
+              </div>
+              <div className="flex min-h-0 flex-1 items-center justify-center p-5">
+                <img
+                  src={snapshot.preview.url}
+                  alt={snapshot.preview.relativePath ?? "Workspace figure"}
+                  className="max-h-full max-w-full border border-border/80 bg-card object-contain"
+                />
+              </div>
+            </div>
+          ) : activeTab === "preview" && snapshot.preview.kind === "markdown" ? (
+            <div className="h-full overflow-y-auto px-5 py-5">
+              <div className="mx-auto max-w-[46rem]">
+                <div className="mb-4 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  {snapshot.preview.relativePath ?? "Markdown preview"}
+                </div>
+                {previewTextQuery.isPending ? (
+                  <div className="text-sm text-muted-foreground">Loading workspace document...</div>
+                ) : previewTextQuery.data ? (
+                  <ChatMarkdown
+                    text={previewTextQuery.data}
+                    cwd={snapshot.workspaceRoot ?? undefined}
+                    isStreaming={false}
+                  />
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    {previewTextQuery.error instanceof Error
+                      ? previewTextQuery.error.message
+                      : "The workspace document is not available yet."}
+                  </div>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="h-full overflow-y-auto px-4 py-4 sm:px-5">
               <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">

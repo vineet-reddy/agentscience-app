@@ -17,6 +17,7 @@ import {
   ThreadTurnDiffCompletedPayload as ContractsThreadTurnDiffCompletedPayloadSchema,
   ThreadRevertedPayload as ContractsThreadRevertedPayloadSchema,
   ThreadActivityAppendedPayload as ContractsThreadActivityAppendedPayloadSchema,
+  ThreadStageStateUpdatedPayload as ContractsThreadStageStateUpdatedPayloadSchema,
   ThreadTurnStartRequestedPayload as ContractsThreadTurnStartRequestedPayloadSchema,
   ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
@@ -51,6 +52,8 @@ export const ThreadTurnDiffCompletedPayload =
 export const ThreadRevertedPayload = ContractsThreadRevertedPayloadSchema;
 export const ThreadActivityAppendedPayload =
   ContractsThreadActivityAppendedPayloadSchema;
+export const ThreadStageStateUpdatedPayload =
+  ContractsThreadStageStateUpdatedPayloadSchema;
 
 export const ThreadTurnStartRequestedPayload =
   ContractsThreadTurnStartRequestedPayloadSchema;

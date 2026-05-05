@@ -130,6 +130,13 @@ describe("resolveApiModelId", () => {
 });
 
 describe("normalize*ModelOptionsWithCapabilities", () => {
+  it("defaults codex fast mode on when the model supports it", () => {
+    expect(normalizeCodexModelOptionsWithCapabilities(codexCaps, undefined)).toEqual({
+      reasoningEffort: "high",
+      fastMode: true,
+    });
+  });
+
   it("preserves explicit false codex fast mode", () => {
     expect(
       normalizeCodexModelOptionsWithCapabilities(codexCaps, {

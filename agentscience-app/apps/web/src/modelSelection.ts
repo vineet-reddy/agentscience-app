@@ -15,8 +15,8 @@ import {
 
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
-const REMOVED_BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
-  codex: new Set(),
+const PRIMARY_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
+  codex: new Set(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]),
 };
 
 export type ProviderCustomModelConfig = {
@@ -44,10 +44,6 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
 };
 
 export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
-
-function isRemovedBuiltInModelSlug(slug: string, provider: ProviderKind): boolean {
-  return REMOVED_BUILT_IN_MODEL_SLUGS_BY_PROVIDER[provider].has(slug);
-}
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
@@ -82,55 +78,17 @@ export function getAppModelOptions(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
-  selectedModel?: string | null,
+  _selectedModel?: string | null,
 ): AppModelOption[] {
-  const options: AppModelOption[] = getProviderModels(providers, provider).map(
-    ({ slug, name, isCustom }) => ({
+  const primaryModelSlugs = PRIMARY_MODEL_SLUGS_BY_PROVIDER[provider];
+  void settings;
+  return getProviderModels(providers, provider)
+    .filter((model) => !model.isCustom && primaryModelSlugs.has(model.slug))
+    .map(({ slug, name, isCustom }) => ({
       slug,
       name,
       isCustom,
-    }),
-  );
-  const seen = new Set(options.map((option) => option.slug));
-  const trimmedSelectedModel = selectedModel?.trim().toLowerCase();
-  const builtInModelSlugs = new Set(
-    getProviderModels(providers, provider)
-      .filter((model) => !model.isCustom)
-      .map((model) => model.slug),
-  );
-
-  const customModels = settings.providers[provider].customModels;
-  for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs, provider)) {
-    if (seen.has(slug)) {
-      continue;
-    }
-
-    seen.add(slug);
-    options.push({
-      slug,
-      name: slug,
-      isCustom: true,
-    });
-  }
-
-  const normalizedSelectedModel = normalizeModelSlug(selectedModel, provider);
-  const selectedModelMatchesExistingName =
-    typeof trimmedSelectedModel === "string" &&
-    options.some((option) => option.name.toLowerCase() === trimmedSelectedModel);
-  if (
-    normalizedSelectedModel &&
-    !seen.has(normalizedSelectedModel) &&
-    !selectedModelMatchesExistingName &&
-    !isRemovedBuiltInModelSlug(normalizedSelectedModel, provider)
-  ) {
-    options.push({
-      slug: normalizedSelectedModel,
-      name: normalizedSelectedModel,
-      isCustom: true,
-    });
-  }
-
-  return options;
+    }));
 }
 
 export function resolveAppModelSelection(
@@ -147,7 +105,7 @@ export function resolveAppModelSelection(
   );
 }
 
-export function getCustomModelOptionsByProvider(
+export function getSelectableModelOptionsByProvider(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
   selectedProvider?: ProviderKind | null,

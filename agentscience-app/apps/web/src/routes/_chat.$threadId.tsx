@@ -28,7 +28,7 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { fetchPaperReviewSnapshot, paperReviewReadyPdfKey } from "../lib/paperReview";
+import { fetchPaperReviewSnapshot, paperReviewPreviewKey } from "../lib/paperReview";
 import {
   PAPER_REVIEW_INLINE_DEFAULT_WIDTH,
   PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH,
@@ -295,9 +295,9 @@ function ChatThreadRouteView() {
   const [openedDiffByThreadId, setOpenedDiffByThreadId] = useState<Record<string, true>>({});
   const [reviewOpen, setReviewOpen] = useState(false);
   const [openedReviewByThreadId, setOpenedReviewByThreadId] = useState<Record<string, true>>({});
-  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<Record<string, true>>(
-    {},
-  );
+  const [dismissedReviewByThreadId, setDismissedReviewByThreadId] = useState<
+    Record<string, string>
+  >({});
   const lastHandledPaperPresentationByThreadIdRef = useRef<Record<string, string>>({});
   const lastAutoOpenedPaperReviewByThreadIdRef = useRef<Record<string, string>>({});
   const lastObservedThreadUpdatedAtByThreadIdRef = useRef<Record<string, string | null>>({});
@@ -307,7 +307,7 @@ function ChatThreadRouteView() {
     enabled: routeThreadExists,
     refetchInterval: 5_000,
   });
-  const readyPaperReviewKey = paperReviewReadyPdfKey(paperReviewQuery.data);
+  const reviewableOutputKey = paperReviewPreviewKey(paperReviewQuery.data);
   const paperReviewAvailable = Boolean(
     paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId,
   );
@@ -333,9 +333,9 @@ function ChatThreadRouteView() {
     setReviewOpen(false);
     setDismissedReviewByThreadId((current) => ({
       ...current,
-      [threadId]: true,
+      [threadId]: reviewableOutputKey ?? "__manual__",
     }));
-  }, [threadId]);
+  }, [reviewableOutputKey, threadId]);
   const openReview = useCallback(() => {
     setReviewOpen(true);
     setOpenedReviewByThreadId((current) =>
@@ -370,27 +370,20 @@ function ChatThreadRouteView() {
   }, [latestPaperPresentedActivityId, queryClient, threadId]);
 
   useEffect(() => {
-    if (!latestPaperPresentedActivityId || !readyPaperReviewKey) {
+    if (!paperReviewAvailable || !reviewableOutputKey) {
       return;
     }
-    if (dismissedReviewByThreadId[threadId]) {
-      return;
-    }
-
-    const autoOpenKey = `${latestPaperPresentedActivityId}:${readyPaperReviewKey}`;
-    if (lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] === autoOpenKey) {
+    if (dismissedReviewByThreadId[threadId] === reviewableOutputKey) {
       return;
     }
 
-    lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] = autoOpenKey;
+    if (lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] === reviewableOutputKey) {
+      return;
+    }
+
+    lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] = reviewableOutputKey;
     openReview();
-  }, [
-    dismissedReviewByThreadId,
-    latestPaperPresentedActivityId,
-    openReview,
-    readyPaperReviewKey,
-    threadId,
-  ]);
+  }, [dismissedReviewByThreadId, openReview, paperReviewAvailable, reviewableOutputKey, threadId]);
 
   useEffect(() => {
     const previousUpdatedAt = lastObservedThreadUpdatedAtByThreadIdRef.current[threadId];
