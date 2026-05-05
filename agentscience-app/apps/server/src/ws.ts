@@ -263,6 +263,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               projectId: bootstrap.createThread.projectId,
               folderSlug: bootstrap.createThread.folderSlug,
               title: bootstrap.createThread.title,
+              ...(bootstrap.createThread.workspaceKind !== undefined
+                ? { workspaceKind: bootstrap.createThread.workspaceKind }
+                : {}),
               modelSelection: bootstrap.createThread.modelSelection,
               runtimeMode: bootstrap.createThread.runtimeMode,
               interactionMode: bootstrap.createThread.interactionMode,
@@ -539,21 +542,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           "rpc.aggregate": "server",
         }),
       [WS_METHODS.serverStartCodexChatgptLogin]: (_input) =>
-        observeRpcEffect(
-          WS_METHODS.serverStartCodexChatgptLogin,
-          codexAuth.startChatgptLogin,
-          {
-            "rpc.aggregate": "server",
-          },
-        ),
+        observeRpcEffect(WS_METHODS.serverStartCodexChatgptLogin, codexAuth.startChatgptLogin, {
+          "rpc.aggregate": "server",
+        }),
       [WS_METHODS.serverLoginCodexWithApiKey]: (input) =>
-        observeRpcEffect(
-          WS_METHODS.serverLoginCodexWithApiKey,
-          codexAuth.loginWithApiKey(input),
-          {
-            "rpc.aggregate": "server",
-          },
-        ),
+        observeRpcEffect(WS_METHODS.serverLoginCodexWithApiKey, codexAuth.loginWithApiKey(input), {
+          "rpc.aggregate": "server",
+        }),
       [WS_METHODS.serverCancelCodexChatgptLogin]: (input) =>
         observeRpcEffect(
           WS_METHODS.serverCancelCodexChatgptLogin,
@@ -567,29 +562,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           "rpc.aggregate": "server",
         }),
       [WS_METHODS.serverGetAgentScienceAuthState]: (_input) =>
-        observeRpcEffect(
-          WS_METHODS.serverGetAgentScienceAuthState,
-          agentScienceAuth.getState,
-          { "rpc.aggregate": "server" },
-        ),
+        observeRpcEffect(WS_METHODS.serverGetAgentScienceAuthState, agentScienceAuth.getState, {
+          "rpc.aggregate": "server",
+        }),
       [WS_METHODS.serverStartAgentScienceLogin]: (_input) =>
-        observeRpcEffect(
-          WS_METHODS.serverStartAgentScienceLogin,
-          agentScienceAuth.startLogin,
-          { "rpc.aggregate": "server" },
-        ),
+        observeRpcEffect(WS_METHODS.serverStartAgentScienceLogin, agentScienceAuth.startLogin, {
+          "rpc.aggregate": "server",
+        }),
       [WS_METHODS.serverCancelAgentScienceLogin]: (_input) =>
-        observeRpcEffect(
-          WS_METHODS.serverCancelAgentScienceLogin,
-          agentScienceAuth.cancelLogin,
-          { "rpc.aggregate": "server" },
-        ),
+        observeRpcEffect(WS_METHODS.serverCancelAgentScienceLogin, agentScienceAuth.cancelLogin, {
+          "rpc.aggregate": "server",
+        }),
       [WS_METHODS.serverSignOutAgentScience]: (_input) =>
-        observeRpcEffect(
-          WS_METHODS.serverSignOutAgentScience,
-          agentScienceAuth.signOut,
-          { "rpc.aggregate": "server" },
-        ),
+        observeRpcEffect(WS_METHODS.serverSignOutAgentScience, agentScienceAuth.signOut, {
+          "rpc.aggregate": "server",
+        }),
       [WS_METHODS.serverApplyAgentScienceRuntimeUpdates]: (_input) =>
         observeRpcEffect(
           WS_METHODS.serverApplyAgentScienceRuntimeUpdates,

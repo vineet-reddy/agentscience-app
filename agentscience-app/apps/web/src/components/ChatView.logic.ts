@@ -34,6 +34,7 @@ export function buildLocalDraftThread(
     folderSlug: threadId,
     resolvedWorkspacePath: null,
     title: draftThread.kind === "agent" ? "New agent" : "New paper",
+    workspaceKind: draftThread.kind,
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,
     interactionMode: draftThread.interactionMode,

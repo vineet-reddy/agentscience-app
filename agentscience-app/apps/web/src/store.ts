@@ -256,6 +256,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     folderSlug: thread.folderSlug,
     resolvedWorkspacePath: thread.resolvedWorkspacePath,
     title: thread.title,
+    workspaceKind: thread.workspaceKind ?? "paper",
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
@@ -866,6 +867,9 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         folderSlug: event.payload.folderSlug,
         resolvedWorkspacePath: null,
         title: event.payload.title,
+        workspaceKind:
+          event.payload.workspaceKind ??
+          (event.payload.workflowMode && event.payload.workflowMode !== "open" ? "agent" : "paper"),
         modelSelection: event.payload.modelSelection,
         runtimeMode: event.payload.runtimeMode,
         interactionMode: event.payload.interactionMode,

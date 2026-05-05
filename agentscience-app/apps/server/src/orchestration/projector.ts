@@ -1,8 +1,4 @@
-import type {
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  ThreadId,
-} from "@agentscience/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@agentscience/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -11,10 +7,7 @@ import {
 } from "@agentscience/contracts";
 import { Effect, Schema } from "effect";
 
-import {
-  toProjectorDecodeError,
-  type OrchestrationProjectorDecodeError,
-} from "./Errors.ts";
+import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
 import {
   MessageSentPayloadSchema,
   PaperMovedPayload,
@@ -41,9 +34,7 @@ type ThreadPatch = Partial<Omit<OrchestrationThread, "id">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 
-function checkpointStatusToLatestTurnState(
-  status: "ready" | "missing" | "error",
-) {
+function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") return "error" as const;
   if (status === "missing") return "interrupted" as const;
   return "completed" as const;
@@ -54,9 +45,7 @@ function updateThread(
   threadId: ThreadId,
   patch: ThreadPatch,
 ): OrchestrationThread[] {
-  return threads.map((thread) =>
-    thread.id === threadId ? { ...thread, ...patch } : thread,
-  );
+  return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
 }
 
 function decodeForEvent<A>(
@@ -67,10 +56,7 @@ function decodeForEvent<A>(
 ): Effect.Effect<A, OrchestrationProjectorDecodeError> {
   return Effect.try({
     try: () => Schema.decodeUnknownSync(schema as any)(value),
-    catch: (error) =>
-      toProjectorDecodeError(`${eventType}:${field}`)(
-        error as Schema.SchemaError,
-      ),
+    catch: (error) => toProjectorDecodeError(`${eventType}:${field}`)(error as Schema.SchemaError),
   });
 }
 
@@ -104,8 +90,7 @@ function retainThreadMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.id.localeCompare(right.id),
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
       )
       .slice(0, missingUserCount);
     for (const message of fallbackUserMessages) {
@@ -114,8 +99,7 @@ function retainThreadMessagesAfterRevert(
   }
 
   const retainedAssistantCount = messages.filter(
-    (message) =>
-      message.role === "assistant" && retainedMessageIds.has(message.id),
+    (message) => message.role === "assistant" && retainedMessageIds.has(message.id),
   ).length;
   const missingAssistantCount = Math.max(0, turnCount - retainedAssistantCount);
   if (missingAssistantCount > 0) {
@@ -128,8 +112,7 @@ function retainThreadMessagesAfterRevert(
       )
       .toSorted(
         (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.id.localeCompare(right.id),
+          left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
       )
       .slice(0, missingAssistantCount);
     for (const message of fallbackAssistantMessages) {
@@ -145,8 +128,7 @@ function retainThreadActivitiesAfterRevert(
   retainedTurnIds: ReadonlySet<string>,
 ): ReadonlyArray<OrchestrationThread["activities"][number]> {
   return activities.filter(
-    (activity) =>
-      activity.turnId === null || retainedTurnIds.has(activity.turnId),
+    (activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId),
   );
 }
 
@@ -155,8 +137,7 @@ function retainThreadProposedPlansAfterRevert(
   retainedTurnIds: ReadonlySet<string>,
 ): ReadonlyArray<OrchestrationThread["proposedPlans"][number]> {
   return proposedPlans.filter(
-    (proposedPlan) =>
-      proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
+    (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
   );
 }
 
@@ -174,10 +155,7 @@ function compareThreadActivities(
     return -1;
   }
 
-  return (
-    left.createdAt.localeCompare(right.createdAt) ||
-    left.id.localeCompare(right.id)
-  );
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
 export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
@@ -201,16 +179,9 @@ export function projectEvent(
 
   switch (event.type) {
     case "project.created":
-      return decodeForEvent(
-        ProjectCreatedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ProjectCreatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
-          const existing = nextBase.projects.find(
-            (entry) => entry.id === payload.projectId,
-          );
+          const existing = nextBase.projects.find((entry) => entry.id === payload.projectId);
           const nextProject = {
             id: payload.projectId,
             title: payload.title,
@@ -234,27 +205,18 @@ export function projectEvent(
       );
 
     case "project.meta-updated":
-      return decodeForEvent(
-        ProjectMetaUpdatedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ProjectMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           projects: nextBase.projects.map((project) =>
             project.id === payload.projectId
               ? {
                   ...project,
-                  ...(payload.title !== undefined
-                    ? { title: payload.title }
-                    : {}),
+                  ...(payload.title !== undefined ? { title: payload.title } : {}),
                   ...(payload.defaultModelSelection !== undefined
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
-                  ...(payload.scripts !== undefined
-                    ? { scripts: payload.scripts }
-                    : {}),
+                  ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,
@@ -263,12 +225,7 @@ export function projectEvent(
       );
 
     case "project.deleted":
-      return decodeForEvent(
-        ProjectDeletedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ProjectDeletedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           projects: nextBase.projects.map((project) =>
@@ -299,6 +256,9 @@ export function projectEvent(
             folderSlug: payload.folderSlug,
             resolvedWorkspacePath: null,
             title: payload.title,
+            workspaceKind:
+              payload.workspaceKind ??
+              (payload.workflowMode && payload.workflowMode !== "open" ? "agent" : "paper"),
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
             interactionMode: payload.interactionMode,
@@ -314,33 +274,22 @@ export function projectEvent(
             activities: [],
             checkpoints: [],
             session: null,
-            ...(payload.stageState !== undefined
-              ? { stageState: payload.stageState }
-              : {}),
+            ...(payload.stageState !== undefined ? { stageState: payload.stageState } : {}),
           },
           event.type,
           "thread",
         );
-        const existing = nextBase.threads.find(
-          (entry) => entry.id === thread.id,
-        );
+        const existing = nextBase.threads.find((entry) => entry.id === thread.id);
         return {
           ...nextBase,
           threads: existing
-            ? nextBase.threads.map((entry) =>
-                entry.id === thread.id ? thread : entry,
-              )
+            ? nextBase.threads.map((entry) => (entry.id === thread.id ? thread : entry))
             : [...nextBase.threads, thread],
         };
       });
 
     case "thread.deleted":
-      return decodeForEvent(
-        ThreadDeletedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadDeletedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -351,12 +300,7 @@ export function projectEvent(
       );
 
     case "thread.project-set":
-      return decodeForEvent(
-        ThreadProjectSetPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadProjectSetPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -367,12 +311,7 @@ export function projectEvent(
       );
 
     case "paper.moved":
-      return decodeForEvent(
-        PaperMovedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(PaperMovedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -383,12 +322,7 @@ export function projectEvent(
       );
 
     case "thread.archived":
-      return decodeForEvent(
-        ThreadArchivedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadArchivedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -399,12 +333,7 @@ export function projectEvent(
       );
 
     case "thread.unarchived":
-      return decodeForEvent(
-        ThreadUnarchivedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadUnarchivedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -415,12 +344,7 @@ export function projectEvent(
       );
 
     case "thread.meta-updated":
-      return decodeForEvent(
-        ThreadMetaUpdatedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadMetaUpdatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -429,21 +353,14 @@ export function projectEvent(
               ? { modelSelection: payload.modelSelection }
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
-            ...(payload.worktreePath !== undefined
-              ? { worktreePath: payload.worktreePath }
-              : {}),
+            ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),
       );
 
     case "thread.runtime-mode-set":
-      return decodeForEvent(
-        ThreadRuntimeModeSetPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadRuntimeModeSetPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
@@ -477,9 +394,7 @@ export function projectEvent(
           event.type,
           "payload",
         );
-        const thread = nextBase.threads.find(
-          (entry) => entry.id === payload.threadId,
-        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
         if (!thread) {
           return nextBase;
         }
@@ -490,9 +405,7 @@ export function projectEvent(
             id: payload.messageId,
             role: payload.role,
             text: payload.text,
-            ...(payload.attachments !== undefined
-              ? { attachments: payload.attachments }
-              : {}),
+            ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             createdAt: payload.createdAt,
@@ -502,9 +415,7 @@ export function projectEvent(
           "message",
         );
 
-        const existingMessage = thread.messages.find(
-          (entry) => entry.id === message.id,
-        );
+        const existingMessage = thread.messages.find((entry) => entry.id === message.id);
         const messages = existingMessage
           ? thread.messages.map((entry) =>
               entry.id === message.id
@@ -544,9 +455,7 @@ export function projectEvent(
           event.type,
           "payload",
         );
-        const thread = nextBase.threads.find(
-          (entry) => entry.id === payload.threadId,
-        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
         if (!thread) {
           return nextBase;
         }
@@ -595,23 +504,18 @@ export function projectEvent(
           event.type,
           "payload",
         );
-        const thread = nextBase.threads.find(
-          (entry) => entry.id === payload.threadId,
-        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
         if (!thread) {
           return nextBase;
         }
 
         const proposedPlans = [
-          ...thread.proposedPlans.filter(
-            (entry) => entry.id !== payload.proposedPlan.id,
-          ),
+          ...thread.proposedPlans.filter((entry) => entry.id !== payload.proposedPlan.id),
           payload.proposedPlan,
         ]
           .toSorted(
             (left, right) =>
-              left.createdAt.localeCompare(right.createdAt) ||
-              left.id.localeCompare(right.id),
+              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
           )
           .slice(-200);
 
@@ -632,9 +536,7 @@ export function projectEvent(
           event.type,
           "payload",
         );
-        const thread = nextBase.threads.find(
-          (entry) => entry.id === payload.threadId,
-        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
         if (!thread) {
           return nextBase;
         }
@@ -659,27 +561,16 @@ export function projectEvent(
         // ProviderRuntimeIngestion may fire multiple turn.diff.updated events
         // per turn; without this guard later placeholders would clobber the
         // real capture dispatched by CheckpointReactor.
-        const existing = thread.checkpoints.find(
-          (entry) => entry.turnId === checkpoint.turnId,
-        );
-        if (
-          existing &&
-          existing.status !== "missing" &&
-          checkpoint.status === "missing"
-        ) {
+        const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
+        if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
           return nextBase;
         }
 
         const checkpoints = [
-          ...thread.checkpoints.filter(
-            (entry) => entry.turnId !== checkpoint.turnId,
-          ),
+          ...thread.checkpoints.filter((entry) => entry.turnId !== checkpoint.turnId),
           checkpoint,
         ]
-          .toSorted(
-            (left, right) =>
-              left.checkpointTurnCount - right.checkpointTurnCount,
-          )
+          .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
           .slice(-MAX_THREAD_CHECKPOINTS);
 
         return {
@@ -706,30 +597,18 @@ export function projectEvent(
       });
 
     case "thread.reverted":
-      return decodeForEvent(
-        ThreadRevertedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
+      return decodeForEvent(ThreadRevertedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
-          const thread = nextBase.threads.find(
-            (entry) => entry.id === payload.threadId,
-          );
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
           if (!thread) {
             return nextBase;
           }
 
           const checkpoints = thread.checkpoints
             .filter((entry) => entry.checkpointTurnCount <= payload.turnCount)
-            .toSorted(
-              (left, right) =>
-                left.checkpointTurnCount - right.checkpointTurnCount,
-            )
+            .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
             .slice(-MAX_THREAD_CHECKPOINTS);
-          const retainedTurnIds = new Set(
-            checkpoints.map((checkpoint) => checkpoint.turnId),
-          );
+          const retainedTurnIds = new Set(checkpoints.map((checkpoint) => checkpoint.turnId));
           const messages = retainThreadMessagesAfterRevert(
             thread.messages,
             retainedTurnIds,
@@ -739,10 +618,7 @@ export function projectEvent(
             thread.proposedPlans,
             retainedTurnIds,
           ).slice(-200);
-          const activities = retainThreadActivitiesAfterRevert(
-            thread.activities,
-            retainedTurnIds,
-          );
+          const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
 
           const latestCheckpoint = checkpoints.at(-1) ?? null;
           const latestTurn =
@@ -750,9 +626,7 @@ export function projectEvent(
               ? null
               : {
                   turnId: latestCheckpoint.turnId,
-                  state: checkpointStatusToLatestTurnState(
-                    latestCheckpoint.status,
-                  ),
+                  state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
                   requestedAt: latestCheckpoint.completedAt,
                   startedAt: latestCheckpoint.completedAt,
                   completedAt: latestCheckpoint.completedAt,
@@ -781,17 +655,13 @@ export function projectEvent(
         "payload",
       ).pipe(
         Effect.map((payload) => {
-          const thread = nextBase.threads.find(
-            (entry) => entry.id === payload.threadId,
-          );
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
           if (!thread) {
             return nextBase;
           }
 
           const activities = [
-            ...thread.activities.filter(
-              (entry) => entry.id !== payload.activity.id,
-            ),
+            ...thread.activities.filter((entry) => entry.id !== payload.activity.id),
             payload.activity,
           ]
             .toSorted(compareThreadActivities)

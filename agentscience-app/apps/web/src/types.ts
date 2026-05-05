@@ -14,6 +14,7 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  WorkspaceKind,
 } from "@agentscience/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -97,6 +98,7 @@ export interface Thread {
   folderSlug: string;
   resolvedWorkspacePath: string | null;
   title: string;
+  workspaceKind?: WorkspaceKind;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
