@@ -471,6 +471,32 @@ describe("composerDraftStore terminal contexts", () => {
     expect(mergedState.draftThreadsByThreadId).toEqual({});
     expect(mergedState.projectDraftThreadIdByProjectId).toEqual({});
   });
+
+  it("persists max research depth as a draft-level setting", () => {
+    const threadId = ThreadId.makeUnsafe("thread-depth");
+    useComposerDraftStore.getState().setResearchDepth(threadId, "max");
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.researchDepth).toBe("max");
+
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+    const persisted = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
+      draftsByThreadId?: Record<string, { researchDepth?: string }>;
+    };
+    expect(persisted.draftsByThreadId?.[threadId]?.researchDepth).toBe("max");
+
+    const merged = persistApi
+      .getOptions()
+      .merge(persisted, useComposerDraftStore.getInitialState());
+    expect(merged.draftsByThreadId[threadId]?.researchDepth).toBe("max");
+  });
 });
 
 describe("composerDraftStore project draft thread mapping", () => {

@@ -1,4 +1,4 @@
-import { ProviderInteractionMode, RuntimeMode } from "@agentscience/contracts";
+import { ProviderInteractionMode, type ResearchDepth, RuntimeMode } from "@agentscience/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon, ListTodoIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -16,10 +16,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   activePlan: boolean;
   interactionMode: ProviderInteractionMode;
   planSidebarOpen: boolean;
+  researchDepth: ResearchDepth;
   runtimeMode: RuntimeMode;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
   onTogglePlanSidebar: () => void;
+  onToggleResearchDepth: () => void;
   onToggleRuntimeMode: () => void;
 }) {
   return (
@@ -53,6 +55,18 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         >
           <MenuRadioItem value="default">Draft</MenuRadioItem>
           <MenuRadioItem value="plan">Outline</MenuRadioItem>
+        </MenuRadioGroup>
+        <MenuDivider />
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Depth</div>
+        <MenuRadioGroup
+          value={props.researchDepth}
+          onValueChange={(value) => {
+            if (!value || value === props.researchDepth) return;
+            props.onToggleResearchDepth();
+          }}
+        >
+          <MenuRadioItem value="standard">Standard</MenuRadioItem>
+          <MenuRadioItem value="max">Max</MenuRadioItem>
         </MenuRadioGroup>
         <MenuDivider />
         <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Pace</div>

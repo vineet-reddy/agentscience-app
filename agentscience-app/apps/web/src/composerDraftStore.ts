@@ -2,11 +2,13 @@ import {
   CODEX_REASONING_EFFORT_OPTIONS,
   type CodexReasoningEffort,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_RESEARCH_DEPTH,
   ModelSelection,
   ProjectId,
   ProviderInteractionMode,
   ProviderKind,
   ProviderModelOptions,
+  ResearchDepth,
   RuntimeMode,
   type ServerProvider,
   ThreadId,
@@ -122,6 +124,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   activeProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  researchDepth: Schema.optionalKey(ResearchDepth),
 });
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
@@ -203,6 +206,7 @@ export interface ComposerThreadDraftState {
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
+  researchDepth: ResearchDepth | null;
 }
 
 export interface DraftThreadState {
@@ -281,6 +285,11 @@ interface ComposerDraftStoreState {
   setInteractionMode: (
     threadId: ThreadId,
     interactionMode: ProviderInteractionMode | null | undefined,
+  ) => void;
+  setResearchDepth: (
+    threadId: ThreadId,
+    researchDepth: ResearchDepth | null | undefined,
+    options?: { persistSticky?: boolean },
   ) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
@@ -361,6 +370,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   activeProvider: null,
   runtimeMode: null,
   interactionMode: null,
+  researchDepth: null,
 });
 
 function createEmptyThreadDraft(): ComposerThreadDraftState {
@@ -374,6 +384,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     activeProvider: null,
     runtimeMode: null,
     interactionMode: null,
+    researchDepth: null,
   };
 }
 
@@ -443,7 +454,8 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
-    draft.interactionMode === null
+    draft.interactionMode === null &&
+    draft.researchDepth === null
   );
 }
 
@@ -892,6 +904,10 @@ function normalizePersistedDraftsByThreadId(
       draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
         ? draftCandidate.interactionMode
         : null;
+    const researchDepth =
+      draftCandidate.researchDepth === "max" || draftCandidate.researchDepth === "standard"
+        ? draftCandidate.researchDepth
+        : null;
     const prompt = ensureInlineTerminalContextPlaceholders(
       promptCandidate,
       terminalContexts.length,
@@ -950,7 +966,8 @@ function normalizePersistedDraftsByThreadId(
       terminalContexts.length === 0 &&
       !hasModelData &&
       !runtimeMode &&
-      !interactionMode
+      !interactionMode &&
+      !researchDepth
     ) {
       continue;
     }
@@ -961,6 +978,7 @@ function normalizePersistedDraftsByThreadId(
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
       ...(interactionMode ? { interactionMode } : {}),
+      ...(researchDepth ? { researchDepth } : {}),
     };
   }
 
@@ -1029,7 +1047,8 @@ function partializeComposerDraftStoreState(
       draft.terminalContexts.length === 0 &&
       !hasModelData &&
       draft.runtimeMode === null &&
-      draft.interactionMode === null
+      draft.interactionMode === null &&
+      draft.researchDepth === null
     ) {
       continue;
     }
@@ -1057,6 +1076,7 @@ function partializeComposerDraftStoreState(
         : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
+      ...(draft.researchDepth ? { researchDepth: draft.researchDepth } : {}),
     };
     persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
   }
@@ -1272,6 +1292,7 @@ function toHydratedThreadDraft(
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
+    researchDepth: persistedDraft.researchDepth ?? null,
   };
 }
 
@@ -1875,6 +1896,37 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           const nextDraft: ComposerThreadDraftState = {
             ...base,
             interactionMode: nextInteractionMode,
+          };
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (shouldRemoveDraft(nextDraft)) {
+            delete nextDraftsByThreadId[threadId];
+          } else {
+            nextDraftsByThreadId[threadId] = nextDraft;
+          }
+          return { draftsByThreadId: nextDraftsByThreadId };
+        });
+      },
+      setResearchDepth: (threadId, researchDepth, options) => {
+        if (threadId.length === 0) {
+          return;
+        }
+        const nextResearchDepth =
+          researchDepth === "max" || researchDepth === "standard" ? researchDepth : null;
+        set((state) => {
+          const existing = state.draftsByThreadId[threadId];
+          if (!existing && nextResearchDepth === null) {
+            return state;
+          }
+          const base = existing ?? createEmptyThreadDraft();
+          if (base.researchDepth === nextResearchDepth) {
+            return state;
+          }
+          const nextDraft: ComposerThreadDraftState = {
+            ...base,
+            researchDepth:
+              options?.persistSticky === true && nextResearchDepth === DEFAULT_RESEARCH_DEPTH
+                ? null
+                : nextResearchDepth,
           };
           const nextDraftsByThreadId = { ...state.draftsByThreadId };
           if (shouldRemoveDraft(nextDraft)) {

@@ -1,11 +1,13 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_RESEARCH_DEPTH,
   DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
+  type ResearchDepth,
   type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -101,6 +103,7 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  GaugeIcon,
   HandIcon,
   ListIcon,
   ListTodoIcon,
@@ -122,6 +125,7 @@ import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
   getDefaultProviderModelOptions,
+  getProviderModelCapabilities,
   getProviderModels,
   resolveSelectableProvider,
 } from "../providerModels";
@@ -718,6 +722,7 @@ export default function ChatView({
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
   );
+  const setComposerDraftResearchDepth = useComposerDraftStore((store) => store.setResearchDepth);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -966,6 +971,7 @@ export default function ChatView({
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
+  const researchDepth = composerDraft.researchDepth ?? DEFAULT_RESEARCH_DEPTH;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
@@ -2169,6 +2175,40 @@ export default function ChatView({
       threadId,
     ],
   );
+  const handleResearchDepthChange = useCallback(
+    (depth: ResearchDepth) => {
+      if (depth === researchDepth) return;
+      setComposerDraftResearchDepth(threadId, depth, { persistSticky: true });
+
+      if (depth === "max" && selectedProvider === "codex") {
+        const caps = getProviderModelCapabilities(selectedProviderModels, selectedModel, "codex");
+        const supportsXHigh = caps.reasoningEffortLevels.some((level) => level.value === "xhigh");
+        const existingCodexOptions = composerModelOptions?.codex ?? {};
+        setComposerDraftModelSelection(threadId, {
+          provider: "codex",
+          model: selectedModel,
+          options: {
+            ...existingCodexOptions,
+            ...(supportsXHigh ? { reasoningEffort: "xhigh" as const } : {}),
+            ...(caps.supportsFastMode ? { fastMode: false } : {}),
+          },
+        });
+      }
+
+      scheduleComposerFocus();
+    },
+    [
+      composerModelOptions?.codex,
+      researchDepth,
+      scheduleComposerFocus,
+      selectedModel,
+      selectedProvider,
+      selectedProviderModels,
+      setComposerDraftModelSelection,
+      setComposerDraftResearchDepth,
+      threadId,
+    ],
+  );
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
@@ -2177,6 +2217,9 @@ export default function ChatView({
       runtimeMode === "full-access" ? "approval-required" : "full-access",
     );
   }, [handleRuntimeModeChange, runtimeMode]);
+  const toggleResearchDepth = useCallback(() => {
+    handleResearchDepthChange(researchDepth === "max" ? "standard" : "max");
+  }, [handleResearchDepthChange, researchDepth]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -3278,6 +3321,7 @@ export default function ChatView({
         titleSeed: title,
         runtimeMode,
         interactionMode,
+        researchDepth,
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
@@ -3577,6 +3621,7 @@ export default function ChatView({
           titleSeed: activeThread.title,
           runtimeMode,
           interactionMode: nextInteractionMode,
+          researchDepth,
           ...(nextInteractionMode === "default" && activeProposedPlan
             ? {
                 sourceProposedPlan: {
@@ -3617,6 +3662,7 @@ export default function ChatView({
       isServerThread,
       persistThreadSettingsForNextTurn,
       resetLocalDispatch,
+      researchDepth,
       runtimeMode,
       selectedPromptEffort,
       selectedModelSelection,
@@ -3695,6 +3741,7 @@ export default function ChatView({
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",
+          researchDepth,
           sourceProposedPlan: {
             threadId: activeThread.id,
             planId: activeProposedPlan.id,
@@ -3739,6 +3786,7 @@ export default function ChatView({
     isServerThread,
     navigate,
     resetLocalDispatch,
+    researchDepth,
     runtimeMode,
     selectedPromptEffort,
     selectedModelSelection,
@@ -4343,6 +4391,7 @@ export default function ChatView({
               <div
                 className={cn(
                   "group rounded-[22px] p-px transition-colors duration-200",
+                  researchDepth === "max" && "bg-foreground/20",
                   composerProviderState.composerFrameClassName,
                 )}
                 onDragEnter={onComposerDragEnter}
@@ -4357,7 +4406,9 @@ export default function ChatView({
                       ? "border-primary/70 bg-accent/30"
                       : composerMenuOpen && !isComposerApprovalState
                         ? "border-primary/60"
-                        : "border-border",
+                        : researchDepth === "max"
+                          ? "border-foreground/25"
+                          : "border-border",
                     composerProviderState.composerSurfaceClassName,
                   )}
                 >
@@ -4558,10 +4609,12 @@ export default function ChatView({
                             )}
                             interactionMode={interactionMode}
                             planSidebarOpen={planSidebarOpen}
+                            researchDepth={researchDepth}
                             runtimeMode={runtimeMode}
                             traitsMenuContent={providerTraitsMenuContent}
                             onToggleInteractionMode={toggleInteractionMode}
                             onTogglePlanSidebar={togglePlanSidebar}
+                            onToggleResearchDepth={toggleResearchDepth}
                             onToggleRuntimeMode={toggleRuntimeMode}
                           />
                         ) : (
@@ -4575,6 +4628,33 @@ export default function ChatView({
                                 {providerTraitsPicker}
                               </>
                             ) : null}
+
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-4 sm:block"
+                            />
+
+                            <Button
+                              variant="ghost"
+                              className={cn(
+                                "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
+                                researchDepth === "max" &&
+                                  "border border-foreground/20 bg-muted text-foreground",
+                              )}
+                              size="sm"
+                              type="button"
+                              onClick={toggleResearchDepth}
+                              title={
+                                researchDepth === "max"
+                                  ? "Max — runs frontier search, branch expansion, and critic passes. Click to switch to Standard."
+                                  : "Standard — adaptive research depth. Click to switch to Max frontier search."
+                              }
+                            >
+                              <GaugeIcon />
+                              <span className="sr-only sm:not-sr-only">
+                                {researchDepth === "max" ? "Max" : "Standard"}
+                              </span>
+                            </Button>
 
                             <Separator
                               orientation="vertical"
