@@ -42,6 +42,18 @@ export const makeWorkspacePaths = Effect.gen(function* () {
           input.folderSlug,
         );
 
+  const resolveAgentPath: WorkspacePathsShape["resolveAgentPath"] = (input) =>
+    input.projectFolderSlug === null
+      ? path.join(input.workspaceRoot, "Agents", input.folderSlug)
+      : path.join(
+          resolveProjectPath({
+            workspaceRoot: input.workspaceRoot,
+            folderSlug: input.projectFolderSlug,
+          }),
+          "agents",
+          input.folderSlug,
+        );
+
   const normalizeWorkspaceRoot: WorkspacePathsShape["normalizeWorkspaceRoot"] =
     Effect.fn("WorkspacePaths.normalizeWorkspaceRoot")(
       function* (workspaceRoot) {
@@ -110,6 +122,7 @@ export const makeWorkspacePaths = Effect.gen(function* () {
     resolveRelativePathWithinRoot,
     resolveProjectPath,
     resolvePaperPath,
+    resolveAgentPath,
   } satisfies WorkspacePathsShape;
 });
 
