@@ -1,7 +1,11 @@
 import type { StageId } from "@agentscience/contracts";
 import { describe, expect, it } from "vitest";
 
-import { buildStageAgentInputs, gateToolForStage } from "./stagePromptBuilder";
+import {
+  buildStageAgentInputs,
+  buildWorkflowAgentInput,
+  gateToolForStage,
+} from "./stagePromptBuilder";
 import { STAGE_PROMPTS } from "./stagePrompts";
 
 const ALL_STAGES: StageId[] = [
@@ -44,6 +48,25 @@ describe("buildStageAgentInputs", () => {
     expect(inputs.systemMessage).not.toContain("running in Experimental design mode");
     expect(inputs.systemMessage).not.toContain("running in Data analysis mode");
     expect(inputs.systemMessage).not.toContain("Question, Novelty, Data, Method, Analysis");
+  });
+});
+
+describe("buildWorkflowAgentInput", () => {
+  it("describes manual as hands-on scientific collaboration", () => {
+    const input = buildWorkflowAgentInput("open", { autonomyMode: "manual" });
+
+    expect(input.systemMessage).toContain("Collaboration style: Manual");
+    expect(input.systemMessage).toContain("hands-on research partnership");
+    expect(input.systemMessage).toContain("high-impact");
+    expect(input.systemMessage).not.toContain("permission");
+  });
+
+  it("describes auto as taking the lead while pausing for major scientific decisions", () => {
+    const input = buildWorkflowAgentInput("open", { autonomyMode: "auto" });
+
+    expect(input.systemMessage).toContain("Collaboration style: Auto");
+    expect(input.systemMessage).toContain("Take the lead");
+    expect(input.systemMessage).toContain("materially change the science");
   });
 });
 

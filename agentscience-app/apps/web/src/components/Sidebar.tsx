@@ -1,9 +1,4 @@
-import {
-  type ProjectId,
-  workflowStageDisplayName,
-  workflowStageOrder,
-  type ThreadId,
-} from "@agentscience/contracts";
+import { type ProjectId, type ThreadId } from "@agentscience/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArchiveIcon,
@@ -18,14 +13,7 @@ import {
   SettingsIcon,
   Trash2Icon,
 } from "lucide-react";
-import {
-  type DragEvent,
-  type KeyboardEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type DragEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "./BrandMark";
 import { APP_SESSION_BOOT_AT } from "../appSession";
 import { type DraftThreadKind, useComposerDraftStore } from "../composerDraftStore";
@@ -37,10 +25,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { cn, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
-import {
-  formatRelativeTimeLabel,
-  formatWorkingDuration,
-} from "../timestampFormat";
+import { formatRelativeTimeLabel, formatWorkingDuration } from "../timestampFormat";
 import { useUiStateStore } from "../uiStateStore";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
@@ -107,13 +92,7 @@ function ThreadStatusDot({ status }: { status: ThreadStatusPill | null }) {
     return null;
   }
 
-  return (
-    <StatusDot
-      dotClass={status.dotClass}
-      pulse={status.pulse}
-      label={status.label}
-    />
-  );
+  return <StatusDot dotClass={status.dotClass} pulse={status.pulse} label={status.label} />;
 }
 
 function deriveDraftTitle(prompt: string | undefined, kind: DraftThreadKind): string {
@@ -135,33 +114,26 @@ function SidebarPaperModePill({
   collapsed,
   mode,
   onChangeMode,
-  stageLabel,
+  detailLabel,
 }: {
   collapsed: boolean;
   mode: PaperWorkflowModeOption;
   onChangeMode: (mode: PaperWorkflowMode) => void;
-  stageLabel: string;
+  detailLabel: string;
 }) {
   return (
     <Popover>
       <PopoverTrigger
         className={cn(
           "mt-1 inline-flex items-center rounded-[8px] border border-sidebar-border bg-sidebar px-2 text-left text-sidebar-foreground transition-colors duration-150 ease-linear hover:bg-sidebar-accent",
-          collapsed
-            ? "size-8 justify-center p-0"
-            : "h-8 w-full justify-between gap-2",
+          collapsed ? "size-8 justify-center p-0" : "h-8 w-full justify-between gap-2",
         )}
-        title={`${mode.label} · ${stageLabel}`}
+        title={`${mode.label} · ${detailLabel}`}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span
-            aria-hidden
-            className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)}
-          />
+          <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)} />
           {!collapsed ? (
-            <span className="min-w-0 truncate text-[0.8125rem] font-medium">
-              {mode.label}
-            </span>
+            <span className="min-w-0 truncate text-[0.8125rem] font-medium">{mode.label}</span>
           ) : null}
         </span>
         {!collapsed ? (
@@ -183,7 +155,7 @@ function SidebarPaperModePill({
               />
               {mode.label}
             </div>
-            <div className="mt-1 text-[0.75rem] text-ink-light">{stageLabel}</div>
+            <div className="mt-1 text-[0.75rem] text-ink-light">{detailLabel}</div>
           </div>
           <div className="border-t border-rule pt-2">
             <div className="mb-1 px-1 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-ink-faint">
@@ -226,41 +198,26 @@ export default function Sidebar() {
   const sidebarThreadsById = useStore((state) => state.sidebarThreadsById);
   const threadIdsByProjectId = useStore((state) => state.threadIdsByProjectId);
   const syncServerReadModel = useStore((state) => state.syncServerReadModel);
-  const draftThreadsByThreadId = useComposerDraftStore(
-    (state) => state.draftThreadsByThreadId,
-  );
-  const draftsByThreadId = useComposerDraftStore(
-    (state) => state.draftsByThreadId,
-  );
-  const projectExpandedById = useUiStateStore(
-    (state) => state.projectExpandedById,
-  );
+  const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
+  const draftsByThreadId = useComposerDraftStore((state) => state.draftsByThreadId);
+  const projectExpandedById = useUiStateStore((state) => state.projectExpandedById);
   const projectOrder = useUiStateStore((state) => state.projectOrder);
-  const threadLastVisitedAtById = useUiStateStore(
-    (state) => state.threadLastVisitedAtById,
-  );
-  const paperWorkflowModeByThreadId = useUiStateStore(
-    (state) => state.paperWorkflowModeByThreadId,
-  );
+  const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const paperWorkflowModeByThreadId = useUiStateStore((state) => state.paperWorkflowModeByThreadId);
   const setPaperWorkflowMode = useUiStateStore((state) => state.setPaperWorkflowMode);
   const activeThreadStageState = useStore((state) =>
     routeThreadId ? (state.threadsById[routeThreadId]?.stageState ?? null) : null,
   );
-  const setProjectExpanded = useUiStateStore(
-    (state) => state.setProjectExpanded,
-  );
+  const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   const settings = useSettings();
   const projectSortOrder = settings.sidebarProjectSortOrder;
   const [editing, setEditing] = useState<EditingState | null>(null);
-  const [contextMenu, setContextMenu] = useState<ThreadContextMenuState | null>(
-    null,
-  );
-  const [createProjectDialog, setCreateProjectDialog] =
-    useState<CreateProjectDialogState>({
-      open: false,
-      name: "",
-      creating: false,
-    });
+  const [contextMenu, setContextMenu] = useState<ThreadContextMenuState | null>(null);
+  const [createProjectDialog, setCreateProjectDialog] = useState<CreateProjectDialogState>({
+    open: false,
+    name: "",
+    creating: false,
+  });
   const [draggedThreadId, setDraggedThreadId] = useState<ThreadId | null>(null);
   const [dropProjectId, setDropProjectId] = useState<ProjectId | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -269,25 +226,16 @@ export default function Sidebar() {
     const visibleThreads = Object.values(sidebarThreadsById).filter(
       (thread) => thread.archivedAt === null,
     );
-    return new Map(
-      visibleThreads.map((thread) => [thread.id, thread] as const),
-    );
+    return new Map(visibleThreads.map((thread) => [thread.id, thread] as const));
   }, [sidebarThreadsById]);
 
   const orderedProjects = useMemo(() => {
     if (projectSortOrder === "manual" && projectOrder.length > 0) {
-      const projectsById = new Map(
-        projects.map((project) => [project.id, project] as const),
-      );
+      const projectsById = new Map(projects.map((project) => [project.id, project] as const));
       const ordered = projectOrder
         .map((projectId) => projectsById.get(projectId))
-        .filter(
-          (project): project is NonNullable<typeof project> =>
-            project !== undefined,
-        );
-      const remaining = projects.filter(
-        (project) => !projectOrder.includes(project.id),
-      );
+        .filter((project): project is NonNullable<typeof project> => project !== undefined);
+      const remaining = projects.filter((project) => !projectOrder.includes(project.id));
       return [...ordered, ...remaining];
     }
 
@@ -296,31 +244,23 @@ export default function Sidebar() {
       const rightThreadIds = threadIdsByProjectId[right.id] ?? [];
 
       const leftLatest = Math.max(
-        Date.parse(left.updatedAt ?? left.createdAt ?? "") ||
-          Number.NEGATIVE_INFINITY,
+        Date.parse(left.updatedAt ?? left.createdAt ?? "") || Number.NEGATIVE_INFINITY,
         ...leftThreadIds.map((threadId) => {
           const thread = visibleThreadsById.get(threadId);
           return (
             Date.parse(
-              thread?.latestUserMessageAt ??
-                thread?.updatedAt ??
-                thread?.createdAt ??
-                "",
+              thread?.latestUserMessageAt ?? thread?.updatedAt ?? thread?.createdAt ?? "",
             ) || Number.NEGATIVE_INFINITY
           );
         }),
       );
       const rightLatest = Math.max(
-        Date.parse(right.updatedAt ?? right.createdAt ?? "") ||
-          Number.NEGATIVE_INFINITY,
+        Date.parse(right.updatedAt ?? right.createdAt ?? "") || Number.NEGATIVE_INFINITY,
         ...rightThreadIds.map((threadId) => {
           const thread = visibleThreadsById.get(threadId);
           return (
             Date.parse(
-              thread?.latestUserMessageAt ??
-                thread?.updatedAt ??
-                thread?.createdAt ??
-                "",
+              thread?.latestUserMessageAt ?? thread?.updatedAt ?? thread?.createdAt ?? "",
             ) || Number.NEGATIVE_INFINITY
           );
         }),
@@ -330,17 +270,9 @@ export default function Sidebar() {
         return rightLatest - leftLatest;
       }
 
-      return (
-        left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
-      );
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
-  }, [
-    projectOrder,
-    projectSortOrder,
-    projects,
-    threadIdsByProjectId,
-    visibleThreadsById,
-  ]);
+  }, [projectOrder, projectSortOrder, projects, threadIdsByProjectId, visibleThreadsById]);
 
   const threadEntriesByProjectId = useMemo(() => {
     return buildSidebarThreadEntries({
@@ -370,20 +302,7 @@ export default function Sidebar() {
         ? (paperWorkflowModeByThreadId[routeThreadId] ?? null)
         : null;
   const activePaperMode = activePaperModeId ? PAPER_WORKFLOW_MODE_BY_ID[activePaperModeId] : null;
-  const activeStageLabel = useMemo(() => {
-    const workflowMode = activeThreadStageState?.workflowMode ?? activePaperModeId ?? "open";
-    const stageOrder = workflowStageOrder(workflowMode);
-    const stageId = activeThreadStageState?.currentStageId ?? stageOrder[0];
-    if (!stageId) {
-      return "Not started";
-    }
-    const index = stageOrder.indexOf(stageId);
-    return `Stage ${index + 1} of ${stageOrder.length} · ${workflowStageDisplayName(workflowMode, stageId)}`;
-  }, [
-    activePaperModeId,
-    activeThreadStageState?.currentStageId,
-    activeThreadStageState?.workflowMode,
-  ]);
+  const activeModeDetail = activePaperMode?.description ?? "Research agent";
 
   const changeActivePaperWorkflowMode = async (mode: PaperWorkflowMode) => {
     if (!routeThreadId) return;
@@ -396,13 +315,17 @@ export default function Sidebar() {
       return;
     }
     try {
-      await dispatchCommandAndSyncSnapshot(api, {
-        type: "project.workflow.set",
-        commandId: newCommandId(),
-        threadId: routeThreadId,
-        workflowMode: mode,
-        createdAt: new Date().toISOString(),
-      }, syncServerReadModel);
+      await dispatchCommandAndSyncSnapshot(
+        api,
+        {
+          type: "project.workflow.set",
+          commandId: newCommandId(),
+          threadId: routeThreadId,
+          workflowMode: mode,
+          createdAt: new Date().toISOString(),
+        },
+        syncServerReadModel,
+      );
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -486,14 +409,9 @@ export default function Sidebar() {
     };
   }, [contextMenu]);
 
-  const commitProjectRename = async (
-    projectId: ProjectId,
-    originalName: string,
-  ) => {
+  const commitProjectRename = async (projectId: ProjectId, originalName: string) => {
     const nextTitle =
-      editing?.kind === "project" && editing.id === projectId
-        ? editing.value.trim()
-        : "";
+      editing?.kind === "project" && editing.id === projectId ? editing.value.trim() : "";
     setEditing(null);
     if (!nextTitle || nextTitle === originalName) {
       return;
@@ -505,12 +423,16 @@ export default function Sidebar() {
     }
 
     try {
-      await dispatchCommandAndSyncSnapshot(api, {
-        type: "project.meta.update",
-        commandId: newCommandId(),
-        projectId,
-        title: nextTitle,
-      }, syncServerReadModel);
+      await dispatchCommandAndSyncSnapshot(
+        api,
+        {
+          type: "project.meta.update",
+          commandId: newCommandId(),
+          projectId,
+          title: nextTitle,
+        },
+        syncServerReadModel,
+      );
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -520,14 +442,9 @@ export default function Sidebar() {
     }
   };
 
-  const commitThreadRename = async (
-    threadId: ThreadId,
-    originalTitle: string,
-  ) => {
+  const commitThreadRename = async (threadId: ThreadId, originalTitle: string) => {
     const nextTitle =
-      editing?.kind === "thread" && editing.id === threadId
-        ? editing.value.trim()
-        : "";
+      editing?.kind === "thread" && editing.id === threadId ? editing.value.trim() : "";
     setEditing(null);
     setContextMenu(null);
     if (!nextTitle || nextTitle === originalTitle) {
@@ -540,12 +457,16 @@ export default function Sidebar() {
     }
 
     try {
-      await dispatchCommandAndSyncSnapshot(api, {
-        type: "thread.meta.update",
-        commandId: newCommandId(),
-        threadId,
-        title: nextTitle,
-      }, syncServerReadModel);
+      await dispatchCommandAndSyncSnapshot(
+        api,
+        {
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId,
+          title: nextTitle,
+        },
+        syncServerReadModel,
+      );
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -581,10 +502,7 @@ export default function Sidebar() {
     }
   };
 
-  const handleMovePaper = async (
-    threadId: ThreadId,
-    projectId: ProjectId | null,
-  ) => {
+  const handleMovePaper = async (threadId: ThreadId, projectId: ProjectId | null) => {
     try {
       await movePaper(threadId, projectId);
     } catch (error) {
@@ -601,10 +519,7 @@ export default function Sidebar() {
     setDropProjectId(null);
   };
 
-  const handleThreadDragStart = (
-    event: DragEvent<HTMLDivElement>,
-    thread: SidebarThreadEntry,
-  ) => {
+  const handleThreadDragStart = (event: DragEvent<HTMLDivElement>, thread: SidebarThreadEntry) => {
     if (thread.isDraft) {
       event.preventDefault();
       return;
@@ -614,10 +529,7 @@ export default function Sidebar() {
     setDraggedThreadId(thread.id);
   };
 
-  const handleProjectDragOver = (
-    event: DragEvent<HTMLDivElement>,
-    projectId: ProjectId,
-  ) => {
+  const handleProjectDragOver = (event: DragEvent<HTMLDivElement>, projectId: ProjectId) => {
     if (!draggedThreadId) {
       return;
     }
@@ -632,10 +544,7 @@ export default function Sidebar() {
     }
   };
 
-  const handleProjectDrop = async (
-    event: DragEvent<HTMLDivElement>,
-    projectId: ProjectId,
-  ) => {
+  const handleProjectDrop = async (event: DragEvent<HTMLDivElement>, projectId: ProjectId) => {
     event.preventDefault();
     const nextThreadId = draggedThreadId;
     resetDragState();
@@ -718,9 +627,7 @@ export default function Sidebar() {
       });
     }
   };
-  const contextThread = contextMenu
-    ? visibleThreadsById.get(contextMenu.threadId)
-    : undefined;
+  const contextThread = contextMenu ? visibleThreadsById.get(contextMenu.threadId) : undefined;
   const isMacElectron = isElectron && isMacPlatform(navigator.platform);
   const isFullScreen = useDesktopFullScreen();
   // Traffic-light inset is only shown when the window has its native chrome
@@ -750,10 +657,7 @@ export default function Sidebar() {
             isElectron && "drag-region",
           )}
         >
-          <BrandMark
-            size={28}
-            wordmarkClassName="text-lg group-data-[collapsible=icon]:hidden"
-          />
+          <BrandMark size={28} wordmarkClassName="text-lg group-data-[collapsible=icon]:hidden" />
           <SidebarTrigger
             className="ml-auto size-7 shrink-0 text-sidebar-foreground/60 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground group-data-[collapsible=icon]:hidden"
             aria-label="Collapse sidebar"
@@ -800,8 +704,7 @@ export default function Sidebar() {
                   </p>
                 ) : (
                   recentThreads.map((thread) => {
-                    const isEditingThread =
-                      editing?.kind === "thread" && editing.id === thread.id;
+                    const isEditingThread = editing?.kind === "thread" && editing.id === thread.id;
                     const threadStatus = resolveStatusForThread(thread.id);
 
                     return (
@@ -810,17 +713,14 @@ export default function Sidebar() {
                         draggable={!thread.isDraft}
                         className={cn(
                           "group/thread flex items-start gap-1 rounded-md transition-colors",
-                          !thread.isDraft &&
-                            "cursor-grab active:cursor-grabbing",
+                          !thread.isDraft && "cursor-grab active:cursor-grabbing",
                           draggedThreadId === thread.id && "opacity-60",
                           routeThreadId === thread.id
                             ? "bg-sidebar-accent text-sidebar-foreground"
                             : "hover:bg-sidebar-accent/60",
                         )}
                         onDragEnd={resetDragState}
-                        onDragStart={(event) =>
-                          handleThreadDragStart(event, thread)
-                        }
+                        onDragStart={(event) => handleThreadDragStart(event, thread)}
                         onContextMenu={(event) => {
                           if (thread.isDraft) {
                             return;
@@ -850,12 +750,7 @@ export default function Sidebar() {
                                 className="w-full rounded border border-sidebar-border bg-background px-2 py-1 text-sm text-foreground outline-none"
                                 value={editing.value}
                                 onClick={(event) => event.stopPropagation()}
-                                onBlur={() =>
-                                  void commitThreadRename(
-                                    thread.id,
-                                    thread.title,
-                                  )
-                                }
+                                onBlur={() => void commitThreadRename(thread.id, thread.title)}
                                 onChange={(event) =>
                                   setEditing({
                                     kind: "thread",
@@ -888,10 +783,8 @@ export default function Sidebar() {
                                   <span className="truncate tabular-nums">
                                     {threadStatus ? `${threadStatus.label} · ` : ""}
                                     {threadStatus?.startedAt
-                                      ? (formatWorkingDuration(
-                                          threadStatus.startedAt,
-                                          nowIso,
-                                        ) ?? "0s")
+                                      ? (formatWorkingDuration(threadStatus.startedAt, nowIso) ??
+                                        "0s")
                                       : formatRelativeTimeLabel(thread.timestamp)}
                                   </span>
                                 </div>
@@ -947,44 +840,32 @@ export default function Sidebar() {
             </div>
 
             {orderedProjects.map((project) => {
-              const projectThreads =
-                threadEntriesByProjectId.get(project.id) ?? [];
+              const projectThreads = threadEntriesByProjectId.get(project.id) ?? [];
               const isExpanded = projectExpandedById[project.id] ?? true;
-              const isEditingProject =
-                editing?.kind === "project" && editing.id === project.id;
+              const isEditingProject = editing?.kind === "project" && editing.id === project.id;
 
               return (
                 <div
                   key={project.id}
                   className={cn(
                     "border-b border-sidebar-border/60 pb-2 transition-colors last:border-b-0",
-                    dropProjectId === project.id &&
-                      "rounded-md bg-sidebar-accent/40",
+                    dropProjectId === project.id && "rounded-md bg-sidebar-accent/40",
                   )}
                   onDragLeave={(event) => {
                     const nextTarget = event.relatedTarget;
-                    if (
-                      nextTarget instanceof Node &&
-                      event.currentTarget.contains(nextTarget)
-                    ) {
+                    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
                       return;
                     }
-                    setDropProjectId((current) =>
-                      current === project.id ? null : current,
-                    );
+                    setDropProjectId((current) => (current === project.id ? null : current));
                   }}
-                  onDragOver={(event) =>
-                    handleProjectDragOver(event, project.id)
-                  }
+                  onDragOver={(event) => handleProjectDragOver(event, project.id)}
                   onDrop={(event) => void handleProjectDrop(event, project.id)}
                 >
                   <div className="group/project flex items-center gap-1 px-2 py-1">
                     <button
                       type="button"
                       className="inline-flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                      onClick={() =>
-                        setProjectExpanded(project.id, !isExpanded)
-                      }
+                      onClick={() => setProjectExpanded(project.id, !isExpanded)}
                     >
                       {isExpanded ? (
                         <ChevronDownIcon className="size-4" />
@@ -1001,9 +882,7 @@ export default function Sidebar() {
                           autoFocus
                           className="w-full rounded border border-sidebar-border bg-background px-2 py-1 text-sm text-foreground outline-none"
                           value={editing.value}
-                          onBlur={() =>
-                            void commitProjectRename(project.id, project.name)
-                          }
+                          onBlur={() => void commitProjectRename(project.id, project.name)}
                           onChange={(event) =>
                             setEditing({
                               kind: "project",
@@ -1023,9 +902,7 @@ export default function Sidebar() {
                         <button
                           type="button"
                           className="w-full truncate text-left text-[15px] font-medium text-sidebar-foreground"
-                          onClick={() =>
-                            setProjectExpanded(project.id, !isExpanded)
-                          }
+                          onClick={() => setProjectExpanded(project.id, !isExpanded)}
                           title={project.name}
                         >
                           {project.name}
@@ -1072,8 +949,7 @@ export default function Sidebar() {
                       ) : (
                         projectThreads.map((thread) => {
                           const isEditingThread =
-                            editing?.kind === "thread" &&
-                            editing.id === thread.id;
+                            editing?.kind === "thread" && editing.id === thread.id;
                           const canRenameThread = !thread.isDraft;
                           const threadStatus = resolveStatusForThread(thread.id);
 
@@ -1083,17 +959,14 @@ export default function Sidebar() {
                               draggable={!thread.isDraft}
                               className={cn(
                                 "group/thread flex items-start gap-1 rounded-md transition-colors",
-                                !thread.isDraft &&
-                                  "cursor-grab active:cursor-grabbing",
+                                !thread.isDraft && "cursor-grab active:cursor-grabbing",
                                 draggedThreadId === thread.id && "opacity-60",
                                 routeThreadId === thread.id
                                   ? "bg-sidebar-accent text-sidebar-foreground"
                                   : "hover:bg-sidebar-accent/60",
                               )}
                               onDragEnd={resetDragState}
-                              onDragStart={(event) =>
-                                handleThreadDragStart(event, thread)
-                              }
+                              onDragStart={(event) => handleThreadDragStart(event, thread)}
                               onContextMenu={(event) => {
                                 if (thread.isDraft) {
                                   return;
@@ -1122,14 +995,9 @@ export default function Sidebar() {
                                       autoFocus
                                       className="w-full rounded border border-sidebar-border bg-background px-2 py-1 text-sm text-foreground outline-none"
                                       value={editing.value}
-                                      onClick={(event) =>
-                                        event.stopPropagation()
-                                      }
+                                      onClick={(event) => event.stopPropagation()}
                                       onBlur={() =>
-                                        void commitThreadRename(
-                                          thread.id,
-                                          thread.title,
-                                        )
+                                        void commitThreadRename(thread.id, thread.title)
                                       }
                                       onChange={(event) =>
                                         setEditing({
@@ -1163,17 +1031,13 @@ export default function Sidebar() {
                                       >
                                         <ThreadStatusDot status={threadStatus} />
                                         <span className="truncate tabular-nums">
-                                          {threadStatus
-                                            ? `${threadStatus.label} · `
-                                            : ""}
+                                          {threadStatus ? `${threadStatus.label} · ` : ""}
                                           {threadStatus?.startedAt
                                             ? (formatWorkingDuration(
                                                 threadStatus.startedAt,
                                                 nowIso,
                                               ) ?? "0s")
-                                            : formatRelativeTimeLabel(
-                                                thread.timestamp,
-                                              )}
+                                            : formatRelativeTimeLabel(thread.timestamp)}
                                         </span>
                                       </div>
                                     </>
@@ -1247,10 +1111,7 @@ export default function Sidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               size="sm"
-              isActive={
-                location.pathname === "/papers" ||
-                location.pathname.startsWith("/papers/")
-              }
+              isActive={location.pathname === "/papers" || location.pathname.startsWith("/papers/")}
               className="gap-2 px-2 py-2"
               tooltip="Papers"
               onClick={() => {
@@ -1295,7 +1156,7 @@ export default function Sidebar() {
           <SidebarPaperModePill
             collapsed={sidebar.state === "collapsed" && !sidebar.isMobile}
             mode={activePaperMode}
-            stageLabel={activeStageLabel}
+            detailLabel={activeModeDetail}
             onChangeMode={changeActivePaperWorkflowMode}
           />
         ) : null}
@@ -1398,15 +1259,11 @@ export default function Sidebar() {
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>New Project</DialogTitle>
-            <DialogDescription>
-              Create a project enclosure for related papers.
-            </DialogDescription>
+            <DialogDescription>Create a project enclosure for related papers.</DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4">
             <div className="space-y-2">
-              <div className="text-sm font-medium text-foreground">
-                Project name
-              </div>
+              <div className="text-sm font-medium text-foreground">Project name</div>
               <Input
                 autoFocus
                 value={createProjectDialog.name}
@@ -1437,8 +1294,7 @@ export default function Sidebar() {
             <Button
               type="button"
               disabled={
-                createProjectDialog.creating ||
-                createProjectDialog.name.trim().length === 0
+                createProjectDialog.creating || createProjectDialog.name.trim().length === 0
               }
               onClick={() => void submitCreateProject()}
             >

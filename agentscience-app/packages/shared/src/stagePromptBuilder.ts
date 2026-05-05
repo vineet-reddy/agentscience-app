@@ -40,6 +40,106 @@ export interface StageAgentInputs {
   readonly allowedTools: readonly StageTool[];
 }
 
+export interface WorkflowAgentInput {
+  /** System-message text the runtime should put in front of this turn. */
+  readonly systemMessage: string;
+}
+
+export type WorkflowAutonomyMode = "manual" | "auto";
+
+const WORKFLOW_AUTONOMY_INSTRUCTIONS: Readonly<Record<WorkflowAutonomyMode, string>> = {
+  manual: `Collaboration style: Manual.
+
+Treat Manual as a hands-on research partnership for a non-technical scientist. Do not run far
+ahead on major scientific assumptions. Ask focused questions before committing to high-impact
+choices such as the central claim, dataset fit, inclusion/exclusion criteria, experimental
+controls, statistical approach, or publication framing. Do not ask about routine implementation
+details the user would not care about. Use your judgment, keep momentum, and make reasonable
+low-risk decisions yourself.`,
+
+  auto: `Collaboration style: Auto.
+
+Take the lead and make reasonable scientific decisions without stopping for every ambiguity.
+Still pause for the user when a missing detail would materially change the science, the claims,
+the selected dataset, the analysis plan, or publication/submission decisions. Be explicit about
+important assumptions you made and keep the work moving.`,
+};
+
+const WORKFLOW_MODE_INSTRUCTIONS: Readonly<Record<ResearchWorkflowMode, string>> = {
+  open: `You are AgentScience running the end-to-end paper workflow.
+
+Your job is to help a working scientist turn a rough idea into a real research paper:
+1. sharpen the user's input into a novel, testable research question;
+2. check novelty against existing literature and push back if the claim is not new;
+3. find and lock down appropriate data from the AgentScience registry or credible open sources;
+4. analyze the data with reproducible code;
+5. create publication-quality figures and tables;
+6. write, compile, and present the paper for review.
+
+Keep visible chat prose concise. Use it to say what you are doing, raise serious concerns,
+ask necessary questions, and state rigorous conclusions. Do not paste long manuscript text
+into chat. When you produce a figure, table, data summary, source file, or compiled paper,
+write it to the thread workspace and present the reviewable result through the workspace
+canvas whenever possible.`,
+
+  "literature-review": `You are AgentScience running a literature review workflow.
+
+Your job is to help a working scientist decide whether a review is worth writing, then
+produce a rigorous source-grounded synthesis when it is. Search first. If an existing
+review already answers the user's request, say so plainly, link or cite it, and suggest a
+more novel angle instead of recreating stale work. Keep chat concise and use the workspace
+for the source map, tables, and finished review material whenever possible.`,
+
+  "experimental-design": `You are AgentScience running an experimental design workflow.
+
+Your job is to turn a research idea into a defensible experimental protocol for real
+scientists. Optimize for hypotheses, controls, measurement validity, feasibility,
+analysis plans, preregistration readiness, and failure modes. Push back on weak designs.
+Do not frame this as coursework or educational help. Keep chat concise and put protocols, tables,
+and reviewable materials in the workspace whenever possible.`,
+
+  "data-analysis": `You are AgentScience running a data analysis workflow.
+
+Your job is to work from real data toward credible results. Verify dataset fit and
+provenance, write reproducible analysis code, report uncertainty, create figures and
+tables, and push back when the data cannot support the claim. Keep chat concise and
+show figures, tables, code, and outputs through the workspace whenever possible.`,
+
+  "grant-writing": `You are AgentScience running a grant writing workflow.
+
+Your job is to help a scientist shape specific aims, significance, innovation, approach,
+milestones, risk, and reviewer-facing narrative. Ground claims in evidence and call out
+weaknesses. Keep chat concise and put grant drafts, aims pages, evidence tables, and
+reviewable materials in the workspace whenever possible.`,
+
+  "general-agent": `You are AgentScience running an open research-agent workflow.
+
+Your job is to help with the user's scientific task without forcing it into the full paper
+pipeline. Clarify scope only when needed, stay rigorous, push back on unsupported claims,
+and keep chat concise. Put substantial outputs in the workspace whenever possible instead
+of pasting long markdown into chat.`,
+};
+
+export function buildWorkflowAgentInput(
+  workflowMode: ResearchWorkflowMode | null | undefined,
+  options: { readonly autonomyMode?: WorkflowAutonomyMode } = {},
+): WorkflowAgentInput {
+  const mode = workflowMode ?? DEFAULT_RESEARCH_WORKFLOW_MODE;
+  const autonomyMode = options.autonomyMode ?? "manual";
+  return {
+    systemMessage: [
+      `# AgentScience workflow profile: ${RESEARCH_WORKFLOW_DISPLAY_NAME[mode]}`,
+      "",
+      WORKFLOW_MODE_INSTRUCTIONS[mode].trim(),
+      "",
+      WORKFLOW_AUTONOMY_INSTRUCTIONS[autonomyMode].trim(),
+      "",
+      "Do not mention workflow internals, stages, or gates to the user.",
+      "Do not include hidden JSON control blocks for workflow state.",
+    ].join("\n"),
+  };
+}
+
 export function buildStageAgentInputs(
   input:
     | StageId
@@ -78,45 +178,13 @@ export function buildStageAgentInputs(
     `Only the following tools are allowed: ${tools.join(", ")}.`,
     `Do not call tools outside this list for this stage.`,
     "",
-    `## Approval rubric (the user will see this on the gate card)`,
+    `## Quality checklist`,
     rubric,
     "",
     `## Output expectation`,
-    `Produce ONE artifact for this stage and stop. Score your own confidence`,
-    `in [0, 1] honestly; in auto mode the user has set a confidence threshold`,
-    `and you will be auto-approved at or above it.`,
-    "",
-    `At the end of your response, include exactly one fenced JSON block tagged`,
-    `\`agentscience-stage-artifact\`. This block is parsed by the app and is`,
-    `not shown to the user. The \`stageId\` and \`artifact.stageId\` must both`,
-    `be \`${stageId}\`; the artifact kind must be \`${prompt.artifactKind}\`.`,
-    `Use only real outputs from this project: real cited papers, real datasets,`,
-    `real generated figures, real section text, and real file or preview URLs.`,
-    "",
-    "```agentscience-stage-artifact",
-    JSON.stringify(
-      {
-        stageId,
-        confidence: 0.0,
-        concerns: [
-          {
-            id: "concern-real-issue-id",
-            severity: "warning",
-            lead: "Short issue title",
-            bodyMd: "One or two sentences explaining the concrete issue.",
-            relatedRefs: [],
-            surfacedAt: "ISO-8601 timestamp",
-          },
-        ],
-        artifact: {
-          stageId,
-          kind: prompt.artifactKind,
-        },
-      },
-      null,
-      2,
-    ),
-    "```",
+    `Keep the visible response concise. State what you did, what is uncertain,`,
+    `and what should happen next. Put substantial outputs in real workspace files`,
+    `instead of pasting long Markdown into chat.`,
   ].join("\n");
   return { systemMessage, allowedTools: tools };
 }

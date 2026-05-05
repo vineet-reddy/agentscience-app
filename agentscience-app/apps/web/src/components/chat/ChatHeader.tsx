@@ -1,10 +1,4 @@
-import {
-  type EditorId,
-  type ProjectScript,
-  type ProjectStageState,
-  type StageId,
-  type ThreadId,
-} from "@agentscience/contracts";
+import { type EditorId, type ProjectScript, type ThreadId } from "@agentscience/contracts";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { BookOpenTextIcon, DiffIcon, TerminalSquareIcon } from "lucide-react";
@@ -15,7 +9,6 @@ import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { SidebarReopenTrigger } from "../SidebarReopenTrigger";
 import { OpenInPicker } from "./OpenInPicker";
-import { StageBreadcrumb } from "../stages/StepperBar";
 
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
@@ -34,8 +27,7 @@ interface ChatHeaderProps {
   diffOpen: boolean;
   paperReviewAvailable: boolean;
   paperReviewOpen: boolean;
-  stageState?: ProjectStageState | null | undefined;
-  focusedStageId?: StageId | undefined;
+  activeWorkStatusLabel?: string | null;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -43,7 +35,6 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onTogglePaperReview: () => void;
-  onFocusStage?: ((stageId: StageId) => void) | undefined;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -63,8 +54,7 @@ export const ChatHeader = memo(function ChatHeader({
   diffOpen,
   paperReviewAvailable,
   paperReviewOpen,
-  stageState,
-  focusedStageId,
+  activeWorkStatusLabel,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -72,7 +62,6 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
   onTogglePaperReview,
-  onFocusStage,
 }: ChatHeaderProps) {
   return (
     <div className="@container/header-actions flex min-w-0 flex-1 items-center gap-2">
@@ -90,13 +79,19 @@ export const ChatHeader = memo(function ChatHeader({
             <span className="min-w-0 truncate">{activeProjectName}</span>
           </Badge>
         )}
-        {stageState && onFocusStage ? (
-          <StageBreadcrumb
-            className="ml-1 hidden flex-1 @2xl/header-actions:flex"
-            state={stageState}
-            focusedStageId={focusedStageId}
-            onFocusStage={onFocusStage}
-          />
+        {activeWorkStatusLabel ? (
+          <div
+            className="ml-auto hidden shrink-0 items-center gap-1.5 pr-1 text-[0.8125rem] text-ink-light @2xl/header-actions:flex"
+            role="status"
+            aria-live="polite"
+          >
+            <span>{activeWorkStatusLabel}</span>
+            <span className="inline-flex w-4 justify-start" aria-hidden>
+              <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+              <span className="animate-[pulse_1s_ease-in-out_infinite_150ms]">.</span>
+              <span className="animate-[pulse_1s_ease-in-out_infinite_300ms]">.</span>
+            </span>
+          </div>
         ) : null}
         {/* {activeProjectName && !isGitRepo && (
           <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
@@ -116,10 +111,7 @@ export const ChatHeader = memo(function ChatHeader({
           />
         )} */}
         {activeProjectName && (
-          <OpenInPicker
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
+          <OpenInPicker availableEditors={availableEditors} openInCwd={openInCwd} />
         )}
         {/* {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />} */}
         {terminalAvailable && (

@@ -55,7 +55,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
           <MenuRadioItem value="plan">Outline</MenuRadioItem>
         </MenuRadioGroup>
         <MenuDivider />
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Actions</div>
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Pace</div>
         <MenuRadioGroup
           value={props.runtimeMode}
           onValueChange={(value) => {
@@ -63,7 +63,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             props.onToggleRuntimeMode();
           }}
         >
-          <MenuRadioItem value="approval-required">Ask first</MenuRadioItem>
+          <MenuRadioItem value="approval-required">Manual</MenuRadioItem>
           <MenuRadioItem value="full-access">Auto</MenuRadioItem>
         </MenuRadioGroup>
         {props.activePlan ? (

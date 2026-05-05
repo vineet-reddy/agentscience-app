@@ -13,7 +13,7 @@ import {
 } from "@agentscience/contracts";
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@agentscience/shared/DrainableWorker";
-import { buildStageAgentInputs } from "@agentscience/shared/stagePromptBuilder";
+import { buildWorkflowAgentInput } from "@agentscience/shared/stagePromptBuilder";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -81,7 +81,7 @@ const serverCommandId = (tag: string): CommandId =>
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
-const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
 const WORKTREE_BRANCH_PREFIX = "agentscience";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 const DEFAULT_THREAD_TITLE = "New thread";
@@ -426,12 +426,14 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const stageInstructions =
-      thread.stageState != null ? buildStageAgentInputs(thread.stageState) : null;
-    const providerMessageText =
-      stageInstructions !== null
-        ? [stageInstructions.systemMessage, "## User request", input.messageText].join("\n\n")
-        : input.messageText;
+    const workflowInstructions = buildWorkflowAgentInput(thread.stageState?.workflowMode, {
+      autonomyMode: thread.runtimeMode === "full-access" ? "auto" : "manual",
+    });
+    const providerMessageText = [
+      workflowInstructions.systemMessage,
+      "## User request",
+      input.messageText,
+    ].join("\n\n");
     const normalizedInput = toNonEmptyProviderInput(providerMessageText);
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService

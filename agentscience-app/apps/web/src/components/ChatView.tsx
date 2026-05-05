@@ -1,13 +1,13 @@
 import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
   type ProjectEntry,
   type ProjectId,
-  type ProjectMode,
   type ProviderApprovalDecision,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -17,7 +17,6 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
-  type StageId,
   TerminalOpenInput,
 } from "@agentscience/contracts";
 import { normalizeModelSlug } from "@agentscience/shared/model";
@@ -214,10 +213,6 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useServerAvailableEditors, useServerConfig } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 
-import { ModeToggle } from "./stages/StepperBar";
-import { StageRail } from "./stages/StageRail";
-import { useThreadStageState } from "../stages/stageStore";
-
 const PlanSidebar = lazy(() => import("./PlanSidebar"));
 const ThreadTerminalDrawer = lazy(() => import("./ThreadTerminalDrawer"));
 const PullRequestThreadDialog = lazy(() =>
@@ -238,6 +233,52 @@ const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
+
+function derivePaperWorkStatusLabel(entries: ReturnType<typeof deriveWorkLogEntries>): string {
+  const latest = entries.at(-1);
+  const text = [
+    latest?.label,
+    latest?.toolTitle,
+    latest?.detail,
+    latest?.command,
+    latest?.rawCommand,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (text.includes("figure") || text.includes("plot") || text.includes("chart")) {
+    return "Creating figures";
+  }
+  if (
+    text.includes("python") ||
+    text.includes("analysis") ||
+    text.includes("statistic") ||
+    text.includes("model")
+  ) {
+    return "Analyzing data";
+  }
+  if (text.includes("dataset") || text.includes("registry") || text.includes("data")) {
+    return "Finding data";
+  }
+  if (
+    text.includes("search") ||
+    text.includes("literature") ||
+    text.includes("paper") ||
+    text.includes("citation")
+  ) {
+    return "Checking novelty";
+  }
+  if (
+    text.includes("latex") ||
+    text.includes("pdf") ||
+    text.includes("manuscript") ||
+    text.includes("compile")
+  ) {
+    return "Writing paper";
+  }
+  return "Working";
+}
 
 const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
 const MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES = 512 * 1024;
@@ -909,30 +950,17 @@ export default function ChatView({
         ? buildLocalDraftThread(
             threadId,
             draftThread,
-            fallbackDraftProject?.defaultModelSelection ?? {
-              provider: "codex",
-              model: DEFAULT_MODEL_BY_PROVIDER.codex,
-            },
+            fallbackDraftProject?.defaultModelSelection ?? DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
             localDraftError,
           )
         : undefined,
     [draftThread, fallbackDraftProject?.defaultModelSelection, localDraftError, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
-  const stageState = useThreadStageState(activeThread?.id ?? null);
   const draftWorkflowMode = useUiStateStore((store) => {
     if (draftThread?.kind !== "agent") return "open";
     return store.paperWorkflowModeByThreadId[threadId] ?? "general-agent";
   });
-  const [focusedStageId, setFocusedStageId] = useState<StageId | null>(null);
-  // When the project advances, follow the new current stage.
-  useEffect(() => {
-    if (!stageState) {
-      if (focusedStageId !== null) setFocusedStageId(null);
-      return;
-    }
-    setFocusedStageId(stageState.currentStageId);
-  }, [stageState?.currentStageId]); // eslint-disable-line react-hooks/exhaustive-deps
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -1222,6 +1250,11 @@ export default function ChatView({
     threadError: activeThread?.error,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const activeWorkflowMode =
+    activeThread?.stageState?.workflowMode ??
+    (draftThread?.kind === "agent" ? draftWorkflowMode : "open");
+  const activeWorkStatusLabel =
+    isWorking && activeWorkflowMode === "open" ? derivePaperWorkStatusLabel(workLogEntries) : null;
   const nowIso = new Date(nowTick).toISOString();
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
@@ -1755,119 +1788,6 @@ export default function ChatView({
     [setStoreThreadError],
   );
 
-  const dispatchStageCommand = useCallback(
-    async (
-      command:
-        | {
-            type: "project.mode.set";
-            mode: ProjectMode;
-          }
-        | {
-            type: "stage.approve";
-            stageId: StageId;
-            auto: boolean;
-          }
-        | {
-            type: "stage.revise";
-            stageId: StageId;
-            instructionsMd: string;
-          }
-        | {
-            type: "stage.discuss";
-            stageId: StageId;
-          }
-        | {
-            type: "stage.skip";
-            stageId: StageId;
-          }
-        | {
-            type: "project.recompute";
-            stageIds: readonly StageId[];
-          },
-    ) => {
-      const api = readNativeApi();
-      if (!api || !activeThread?.id) return;
-      const createdAt = new Date().toISOString();
-      const threadId = activeThread.id;
-      try {
-        if (command.type === "project.mode.set") {
-          await api.orchestration.dispatchCommand({
-            type: "project.mode.set",
-            commandId: newCommandId(),
-            threadId,
-            mode: command.mode,
-            createdAt,
-          });
-          return;
-        }
-        if (command.type === "stage.approve") {
-          await api.orchestration.dispatchCommand({
-            type: "stage.approve",
-            commandId: newCommandId(),
-            threadId,
-            stageId: command.stageId,
-            auto: command.auto,
-            createdAt,
-          });
-          return;
-        }
-        if (command.type === "stage.revise") {
-          await api.orchestration.dispatchCommand({
-            type: "stage.revise",
-            commandId: newCommandId(),
-            threadId,
-            stageId: command.stageId,
-            instructionsMd: command.instructionsMd,
-            createdAt,
-          });
-          return;
-        }
-        if (command.type === "stage.discuss") {
-          await api.orchestration.dispatchCommand({
-            type: "stage.discuss",
-            commandId: newCommandId(),
-            threadId,
-            stageId: command.stageId,
-            messageId: newMessageId(),
-            createdAt,
-          });
-          return;
-        }
-        if (command.type === "stage.skip") {
-          await api.orchestration.dispatchCommand({
-            type: "stage.skip",
-            commandId: newCommandId(),
-            threadId,
-            stageId: command.stageId,
-            createdAt,
-          });
-          return;
-        }
-        if (command.stageIds.length === 0) return;
-        await api.orchestration.dispatchCommand({
-          type: "project.recompute",
-          commandId: newCommandId(),
-          threadId,
-          stageIds: [...command.stageIds],
-          createdAt,
-        });
-      } catch (error) {
-        setThreadError(
-          threadId,
-          error instanceof Error ? error.message : "Failed to update the stage workflow.",
-        );
-      }
-    },
-    [activeThread?.id, setThreadError],
-  );
-  const setStageMode = useCallback(
-    (threadId: ThreadId, mode: ProjectMode) => {
-      if (threadId !== activeThread?.id) return;
-      void dispatchStageCommand({ type: "project.mode.set", mode });
-    },
-    [activeThread?.id, dispatchStageCommand],
-  );
-
   const focusComposer = useCallback(() => {
     composerEditorRef.current?.focusAtEnd();
   }, []);
@@ -1889,7 +1809,13 @@ export default function ChatView({
     if (composerFocusTargetThreadId !== threadId) return;
     scheduleComposerFocus();
     consumeComposerFocus();
-  }, [composerFocusToken, composerFocusTargetThreadId, threadId, scheduleComposerFocus, consumeComposerFocus]);
+  }, [
+    composerFocusToken,
+    composerFocusTargetThreadId,
+    threadId,
+    scheduleComposerFocus,
+    consumeComposerFocus,
+  ]);
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
       if (!activeThread) {
@@ -3310,8 +3236,7 @@ export default function ChatView({
                       modelSelection: threadCreateModelSelection,
                       runtimeMode,
                       interactionMode,
-                      workflowMode:
-                        draftThread?.kind === "agent" ? draftWorkflowMode : "open",
+                      workflowMode: draftThread?.kind === "agent" ? draftWorkflowMode : "open",
                       branch: activeThread.branch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
@@ -4282,8 +4207,7 @@ export default function ChatView({
           diffOpen={diffOpen}
           paperReviewAvailable={paperReviewAvailable}
           paperReviewOpen={paperReviewOpen}
-          stageState={stageState}
-          focusedStageId={focusedStageId ?? undefined}
+          activeWorkStatusLabel={activeWorkStatusLabel}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -4293,7 +4217,6 @@ export default function ChatView({
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
           onTogglePaperReview={onTogglePaperReview ?? (() => undefined)}
-          onFocusStage={(stageId) => setFocusedStageId(stageId)}
         />
       </header>
 
@@ -4349,44 +4272,6 @@ export default function ChatView({
                 timestampFormat={timestampFormat}
                 workspaceRoot={activeWorkspaceRoot}
               />
-              {stageState && (
-                <StageRail
-                  threadId={activeThread.id}
-                  state={stageState}
-                  onApproveStage={(stageId) =>
-                    void dispatchStageCommand({
-                      type: "stage.approve",
-                      stageId,
-                      auto: false,
-                    })
-                  }
-                  onReviseStage={(stageId, instructionsMd) =>
-                    void dispatchStageCommand({
-                      type: "stage.revise",
-                      stageId,
-                      instructionsMd,
-                    })
-                  }
-                  onDiscussStage={(stageId) =>
-                    void dispatchStageCommand({
-                      type: "stage.discuss",
-                      stageId,
-                    })
-                  }
-                  onSkipStage={(stageId) =>
-                    void dispatchStageCommand({
-                      type: "stage.skip",
-                      stageId,
-                    })
-                  }
-                  onRecomputeStages={(stageIds) =>
-                    void dispatchStageCommand({
-                      type: "project.recompute",
-                      stageIds,
-                    })
-                  }
-                />
-              )}
             </div>
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
@@ -4613,10 +4498,7 @@ export default function ChatView({
                           <PlusIcon />
                         </Button>
 
-                        <Separator
-                          orientation="vertical"
-                          className="mx-0.5 hidden h-4 sm:block"
-                        />
+                        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
 
                         {/* Provider/model picker */}
                         <ProviderModelPicker
@@ -4665,22 +4547,6 @@ export default function ChatView({
                               className="mx-0.5 hidden h-4 sm:block"
                             />
 
-                            {stageState ? (
-                              <>
-                                <ModeToggle
-                                  className="shrink-0 bg-background"
-                                  mode={stageState.mode}
-                                  onChangeMode={(mode) => setStageMode(activeThread.id, mode)}
-                                  size="compact"
-                                />
-
-                                <Separator
-                                  orientation="vertical"
-                                  className="mx-0.5 hidden h-4 sm:block"
-                                />
-                              </>
-                            ) : null}
-
                             <Button
                               variant="ghost"
                               className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
@@ -4718,13 +4584,13 @@ export default function ChatView({
                               }
                               title={
                                 runtimeMode === "full-access"
-                                  ? "Auto — the agent runs actions on its own. Click to have it ask first."
-                                  : "Ask first — the agent checks with you before each action. Click to let it run on its own."
+                                  ? "Auto — the agent takes the lead and only stops for major scientific decisions. Click to switch to Manual."
+                                  : "Manual — the agent works more hands-on with you before major assumptions. Click to switch to Auto."
                               }
                             >
                               {runtimeMode === "full-access" ? <ZapIcon /> : <HandIcon />}
                               <span className="sr-only sm:not-sr-only">
-                                {runtimeMode === "full-access" ? "Auto" : "Ask first"}
+                                {runtimeMode === "full-access" ? "Auto" : "Manual"}
                               </span>
                             </Button>
 
