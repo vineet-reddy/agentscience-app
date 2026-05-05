@@ -2,11 +2,13 @@ import {
   CODEX_REASONING_EFFORT_OPTIONS,
   type CodexReasoningEffort,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_RESEARCH_DEPTH,
   ModelSelection,
   ProjectId,
   ProviderInteractionMode,
   ProviderKind,
   ProviderModelOptions,
+  ResearchDepth,
   RuntimeMode,
   type ServerProvider,
   ThreadId,
@@ -119,9 +121,13 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
+  standardModelSelectionBeforeMaxByProvider: Schema.optionalKey(
+    Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
+  ),
   activeProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  researchDepth: Schema.optionalKey(ResearchDepth),
 });
 type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
 
@@ -200,9 +206,11 @@ export interface ComposerThreadDraftState {
   persistedAttachments: PersistedComposerImageAttachment[];
   terminalContexts: TerminalContextDraft[];
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
+  standardModelSelectionBeforeMaxByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
   interactionMode: ProviderInteractionMode | null;
+  researchDepth: ResearchDepth | null;
 }
 
 export interface DraftThreadState {
@@ -257,6 +265,7 @@ interface ComposerDraftStoreState {
   clearProjectDraftThreadId: (projectId: ProjectId | null) => void;
   clearProjectDraftThreadById: (projectId: ProjectId | null, threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
+  clearPromotedDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
   setTerminalContexts: (threadId: ThreadId, contexts: TerminalContextDraft[]) => void;
@@ -267,6 +276,11 @@ interface ComposerDraftStoreState {
   setModelOptions: (
     threadId: ThreadId,
     modelOptions: ProviderModelOptions | null | undefined,
+  ) => void;
+  setStandardModelSelectionBeforeMax: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+    modelSelection: ModelSelection | null | undefined,
   ) => void;
   applyStickyState: (threadId: ThreadId) => void;
   setProviderModelOptions: (
@@ -281,6 +295,11 @@ interface ComposerDraftStoreState {
   setInteractionMode: (
     threadId: ThreadId,
     interactionMode: ProviderInteractionMode | null | undefined,
+  ) => void;
+  setResearchDepth: (
+    threadId: ThreadId,
+    researchDepth: ResearchDepth | null | undefined,
+    options?: { persistSticky?: boolean },
   ) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
@@ -358,9 +377,11 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
+  standardModelSelectionBeforeMaxByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,
   runtimeMode: null,
   interactionMode: null,
+  researchDepth: null,
 });
 
 function createEmptyThreadDraft(): ComposerThreadDraftState {
@@ -371,9 +392,11 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
     persistedAttachments: [],
     terminalContexts: [],
     modelSelectionByProvider: {},
+    standardModelSelectionBeforeMaxByProvider: {},
     activeProvider: null,
     runtimeMode: null,
     interactionMode: null,
+    researchDepth: null,
   };
 }
 
@@ -441,10 +464,30 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.persistedAttachments.length === 0 &&
     draft.terminalContexts.length === 0 &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
+    Object.keys(draft.standardModelSelectionBeforeMaxByProvider).length === 0 &&
     draft.activeProvider === null &&
     draft.runtimeMode === null &&
-    draft.interactionMode === null
+    draft.interactionMode === null &&
+    draft.researchDepth === null
   );
+}
+
+function promotedComposerSettingsDraft(
+  draft: ComposerThreadDraftState | undefined,
+): ComposerThreadDraftState | null {
+  if (!draft) {
+    return null;
+  }
+  const settingsDraft: ComposerThreadDraftState = {
+    ...createEmptyThreadDraft(),
+    modelSelectionByProvider: draft.modelSelectionByProvider,
+    standardModelSelectionBeforeMaxByProvider: draft.standardModelSelectionBeforeMaxByProvider,
+    activeProvider: draft.activeProvider,
+    runtimeMode: draft.runtimeMode,
+    interactionMode: draft.interactionMode,
+    researchDepth: draft.researchDepth,
+  };
+  return shouldRemoveDraft(settingsDraft) ? null : settingsDraft;
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
@@ -892,6 +935,10 @@ function normalizePersistedDraftsByThreadId(
       draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
         ? draftCandidate.interactionMode
         : null;
+    const researchDepth =
+      draftCandidate.researchDepth === "max" || draftCandidate.researchDepth === "standard"
+        ? draftCandidate.researchDepth
+        : null;
     const prompt = ensureInlineTerminalContextPlaceholders(
       promptCandidate,
       terminalContexts.length,
@@ -899,6 +946,8 @@ function normalizePersistedDraftsByThreadId(
     // If the draft already has the v3 shape, use it directly
     const legacyDraftCandidate = draftValue as LegacyPersistedComposerThreadDraftState;
     let modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> = {};
+    let standardModelSelectionBeforeMaxByProvider: Partial<Record<ProviderKind, ModelSelection>> =
+      {};
     let activeProvider: ProviderKind | null = null;
 
     if (
@@ -909,6 +958,13 @@ function normalizePersistedDraftsByThreadId(
       modelSelectionByProvider = draftCandidate.modelSelectionByProvider as Partial<
         Record<ProviderKind, ModelSelection>
       >;
+      standardModelSelectionBeforeMaxByProvider =
+        draftCandidate.standardModelSelectionBeforeMaxByProvider &&
+        typeof draftCandidate.standardModelSelectionBeforeMaxByProvider === "object"
+          ? (draftCandidate.standardModelSelectionBeforeMaxByProvider as Partial<
+              Record<ProviderKind, ModelSelection>
+            >)
+          : {};
       activeProvider = normalizeProviderKind(draftCandidate.activeProvider);
     } else {
       // v2 or legacy format: migrate
@@ -943,14 +999,17 @@ function normalizePersistedDraftsByThreadId(
     }
 
     const hasModelData =
-      Object.keys(modelSelectionByProvider).length > 0 || activeProvider !== null;
+      Object.keys(modelSelectionByProvider).length > 0 ||
+      Object.keys(standardModelSelectionBeforeMaxByProvider).length > 0 ||
+      activeProvider !== null;
     if (
       promptCandidate.length === 0 &&
       attachments.length === 0 &&
       terminalContexts.length === 0 &&
       !hasModelData &&
       !runtimeMode &&
-      !interactionMode
+      !interactionMode &&
+      !researchDepth
     ) {
       continue;
     }
@@ -959,8 +1018,12 @@ function normalizePersistedDraftsByThreadId(
       attachments,
       ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
+      ...(Object.keys(standardModelSelectionBeforeMaxByProvider).length > 0
+        ? { standardModelSelectionBeforeMaxByProvider }
+        : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
       ...(interactionMode ? { interactionMode } : {}),
+      ...(researchDepth ? { researchDepth } : {}),
     };
   }
 
@@ -1022,14 +1085,17 @@ function partializeComposerDraftStoreState(
       continue;
     }
     const hasModelData =
-      Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
+      Object.keys(draft.modelSelectionByProvider).length > 0 ||
+      Object.keys(draft.standardModelSelectionBeforeMaxByProvider).length > 0 ||
+      draft.activeProvider !== null;
     if (
       draft.prompt.length === 0 &&
       draft.persistedAttachments.length === 0 &&
       draft.terminalContexts.length === 0 &&
       !hasModelData &&
       draft.runtimeMode === null &&
-      draft.interactionMode === null
+      draft.interactionMode === null &&
+      draft.researchDepth === null
     ) {
       continue;
     }
@@ -1055,8 +1121,15 @@ function partializeComposerDraftStoreState(
             activeProvider: draft.activeProvider,
           }
         : {}),
+      ...(Object.keys(draft.standardModelSelectionBeforeMaxByProvider).length > 0
+        ? {
+            standardModelSelectionBeforeMaxByProvider:
+              draft.standardModelSelectionBeforeMaxByProvider,
+          }
+        : {}),
       ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
       ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
+      ...(draft.researchDepth ? { researchDepth: draft.researchDepth } : {}),
     };
     persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
   }
@@ -1256,6 +1329,8 @@ function toHydratedThreadDraft(
   // The persisted draft is already in v3 shape (migration handles older formats)
   const modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> =
     persistedDraft.modelSelectionByProvider ?? {};
+  const standardModelSelectionBeforeMaxByProvider: Partial<Record<ProviderKind, ModelSelection>> =
+    persistedDraft.standardModelSelectionBeforeMaxByProvider ?? {};
   const activeProvider = normalizeProviderKind(persistedDraft.activeProvider) ?? null;
 
   return {
@@ -1269,9 +1344,11 @@ function toHydratedThreadDraft(
         text: "",
       })) ?? [],
     modelSelectionByProvider,
+    standardModelSelectionBeforeMaxByProvider,
     activeProvider,
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
+    researchDepth: persistedDraft.researchDepth ?? null,
   };
 }
 
@@ -1543,6 +1620,45 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           };
         });
       },
+      clearPromotedDraftThread: (threadId) => {
+        if (threadId.length === 0) {
+          return;
+        }
+        const existing = get().draftsByThreadId[threadId];
+        if (existing) {
+          for (const image of existing.images) {
+            revokeObjectPreviewUrl(image.previewUrl);
+          }
+        }
+        set((state) => {
+          const hasDraftThread = state.draftThreadsByThreadId[threadId] !== undefined;
+          const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
+            threadId,
+          );
+          if (!hasDraftThread && !hasProjectMapping) {
+            return state;
+          }
+          const preservedDraft = promotedComposerSettingsDraft(state.draftsByThreadId[threadId]);
+          const nextProjectDraftThreadIdByProjectId = Object.fromEntries(
+            Object.entries(state.projectDraftThreadIdByProjectId).filter(
+              ([, draftThreadId]) => draftThreadId !== threadId,
+            ),
+          ) as Record<ProjectId, ThreadId>;
+          const { [threadId]: _removedDraftThread, ...restDraftThreadsByThreadId } =
+            state.draftThreadsByThreadId;
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (preservedDraft) {
+            nextDraftsByThreadId[threadId] = preservedDraft;
+          } else {
+            delete nextDraftsByThreadId[threadId];
+          }
+          return {
+            draftsByThreadId: nextDraftsByThreadId,
+            draftThreadsByThreadId: restDraftThreadsByThreadId,
+            projectDraftThreadIdByProjectId: nextProjectDraftThreadIdByProjectId,
+          };
+        });
+      },
       setStickyModelSelection: (modelSelection) => {
         const normalized = normalizeModelSelection(modelSelection);
         set((state) => {
@@ -1741,6 +1857,43 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return { draftsByThreadId: nextDraftsByThreadId };
         });
       },
+      setStandardModelSelectionBeforeMax: (threadId, provider, modelSelection) => {
+        if (threadId.length === 0) {
+          return;
+        }
+        const normalizedProvider = normalizeProviderKind(provider);
+        if (normalizedProvider === null) {
+          return;
+        }
+        const normalized = normalizeModelSelection(modelSelection);
+        set((state) => {
+          const existing = state.draftsByThreadId[threadId];
+          if (!existing && normalized === null) {
+            return state;
+          }
+          const base = existing ?? createEmptyThreadDraft();
+          const nextMap = { ...base.standardModelSelectionBeforeMaxByProvider };
+          if (normalized?.provider === normalizedProvider) {
+            nextMap[normalizedProvider] = normalized;
+          } else {
+            delete nextMap[normalizedProvider];
+          }
+          if (Equal.equals(base.standardModelSelectionBeforeMaxByProvider, nextMap)) {
+            return state;
+          }
+          const nextDraft: ComposerThreadDraftState = {
+            ...base,
+            standardModelSelectionBeforeMaxByProvider: nextMap,
+          };
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (shouldRemoveDraft(nextDraft)) {
+            delete nextDraftsByThreadId[threadId];
+          } else {
+            nextDraftsByThreadId[threadId] = nextDraft;
+          }
+          return { draftsByThreadId: nextDraftsByThreadId };
+        });
+      },
       setProviderModelOptions: (threadId, provider, nextProviderOptions, options) => {
         if (threadId.length === 0) {
           return;
@@ -1875,6 +2028,37 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           const nextDraft: ComposerThreadDraftState = {
             ...base,
             interactionMode: nextInteractionMode,
+          };
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (shouldRemoveDraft(nextDraft)) {
+            delete nextDraftsByThreadId[threadId];
+          } else {
+            nextDraftsByThreadId[threadId] = nextDraft;
+          }
+          return { draftsByThreadId: nextDraftsByThreadId };
+        });
+      },
+      setResearchDepth: (threadId, researchDepth, options) => {
+        if (threadId.length === 0) {
+          return;
+        }
+        const nextResearchDepth =
+          researchDepth === "max" || researchDepth === "standard" ? researchDepth : null;
+        set((state) => {
+          const existing = state.draftsByThreadId[threadId];
+          if (!existing && nextResearchDepth === null) {
+            return state;
+          }
+          const base = existing ?? createEmptyThreadDraft();
+          if (base.researchDepth === nextResearchDepth) {
+            return state;
+          }
+          const nextDraft: ComposerThreadDraftState = {
+            ...base,
+            researchDepth:
+              options?.persistSticky === true && nextResearchDepth === DEFAULT_RESEARCH_DEPTH
+                ? null
+                : nextResearchDepth,
           };
           const nextDraftsByThreadId = { ...state.draftsByThreadId };
           if (shouldRemoveDraft(nextDraft)) {
@@ -2237,7 +2421,7 @@ export function clearPromotedDraftThread(threadId: ThreadId): void {
   if (!useComposerDraftStore.getState().getDraftThread(threadId)) {
     return;
   }
-  useComposerDraftStore.getState().clearDraftThread(threadId);
+  useComposerDraftStore.getState().clearPromotedDraftThread(threadId);
 }
 
 export function clearPromotedDraftThreads(serverThreadIds: Iterable<ThreadId>): void {

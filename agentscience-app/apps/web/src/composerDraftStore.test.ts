@@ -471,6 +471,74 @@ describe("composerDraftStore terminal contexts", () => {
     expect(mergedState.draftThreadsByThreadId).toEqual({});
     expect(mergedState.projectDraftThreadIdByProjectId).toEqual({});
   });
+
+  it("persists max research depth as a draft-level setting", () => {
+    const threadId = ThreadId.makeUnsafe("thread-depth");
+    useComposerDraftStore.getState().setResearchDepth(threadId, "max");
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.researchDepth).toBe("max");
+
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+    const persisted = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
+      draftsByThreadId?: Record<string, { researchDepth?: string }>;
+    };
+    expect(persisted.draftsByThreadId?.[threadId]?.researchDepth).toBe("max");
+
+    const merged = persistApi
+      .getOptions()
+      .merge(persisted, useComposerDraftStore.getInitialState());
+    expect(merged.draftsByThreadId[threadId]?.researchDepth).toBe("max");
+  });
+
+  it("persists the pre-Max Standard model settings", () => {
+    const threadId = ThreadId.makeUnsafe("thread-standard-before-max");
+    const previousStandardSelection = modelSelection("codex", "gpt-5.5", {
+      reasoningEffort: "low",
+      fastMode: true,
+    });
+    useComposerDraftStore
+      .getState()
+      .setStandardModelSelectionBeforeMax(threadId, "codex", previousStandardSelection);
+
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]
+        ?.standardModelSelectionBeforeMaxByProvider.codex,
+    ).toEqual(previousStandardSelection);
+
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+    const persisted = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
+      draftsByThreadId?: Record<
+        string,
+        { standardModelSelectionBeforeMaxByProvider?: { codex?: ModelSelection } }
+      >;
+    };
+    expect(
+      persisted.draftsByThreadId?.[threadId]?.standardModelSelectionBeforeMaxByProvider?.codex,
+    ).toEqual(previousStandardSelection);
+
+    const merged = persistApi
+      .getOptions()
+      .merge(persisted, useComposerDraftStore.getInitialState());
+    expect(
+      merged.draftsByThreadId[threadId]?.standardModelSelectionBeforeMaxByProvider.codex,
+    ).toEqual(previousStandardSelection);
+  });
 });
 
 describe("composerDraftStore project draft thread mapping", () => {
@@ -591,6 +659,61 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toBeNull();
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
+
+  it("keeps Max selected when a draft thread is promoted", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId);
+    store.setPrompt(threadId, "promote me");
+    store.setResearchDepth(threadId, "max");
+
+    clearPromotedDraftThread(threadId);
+
+    const promotedDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toBeNull();
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toBeNull();
+    expect(promotedDraft?.prompt).toBe("");
+    expect(promotedDraft?.researchDepth).toBe("max");
+  });
+
+  it("keeps the pre-Max Standard settings when a Max draft thread is promoted", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId);
+    store.setPrompt(threadId, "promote me");
+    store.setResearchDepth(threadId, "max");
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.5", {
+        reasoningEffort: "xhigh",
+        fastMode: false,
+      }),
+    );
+    store.setStandardModelSelectionBeforeMax(
+      threadId,
+      "codex",
+      modelSelection("codex", "gpt-5.5", {
+        reasoningEffort: "low",
+        fastMode: true,
+      }),
+    );
+
+    clearPromotedDraftThread(threadId);
+
+    const promotedDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(promotedDraft?.prompt).toBe("");
+    expect(promotedDraft?.researchDepth).toBe("max");
+    expect(promotedDraft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.5", {
+        reasoningEffort: "xhigh",
+        fastMode: false,
+      }),
+    );
+    expect(promotedDraft?.standardModelSelectionBeforeMaxByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.5", {
+        reasoningEffort: "low",
+        fastMode: true,
+      }),
+    );
   });
 
   it("does not clear composer drafts for existing server threads during promotion cleanup", () => {

@@ -1758,8 +1758,8 @@ function loadAppShell(window: BrowserWindow): void {
 function createWindow(options?: { readonly loadAppImmediately?: boolean }): BrowserWindow {
   const loadAppImmediately = options?.loadAppImmediately ?? true;
   const window = new BrowserWindow({
-    width: 1100,
-    height: 780,
+    width: 1280,
+    height: 880,
     minWidth: 840,
     minHeight: 620,
     show: false,

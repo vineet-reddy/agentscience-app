@@ -1,6 +1,7 @@
 import {
   type ChatAttachment,
   CommandId,
+  DEFAULT_RESEARCH_DEPTH,
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
@@ -8,6 +9,7 @@ import {
   type OrchestrationSession,
   ThreadId,
   type ProviderSession,
+  type ResearchDepth,
   type RuntimeMode,
   type TurnId,
 } from "@agentscience/contracts";
@@ -412,6 +414,7 @@ const make = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
+    readonly researchDepth?: ResearchDepth;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);
@@ -428,6 +431,7 @@ const make = Effect.gen(function* () {
     }
     const workflowInstructions = buildWorkflowAgentInput(thread.stageState?.workflowMode, {
       autonomyMode: thread.runtimeMode === "full-access" ? "auto" : "manual",
+      researchDepth: input.researchDepth ?? DEFAULT_RESEARCH_DEPTH,
     });
     const providerMessageText = [
       workflowInstructions.systemMessage,
@@ -463,6 +467,7 @@ const make = Effect.gen(function* () {
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
+      researchDepth: input.researchDepth ?? DEFAULT_RESEARCH_DEPTH,
     });
   });
 
@@ -681,6 +686,9 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
+      ...(event.payload.researchDepth !== undefined
+        ? { researchDepth: event.payload.researchDepth }
+        : {}),
       createdAt: event.payload.createdAt,
     }).pipe(
       Effect.catchCause((cause) =>

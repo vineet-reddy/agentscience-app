@@ -20,6 +20,7 @@ import {
   ProviderRequestKind,
   ProviderSandboxMode,
   ProviderUserInputAnswers,
+  ResearchDepth,
   RuntimeMode,
 } from "./orchestration";
 
@@ -68,6 +69,7 @@ export const ProviderSendTurnInput = Schema.Struct({
   ),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),
+  researchDepth: Schema.optionalKey(ResearchDepth),
 });
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
 

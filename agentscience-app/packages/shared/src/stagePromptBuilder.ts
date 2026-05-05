@@ -17,7 +17,9 @@
 
 import {
   DEFAULT_RESEARCH_WORKFLOW_MODE,
+  DEFAULT_RESEARCH_DEPTH,
   RESEARCH_WORKFLOW_DISPLAY_NAME,
+  type ResearchDepth,
   workflowStageDisplayName,
   workflowStageOrder,
   type ProjectStageState,
@@ -46,6 +48,40 @@ export interface WorkflowAgentInput {
 }
 
 export type WorkflowAutonomyMode = "manual" | "auto";
+
+const MAX_RESEARCH_DEPTH_INSTRUCTIONS = `Research depth: Max.
+
+This turn must run a branching frontier-search protocol before answering. Do not treat Max as
+"spend more time"; treat it as a larger, explicitly expanded search space.
+
+Required protocol:
+1. Decompose the request into subquestions, assumptions, expert-known baselines, and what would
+   count as a non-obvious answer.
+2. Run seed search across the most credible sources available for the field.
+3. Build an internal Frontier Map covering papers, authors, methods, claims, datasets or
+   benchmarks, objections, adjacent fields, and open problems.
+4. Expand the best frontier nodes for 2-3 rounds where warranted: forward citations, backward
+   citations, recent work by the same author groups, competing methods, failure or critique papers,
+   and adjacent-field uses.
+5. Use parallel scouts/subagents when the runtime exposes them and the branches are separable.
+   Keep each scout bounded and synthesize their outputs yourself.
+6. Run an adversarial critic pass before the final answer: ask whether the answer is just a
+   competent summary, whether an expert would find it shallow, whether citations support the
+   claims, and what the sharpest original direction is.
+
+Depth budget, adaptively applied:
+- Simple factual questions do not need an enormous run; answer them directly.
+- Frontier research questions should usually inspect 30-100 high-signal sources when available.
+- Always include contradiction/negative-evidence search for scientific or mathematical claims.
+
+Write substantial intermediate notes to workspace files when the search is large, using names like
+\`frontier-map.md\`, \`claim-ledger.md\`, \`adversarial-review.md\`, or \`max-research-notes.md\`.
+The visible answer should stay concise and expert-facing unless the user asks for the audit trail.`;
+
+const STANDARD_RESEARCH_DEPTH_INSTRUCTIONS = `Research depth: Standard.
+
+Use normal adaptive rigor. Search when freshness, novelty, or citation accuracy matters, but do not
+run the full Max frontier expansion unless the user asks for it.`;
 
 const WORKFLOW_AUTONOMY_INSTRUCTIONS: Readonly<Record<WorkflowAutonomyMode, string>> = {
   manual: `Collaboration style: Manual.
@@ -122,10 +158,14 @@ of pasting long markdown into chat.`,
 
 export function buildWorkflowAgentInput(
   workflowMode: ResearchWorkflowMode | null | undefined,
-  options: { readonly autonomyMode?: WorkflowAutonomyMode } = {},
+  options: {
+    readonly autonomyMode?: WorkflowAutonomyMode;
+    readonly researchDepth?: ResearchDepth;
+  } = {},
 ): WorkflowAgentInput {
   const mode = workflowMode ?? DEFAULT_RESEARCH_WORKFLOW_MODE;
   const autonomyMode = options.autonomyMode ?? "manual";
+  const researchDepth = options.researchDepth ?? DEFAULT_RESEARCH_DEPTH;
   return {
     systemMessage: [
       `# AgentScience workflow profile: ${RESEARCH_WORKFLOW_DISPLAY_NAME[mode]}`,
@@ -133,6 +173,10 @@ export function buildWorkflowAgentInput(
       WORKFLOW_MODE_INSTRUCTIONS[mode].trim(),
       "",
       WORKFLOW_AUTONOMY_INSTRUCTIONS[autonomyMode].trim(),
+      "",
+      researchDepth === "max"
+        ? MAX_RESEARCH_DEPTH_INSTRUCTIONS.trim()
+        : STANDARD_RESEARCH_DEPTH_INSTRUCTIONS.trim(),
       "",
       "Do not mention workflow internals, stages, or gates to the user.",
       "Do not include hidden JSON control blocks for workflow state.",

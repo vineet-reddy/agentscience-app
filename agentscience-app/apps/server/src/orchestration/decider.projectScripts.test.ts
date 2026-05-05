@@ -172,6 +172,7 @@ describe("decider project scripts", () => {
             },
           },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          researchDepth: "max",
           runtimeMode: "approval-required",
           createdAt: now,
         },
@@ -201,6 +202,7 @@ describe("decider project scripts", () => {
         },
       },
       runtimeMode: "approval-required",
+      researchDepth: "max",
     });
   });
 

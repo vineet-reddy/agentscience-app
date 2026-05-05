@@ -1,11 +1,14 @@
 import {
   type ApprovalRequestId,
+  type CodexModelOptions,
   DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_RESEARCH_DEPTH,
   DEFAULT_TEXT_GENERATION_MODEL_SELECTION,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
+  type ResearchDepth,
   type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
@@ -32,6 +35,7 @@ import {
   useRef,
   useState,
 } from "react";
+import * as Schema from "effect/Schema";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -111,6 +115,14 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { cn, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -122,6 +134,7 @@ import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import {
   getDefaultProviderModelOptions,
+  getProviderModelCapabilities,
   getProviderModels,
   resolveSelectableProvider,
 } from "../providerModels";
@@ -232,6 +245,7 @@ const EMPTY_DATASET_ENTRIES: DatasetEntry[] = [];
 const EMPTY_DATASET_PROVIDERS: DatasetProvider[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const MAX_MODE_ACKNOWLEDGED_STORAGE_KEY = "agentscience:max-mode-acknowledged:v1";
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -699,10 +713,18 @@ export default function ChatView({
     select: (params) => parseDiffRouteSearch(params),
   });
   const { resolvedTheme } = useTheme();
+  const [hasAcknowledgedMaxMode, setHasAcknowledgedMaxMode] = useLocalStorage(
+    MAX_MODE_ACKNOWLEDGED_STORAGE_KEY,
+    false,
+    Schema.Boolean,
+  );
+  const [maxModeDialogOpen, setMaxModeDialogOpen] = useState(false);
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
   const composerTerminalContexts = composerDraft.terminalContexts;
+  const standardCodexModelSelectionBeforeMax =
+    composerDraft.standardModelSelectionBeforeMaxByProvider.codex ?? null;
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
@@ -714,10 +736,14 @@ export default function ChatView({
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setComposerDraftStandardModelSelectionBeforeMax = useComposerDraftStore(
+    (store) => store.setStandardModelSelectionBeforeMax,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
   );
+  const setComposerDraftResearchDepth = useComposerDraftStore((store) => store.setResearchDepth);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -966,6 +992,7 @@ export default function ChatView({
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
+  const researchDepth = composerDraft.researchDepth ?? DEFAULT_RESEARCH_DEPTH;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
@@ -2169,6 +2196,82 @@ export default function ChatView({
       threadId,
     ],
   );
+  const applyResearchDepthChange = useCallback(
+    (depth: ResearchDepth) => {
+      if (depth === researchDepth) return;
+      setComposerDraftResearchDepth(threadId, depth, { persistSticky: true });
+
+      if (depth === "max" && selectedProvider === "codex") {
+        if (researchDepth !== "max") {
+          setComposerDraftStandardModelSelectionBeforeMax(
+            threadId,
+            "codex",
+            selectedModelSelection,
+          );
+        }
+        const caps = getProviderModelCapabilities(selectedProviderModels, selectedModel, "codex");
+        const supportsXHigh = caps.reasoningEffortLevels.some((level) => level.value === "xhigh");
+        const existingCodexOptions = composerModelOptions?.codex ?? {};
+        setComposerDraftModelSelection(threadId, {
+          provider: "codex",
+          model: selectedModel,
+          options: {
+            ...existingCodexOptions,
+            ...(supportsXHigh ? { reasoningEffort: "xhigh" as const } : {}),
+            ...(caps.supportsFastMode ? { fastMode: false } : {}),
+          },
+        });
+      } else if (depth === "standard" && selectedProvider === "codex") {
+        const previousSelection = standardCodexModelSelectionBeforeMax;
+        const fallbackOptions = getDefaultProviderModelOptions(
+          selectedProviderModels,
+          "codex",
+          selectedModel,
+        );
+        const restoredOptions =
+          previousSelection?.provider === "codex"
+            ? ((previousSelection.options ?? {}) as CodexModelOptions)
+            : fallbackOptions;
+        setComposerDraftModelSelection(threadId, {
+          provider: "codex",
+          model: previousSelection?.provider === "codex" ? previousSelection.model : selectedModel,
+          options: (restoredOptions ?? {}) as CodexModelOptions,
+        });
+        setComposerDraftStandardModelSelectionBeforeMax(threadId, "codex", null);
+      }
+
+      scheduleComposerFocus();
+    },
+    [
+      composerModelOptions?.codex,
+      researchDepth,
+      scheduleComposerFocus,
+      selectedModel,
+      selectedModelSelection,
+      selectedProvider,
+      selectedProviderModels,
+      setComposerDraftModelSelection,
+      setComposerDraftResearchDepth,
+      setComposerDraftStandardModelSelectionBeforeMax,
+      standardCodexModelSelectionBeforeMax,
+      threadId,
+    ],
+  );
+  const handleResearchDepthChange = useCallback(
+    (depth: ResearchDepth) => {
+      if (depth === "max" && !hasAcknowledgedMaxMode) {
+        setMaxModeDialogOpen(true);
+        return;
+      }
+      applyResearchDepthChange(depth);
+    },
+    [applyResearchDepthChange, hasAcknowledgedMaxMode],
+  );
+  const confirmMaxMode = useCallback(() => {
+    setHasAcknowledgedMaxMode(true);
+    setMaxModeDialogOpen(false);
+    applyResearchDepthChange("max");
+  }, [applyResearchDepthChange, setHasAcknowledgedMaxMode]);
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
@@ -3278,6 +3381,7 @@ export default function ChatView({
         titleSeed: title,
         runtimeMode,
         interactionMode,
+        researchDepth,
         ...(bootstrap ? { bootstrap } : {}),
         createdAt: messageCreatedAt,
       });
@@ -3577,6 +3681,7 @@ export default function ChatView({
           titleSeed: activeThread.title,
           runtimeMode,
           interactionMode: nextInteractionMode,
+          researchDepth,
           ...(nextInteractionMode === "default" && activeProposedPlan
             ? {
                 sourceProposedPlan: {
@@ -3617,6 +3722,7 @@ export default function ChatView({
       isServerThread,
       persistThreadSettingsForNextTurn,
       resetLocalDispatch,
+      researchDepth,
       runtimeMode,
       selectedPromptEffort,
       selectedModelSelection,
@@ -3695,6 +3801,7 @@ export default function ChatView({
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",
+          researchDepth,
           sourceProposedPlan: {
             threadId: activeThread.id,
             planId: activeProposedPlan.id,
@@ -3739,6 +3846,7 @@ export default function ChatView({
     isServerThread,
     navigate,
     resetLocalDispatch,
+    researchDepth,
     runtimeMode,
     selectedPromptEffort,
     selectedModelSelection,
@@ -4343,6 +4451,7 @@ export default function ChatView({
               <div
                 className={cn(
                   "group rounded-[22px] p-px transition-colors duration-200",
+                  researchDepth === "standard" ? "bg-ring/20" : "bg-warning/25",
                   composerProviderState.composerFrameClassName,
                 )}
                 onDragEnter={onComposerDragEnter}
@@ -4352,12 +4461,17 @@ export default function ChatView({
               >
                 <div
                   className={cn(
-                    "rounded-[20px] border bg-card transition-colors duration-200 has-focus-visible:border-ring/45",
+                    "rounded-[20px] border bg-card transition-colors duration-200",
+                    researchDepth === "max"
+                      ? "has-focus-visible:border-warning/55"
+                      : "has-focus-visible:border-ring/45",
                     isDragOverComposer
                       ? "border-primary/70 bg-accent/30"
                       : composerMenuOpen && !isComposerApprovalState
                         ? "border-primary/60"
-                        : "border-border",
+                        : researchDepth === "max"
+                          ? "border-warning/45"
+                          : "border-border",
                     composerProviderState.composerSurfaceClassName,
                   )}
                 >
@@ -4576,11 +4690,6 @@ export default function ChatView({
                               </>
                             ) : null}
 
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
-                            />
-
                             <Button
                               variant="ghost"
                               className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
@@ -4674,6 +4783,47 @@ export default function ChatView({
                           <span className="text-muted-foreground/70 text-xs">
                             Preparing worktree...
                           </span>
+                        ) : null}
+                        {!isComposerApprovalState && pendingUserInputs.length === 0 ? (
+                          <div
+                            className={cn(
+                              "inline-flex h-7 shrink-0 items-center rounded-full border bg-background p-0.5 text-[11px] font-medium shadow-sm",
+                              researchDepth === "max"
+                                ? "border-warning/45 bg-warning/8"
+                                : "border-ring/35 bg-ring/5",
+                            )}
+                            aria-label="Answer mode"
+                            role="group"
+                          >
+                            <button
+                              type="button"
+                              className={cn(
+                                "h-6 rounded-full px-2.5 transition-colors",
+                                researchDepth === "standard"
+                                  ? "bg-ring/14 text-foreground shadow-sm ring-1 ring-ring/35"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                              aria-pressed={researchDepth === "standard"}
+                              onClick={() => handleResearchDepthChange("standard")}
+                              title="Standard: normal speed and token use."
+                            >
+                              Standard
+                            </button>
+                            <button
+                              type="button"
+                              className={cn(
+                                "h-6 rounded-full px-2.5 transition-colors",
+                                researchDepth === "max"
+                                  ? "bg-warning/18 text-foreground shadow-sm ring-1 ring-warning/35"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                              aria-pressed={researchDepth === "max"}
+                              onClick={() => handleResearchDepthChange("max")}
+                              title="Max: may take longer and use more tokens."
+                            >
+                              Max
+                            </button>
+                          </div>
                         ) : null}
                         <ComposerPrimaryActions
                           compact={isComposerPrimaryActionsCompact}
@@ -4846,6 +4996,27 @@ export default function ChatView({
           )}
         </div>
       )}
+
+      <Dialog open={maxModeDialogOpen} onOpenChange={setMaxModeDialogOpen}>
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Use Max?</DialogTitle>
+            <DialogDescription>
+              Max may take longer and use substantially more tokens, which can increase cost. Use it
+              when you want AgentScience to spend more effort on the best possible scientific
+              answer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setMaxModeDialogOpen(false)}>
+              Stay Standard
+            </Button>
+            <Button size="sm" onClick={confirmMaxMode}>
+              Use Max
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }

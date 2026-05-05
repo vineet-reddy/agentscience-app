@@ -30,10 +30,7 @@ import {
 } from "../lib/datasetRegistry";
 import { useStore } from "../store";
 import { cn } from "../lib/utils";
-import {
-  AGENT_WORKFLOW_MODES,
-  type PaperWorkflowMode,
-} from "../paperWorkflowModes";
+import { AGENT_WORKFLOW_MODES, type PaperWorkflowMode } from "../paperWorkflowModes";
 import { useUiStateStore } from "../uiStateStore";
 import {
   buildGreeting,
@@ -58,9 +55,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
   const draftsByThreadId = useComposerDraftStore((store) => store.draftsByThreadId);
-  const draftThreadsByThreadId = useComposerDraftStore(
-    (store) => store.draftThreadsByThreadId,
-  );
+  const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const isDraftThread = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
@@ -73,9 +68,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   const setPaperWorkflowMode = useUiStateStore((store) => store.setPaperWorkflowMode);
 
   const onboardingProfile = useOnboardingStore((store) => store.profile);
-  const welcomeGreetingConsumed = useOnboardingStore(
-    (store) => store.welcomeGreetingConsumed,
-  );
+  const welcomeGreetingConsumed = useOnboardingStore((store) => store.welcomeGreetingConsumed);
   const onboardingCompletedAt = useOnboardingStore((store) => store.completedAt);
   const onboardingSkipped = useOnboardingStore((store) => store.skipped);
   const markWelcomeGreetingConsumed = useOnboardingStore(
@@ -109,7 +102,10 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     const providers = providersQuery.data ?? [];
     const datasetsBySlug = new Map(
       datasets.map((d) => [
-        d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+        d.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, ""),
         d,
       ]),
     );
@@ -191,25 +187,19 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
       id: project.id,
       name: project.name,
       hasContent: Boolean(
-        threads.some(
-          (thread) => thread.projectId === project.id && thread.archivedAt === null,
-        ),
+        threads.some((thread) => thread.projectId === project.id && thread.archivedAt === null),
       ),
     }));
   }, [projects, threads]);
 
   const connectedDataInterests = useMemo<ReadonlyArray<string>>(() => {
-    return onboardingProfile.dataInterests.filter((id) =>
-      OPEN_AUTO_CONNECT_DATASET_IDS.has(id),
-    );
+    return onboardingProfile.dataInterests.filter((id) => OPEN_AUTO_CONNECT_DATASET_IDS.has(id));
   }, [onboardingProfile.dataInterests]);
 
   const isFirstThreadPostOnboarding = useMemo(() => {
     if (!onboardingCompletedAt) return false;
     if (onboardingSkipped) return false;
-    const threadsWithMessages = threadSummaries.filter(
-      (thread) => thread.hasAssistantReply,
-    );
+    const threadsWithMessages = threadSummaries.filter((thread) => thread.hasAssistantReply);
     return threadsWithMessages.length === 0;
   }, [onboardingCompletedAt, onboardingSkipped, threadSummaries]);
 
@@ -254,11 +244,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     if (presentation.emptyStateCase !== "A") return;
     if (welcomeGreetingConsumed) return;
     markWelcomeGreetingConsumed();
-  }, [
-    presentation.emptyStateCase,
-    welcomeGreetingConsumed,
-    markWelcomeGreetingConsumed,
-  ]);
+  }, [presentation.emptyStateCase, welcomeGreetingConsumed, markWelcomeGreetingConsumed]);
 
   const handleItemClick = (item: PickedItem) => {
     if (item.kind === "suggestion" && item.promptText) {
@@ -282,14 +268,10 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
 
   const handleDatasetClick = (dataset: ConnectedDatasetSummary) => {
     const mention =
-      dataset.kind === "dataset"
-        ? `@dataset:${dataset.slug}`
-        : `@provider:${dataset.slug}`;
-    const currentDraft =
-      useComposerDraftStore.getState().draftsByThreadId[threadId];
+      dataset.kind === "dataset" ? `@dataset:${dataset.slug}` : `@provider:${dataset.slug}`;
+    const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     const currentPrompt = currentDraft?.prompt ?? "";
-    const separator =
-      currentPrompt.length === 0 || /\s$/.test(currentPrompt) ? "" : " ";
+    const separator = currentPrompt.length === 0 || /\s$/.test(currentPrompt) ? "" : " ";
     const nextPrompt = `${currentPrompt}${separator}${mention} `;
     setPrompt(threadId, nextPrompt);
     requestComposerFocus({ threadId, seedPrompt: nextPrompt });
@@ -324,9 +306,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
           <h1 className="font-display text-[2rem] leading-[1.12] text-ink sm:text-[2.25rem]">
             {greeting.title}
           </h1>
-          <p className="mt-3 text-[0.9375rem] leading-relaxed text-ink-light">
-            {CASE_D_MESSAGE}
-          </p>
+          <p className="mt-3 text-[0.9375rem] leading-relaxed text-ink-light">{CASE_D_MESSAGE}</p>
           <div className="mt-6">
             <button
               type="button"
@@ -459,10 +439,11 @@ function NewPaperDraftEmptyState() {
       <div className="w-full max-w-[680px]">
         <header className="text-center">
           <h1 className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
-            Create a new paper
+            Create a new paper end-to-end
           </h1>
           <p className="mx-auto mt-3 max-w-[520px] text-[0.9375rem] leading-relaxed text-ink-light">
-            Describe the research question, dataset, or scientific idea you want to turn into a paper.
+            Describe the research question, dataset, or scientific idea you want to turn into a
+            paper.
           </p>
         </header>
       </div>
@@ -480,14 +461,14 @@ function NewAgentModePicker({
   onSkip: () => void;
 }) {
   return (
-    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-16 pt-14 sm:pt-20">
+    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-48 pt-14 sm:pb-52 sm:pt-20">
       <div className="w-full max-w-[680px]">
         <header className="text-center">
           <h1 className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
             Choose a research agent
           </h1>
           <p className="mx-auto mt-3 max-w-[520px] text-[0.9375rem] leading-relaxed text-ink-light">
-            Pick the specialist workflow for this research task, or keep it open-ended.
+            Pick the specialist agent for your research task, or keep it open-ended.
           </p>
         </header>
 
@@ -578,9 +559,7 @@ function SectionLabel({ label, subtext }: { label: string; subtext: string | nul
   return (
     <div className="flex flex-col gap-1">
       <h2 className="text-[0.9375rem] font-medium text-ink">{label}</h2>
-      {subtext ? (
-        <p className="text-[0.8125rem] text-ink-light">{subtext}</p>
-      ) : null}
+      {subtext ? <p className="text-[0.8125rem] text-ink-light">{subtext}</p> : null}
     </div>
   );
 }
@@ -630,7 +609,10 @@ function deriveConnectedDatasets(input: {
   const providersBySlug = new Map(input.providers.map((p) => [p.slug, p]));
   const datasetsBySlug = new Map(
     input.datasets.map((d) => [
-      d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      d.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, ""),
       d,
     ]),
   );
