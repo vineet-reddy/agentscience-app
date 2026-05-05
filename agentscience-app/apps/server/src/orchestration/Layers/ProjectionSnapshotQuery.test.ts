@@ -161,6 +161,7 @@ describe("ProjectionSnapshotQuery", () => {
         projectId: ProjectId.makeUnsafe("project-1"),
         folderSlug: "thread-1",
         resolvedWorkspacePath: "/tmp/AgentScience/Projects/project-1/papers/thread-1",
+        workspaceKind: "paper",
         title: "Thread 1",
         modelSelection: {
           provider: "codex",

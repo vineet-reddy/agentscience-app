@@ -79,6 +79,7 @@ describe("orchestration projector", () => {
         projectId: "project-1",
         folderSlug: "demo",
         resolvedWorkspacePath: null,
+        workspaceKind: "paper",
         title: "demo",
         modelSelection: {
           provider: "codex",
