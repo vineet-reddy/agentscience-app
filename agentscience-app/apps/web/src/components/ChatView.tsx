@@ -719,11 +719,12 @@ export default function ChatView({
     Schema.Boolean,
   );
   const [maxModeDialogOpen, setMaxModeDialogOpen] = useState(false);
-  const standardCodexModelSelectionBeforeMaxRef = useRef<ModelSelection | null>(null);
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
   const composerTerminalContexts = composerDraft.terminalContexts;
+  const standardCodexModelSelectionBeforeMax =
+    composerDraft.standardModelSelectionBeforeMaxByProvider.codex ?? null;
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
@@ -735,6 +736,9 @@ export default function ChatView({
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
+  const setComposerDraftStandardModelSelectionBeforeMax = useComposerDraftStore(
+    (store) => store.setStandardModelSelectionBeforeMax,
+  );
   const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const setComposerDraftInteractionMode = useComposerDraftStore(
     (store) => store.setInteractionMode,
@@ -2199,7 +2203,11 @@ export default function ChatView({
 
       if (depth === "max" && selectedProvider === "codex") {
         if (researchDepth !== "max") {
-          standardCodexModelSelectionBeforeMaxRef.current = selectedModelSelection;
+          setComposerDraftStandardModelSelectionBeforeMax(
+            threadId,
+            "codex",
+            selectedModelSelection,
+          );
         }
         const caps = getProviderModelCapabilities(selectedProviderModels, selectedModel, "codex");
         const supportsXHigh = caps.reasoningEffortLevels.some((level) => level.value === "xhigh");
@@ -2214,7 +2222,7 @@ export default function ChatView({
           },
         });
       } else if (depth === "standard" && selectedProvider === "codex") {
-        const previousSelection = standardCodexModelSelectionBeforeMaxRef.current;
+        const previousSelection = standardCodexModelSelectionBeforeMax;
         const fallbackOptions = getDefaultProviderModelOptions(
           selectedProviderModels,
           "codex",
@@ -2229,7 +2237,7 @@ export default function ChatView({
           model: previousSelection?.provider === "codex" ? previousSelection.model : selectedModel,
           options: (restoredOptions ?? {}) as CodexModelOptions,
         });
-        standardCodexModelSelectionBeforeMaxRef.current = null;
+        setComposerDraftStandardModelSelectionBeforeMax(threadId, "codex", null);
       }
 
       scheduleComposerFocus();
@@ -2244,6 +2252,8 @@ export default function ChatView({
       selectedProviderModels,
       setComposerDraftModelSelection,
       setComposerDraftResearchDepth,
+      setComposerDraftStandardModelSelectionBeforeMax,
+      standardCodexModelSelectionBeforeMax,
       threadId,
     ],
   );
