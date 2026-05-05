@@ -4488,50 +4488,6 @@ export default function ChatView({
                       </div>
                     )}
 
-                    {!isComposerApprovalState && pendingUserInputs.length === 0 ? (
-                      <div className="pointer-events-none absolute right-3 top-2 z-10 sm:right-4 sm:top-2.5">
-                        <div
-                          className={cn(
-                            "pointer-events-auto inline-flex h-7 items-center rounded-full border bg-background/92 p-0.5 text-[11px] font-medium shadow-sm backdrop-blur-sm",
-                            researchDepth === "max"
-                              ? "border-warning/45 bg-warning/8"
-                              : "border-ring/35 bg-ring/5",
-                          )}
-                          aria-label="Answer mode"
-                          role="group"
-                        >
-                          <button
-                            type="button"
-                            className={cn(
-                              "h-6 rounded-full px-2.5 transition-colors",
-                              researchDepth === "standard"
-                                ? "bg-ring/14 text-foreground shadow-sm ring-1 ring-ring/35"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                            aria-pressed={researchDepth === "standard"}
-                            onClick={() => handleResearchDepthChange("standard")}
-                            title="Standard: normal speed and token use."
-                          >
-                            Standard
-                          </button>
-                          <button
-                            type="button"
-                            className={cn(
-                              "h-6 rounded-full px-2.5 transition-colors",
-                              researchDepth === "max"
-                                ? "bg-warning/18 text-foreground shadow-sm ring-1 ring-warning/35"
-                                : "text-muted-foreground hover:text-foreground",
-                            )}
-                            aria-pressed={researchDepth === "max"}
-                            onClick={() => handleResearchDepthChange("max")}
-                            title="Max: may take longer and use more tokens."
-                          >
-                            Max
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
                     {!isComposerApprovalState &&
                       pendingUserInputs.length === 0 &&
                       composerImages.length > 0 && (
@@ -4794,6 +4750,47 @@ export default function ChatView({
                           <span className="text-muted-foreground/70 text-xs">
                             Preparing worktree...
                           </span>
+                        ) : null}
+                        {!isComposerApprovalState && pendingUserInputs.length === 0 ? (
+                          <div
+                            className={cn(
+                              "inline-flex h-7 shrink-0 items-center rounded-full border bg-background p-0.5 text-[11px] font-medium shadow-sm",
+                              researchDepth === "max"
+                                ? "border-warning/45 bg-warning/8"
+                                : "border-ring/35 bg-ring/5",
+                            )}
+                            aria-label="Answer mode"
+                            role="group"
+                          >
+                            <button
+                              type="button"
+                              className={cn(
+                                "h-6 rounded-full px-2.5 transition-colors",
+                                researchDepth === "standard"
+                                  ? "bg-ring/14 text-foreground shadow-sm ring-1 ring-ring/35"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                              aria-pressed={researchDepth === "standard"}
+                              onClick={() => handleResearchDepthChange("standard")}
+                              title="Standard: normal speed and token use."
+                            >
+                              Standard
+                            </button>
+                            <button
+                              type="button"
+                              className={cn(
+                                "h-6 rounded-full px-2.5 transition-colors",
+                                researchDepth === "max"
+                                  ? "bg-warning/18 text-foreground shadow-sm ring-1 ring-warning/35"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                              aria-pressed={researchDepth === "max"}
+                              onClick={() => handleResearchDepthChange("max")}
+                              title="Max: may take longer and use more tokens."
+                            >
+                              Max
+                            </button>
+                          </div>
                         ) : null}
                         <ComposerPrimaryActions
                           compact={isComposerPrimaryActionsCompact}
