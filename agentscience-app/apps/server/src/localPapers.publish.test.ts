@@ -50,15 +50,17 @@ async function writePaperWorkspace(input: {
   return paperDir;
 }
 
-async function startUpstreamServer(handler: (request: {
-  readonly method: string;
-  readonly url: string;
-  readonly authorization: string | null;
-  readonly contentType: string | null;
-}) => {
-  readonly status: number;
-  readonly body: unknown;
-}): Promise<{
+async function startUpstreamServer(
+  handler: (request: {
+    readonly method: string;
+    readonly url: string;
+    readonly authorization: string | null;
+    readonly contentType: string | null;
+  }) => {
+    readonly status: number;
+    readonly body: unknown;
+  },
+): Promise<{
   readonly baseUrl: string;
   readonly close: () => Promise<void>;
 }> {
@@ -140,12 +142,9 @@ async function makeService(input: {
       }),
       getBearerToken: Effect.succeed("agsk_desktop_test"),
     }),
-    Layer.succeed(
-      ServerConfig,
-      {
-        agentScienceBaseUrl: input.baseUrl,
-      } as any,
-    ),
+    Layer.succeed(ServerConfig, {
+      agentScienceBaseUrl: input.baseUrl,
+    } as any),
   );
 
   return Effect.runPromise(makeLocalPapersService.pipe(Effect.provide(layer)));
@@ -242,9 +241,7 @@ describe("local paper publish flow", () => {
             id: "remote-paper-1",
             slug: "desktop-paper",
             publishedAt:
-              publishCount === 1
-                ? "2026-04-21T18:00:00.000Z"
-                : "2026-04-21T19:00:00.000Z",
+              publishCount === 1 ? "2026-04-21T18:00:00.000Z" : "2026-04-21T19:00:00.000Z",
           },
         },
       };
@@ -260,10 +257,7 @@ describe("local paper publish flow", () => {
       await Effect.runPromise(service.publish(paperId));
       await Effect.runPromise(service.publish(paperId));
 
-      expect(calls).toEqual([
-        "POST /api/v1/papers",
-        "PATCH /api/v1/papers/desktop-paper",
-      ]);
+      expect(calls).toEqual(["POST /api/v1/papers", "PATCH /api/v1/papers/desktop-paper"]);
     } finally {
       await upstream.close();
     }
@@ -316,6 +310,61 @@ describe("local paper publish flow", () => {
       await Effect.runPromise(service.publish(__internal.encodePaperId(paperDir)));
 
       expect(calls).toEqual(["POST /api/v1/papers"]);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("excludes files matched by .agentscienceignore from the uploaded bundle", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    await fs.mkdir(path.join(paperDir, ".agentscience-review"), { recursive: true });
+    await fs.writeFile(
+      path.join(paperDir, ".agentscience-review", "paper.tex"),
+      "\\title{Generated preview}",
+      "utf8",
+    );
+    await fs.writeFile(path.join(paperDir, "analysis.log"), "internal log", "utf8");
+    await fs.writeFile(
+      path.join(paperDir, __internal.AGENTSCIENCE_IGNORE_FILENAME),
+      [".agentscience-review/", "*.log", ""].join("\n"),
+      "utf8",
+    );
+
+    const uploadedPaths: string[] = [];
+    __internal.setBlobUploaderForTests(async (input) => {
+      uploadedPaths.push(`${input.role}/${input.relativePath}`);
+      return {
+        url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+        pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+        downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+        sizeBytes: input.bytes.length,
+      };
+    });
+    const upstream = await startUpstreamServer(() => ({
+      status: 200,
+      body: {
+        paper: {
+          id: "remote-paper-ignore",
+          slug: "desktop-paper-ignore",
+          publishedAt: "2026-04-21T20:00:00.000Z",
+        },
+      },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      await Effect.runPromise(service.publish(__internal.encodePaperId(paperDir)));
+
+      expect(uploadedPaths).not.toContain("artifacts/analysis.log");
+      expect(uploadedPaths).not.toContain("artifacts/.agentscience-review/paper.tex");
+      expect(uploadedPaths).toContain("artifacts/paper.tex");
+      expect(uploadedPaths).toEqual(
+        expect.arrayContaining(["pdf/paper.pdf", "figures/figure-1.png"]),
+      );
     } finally {
       await upstream.close();
     }

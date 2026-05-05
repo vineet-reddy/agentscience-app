@@ -55,20 +55,9 @@ import {
  * LaTeX build tooling commonly nest the compiled PDF under `manuscript/`,
  * `workspace/`, or similar, so a flat scan misses real papers.
  */
-const PDF_FILENAME_CANDIDATES = [
-  "paper.pdf",
-  "manuscript.pdf",
-  "main.pdf",
-] as const;
-const TEX_FILENAME_CANDIDATES = [
-  "paper.tex",
-  "manuscript.tex",
-  "main.tex",
-] as const;
-const MD_FILENAME_CANDIDATES = [
-  "paper.md",
-  "manuscript.md",
-] as const;
+const PDF_FILENAME_CANDIDATES = ["paper.pdf", "manuscript.pdf", "main.pdf"] as const;
+const TEX_FILENAME_CANDIDATES = ["paper.tex", "manuscript.tex", "main.tex"] as const;
+const MD_FILENAME_CANDIDATES = ["paper.md", "manuscript.md"] as const;
 
 /** Directories we never recurse into while searching for paper artifacts. */
 const SCAN_SKIP_DIRS = new Set<string>([
@@ -97,6 +86,7 @@ const SCAN_SKIP_DIRS = new Set<string>([
 const MAX_SCAN_DEPTH = 4;
 
 const PUBLISH_MANIFEST_FILENAME = "agentscience.publish.json";
+const AGENTSCIENCE_IGNORE_FILENAME = ".agentscienceignore";
 const PUBLISHED_METADATA_FILENAME = ".agentscience-published.json";
 const BIB_FILENAME_CANDIDATES = [
   "references.bib",
@@ -130,14 +120,9 @@ export interface LocalPapersServiceShape {
    * `null` if the path is outside the paper's folder or does not exist.
    * Used by the HTTP layer to serve previews and downloads.
    */
-  readonly resolveFilePath: (
-    paperId: string,
-    relativePath: string,
-  ) => Effect.Effect<string | null>;
+  readonly resolveFilePath: (paperId: string, relativePath: string) => Effect.Effect<string | null>;
   /** Publish or update a local paper on AgentScience. */
-  readonly publish: (
-    paperId: string,
-  ) => Effect.Effect<LocalPaperSummary, LocalPaperPublishError>;
+  readonly publish: (paperId: string) => Effect.Effect<LocalPaperSummary, LocalPaperPublishError>;
 }
 
 export class LocalPapersService extends ServiceMap.Service<
@@ -356,10 +341,7 @@ async function readFileBuffer(filePath: string): Promise<Buffer> {
   return fs.readFile(filePath);
 }
 
-function resolvePaperFolderAbsolutePath(
-  paperId: string,
-  containerRoot: string,
-): string | null {
+function resolvePaperFolderAbsolutePath(paperId: string, containerRoot: string): string | null {
   const folderAbsolutePath = decodePaperId(paperId);
   if (!folderAbsolutePath) {
     return null;
@@ -382,11 +364,7 @@ function toPaperCandidate(
   containerRoot: string,
 ): PaperCandidate | null {
   const relative = path.relative(containerRoot, folderAbsolutePath).replaceAll("\\", "/");
-  if (
-    relative.length === 0 ||
-    relative.startsWith("../") ||
-    path.isAbsolute(relative)
-  ) {
+  if (relative.length === 0 || relative.startsWith("../") || path.isAbsolute(relative)) {
     return null;
   }
 
@@ -433,13 +411,9 @@ function normalizePublicationRecord(value: unknown): StoredPublicationRecord | n
       ? record.remotePaperId.trim()
       : null;
   const slug =
-    typeof record.slug === "string" && record.slug.trim().length > 0
-      ? record.slug.trim()
-      : null;
+    typeof record.slug === "string" && record.slug.trim().length > 0 ? record.slug.trim() : null;
   const url =
-    typeof record.url === "string" && record.url.trim().length > 0
-      ? record.url.trim()
-      : null;
+    typeof record.url === "string" && record.url.trim().length > 0 ? record.url.trim() : null;
   const publishedAt =
     typeof record.publishedAt === "string" && Number.isFinite(Date.parse(record.publishedAt))
       ? new Date(record.publishedAt).toISOString()
@@ -519,6 +493,86 @@ function shouldSkipBundlePath(relativePath: string): boolean {
   return BUNDLE_SKIP_SUFFIXES.some((suffix) => relativePath.endsWith(suffix));
 }
 
+interface AgentScienceIgnoreRule {
+  readonly pattern: string;
+  readonly directoryOnly: boolean;
+  readonly hasSlash: boolean;
+  readonly regex: RegExp | null;
+}
+
+function globPatternToRegex(pattern: string): RegExp {
+  const escaped = pattern
+    .split("*")
+    .map((part) => part.replace(/[|\\{}()[\]^$+?.]/g, "\\$&"))
+    .join("[^/]*");
+  return new RegExp(`^${escaped}$`);
+}
+
+function parseAgentScienceIgnore(contents: string): AgentScienceIgnoreRule[] {
+  return contents
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#") && !line.startsWith("!"))
+    .map((line) => {
+      const directoryOnly = line.endsWith("/");
+      const normalized = line.replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/+$/, "");
+      return {
+        pattern: normalized,
+        directoryOnly,
+        hasSlash: normalized.includes("/"),
+        regex: normalized.includes("*") ? globPatternToRegex(normalized) : null,
+      };
+    })
+    .filter((rule) => rule.pattern.length > 0);
+}
+
+async function readAgentScienceIgnoreRules(
+  workspaceDir: string,
+): Promise<AgentScienceIgnoreRule[]> {
+  try {
+    const contents = await fs.readFile(
+      path.join(workspaceDir, AGENTSCIENCE_IGNORE_FILENAME),
+      "utf8",
+    );
+    return parseAgentScienceIgnore(contents);
+  } catch {
+    return [];
+  }
+}
+
+function pathMatchesAgentScienceIgnoreRule(
+  relativePath: string,
+  isDirectory: boolean,
+  rule: AgentScienceIgnoreRule,
+): boolean {
+  if (rule.directoryOnly && !isDirectory && !relativePath.startsWith(`${rule.pattern}/`)) {
+    return false;
+  }
+
+  if (rule.regex) {
+    if (rule.hasSlash) {
+      return rule.regex.test(relativePath);
+    }
+    return relativePath.split("/").some((segment) => rule.regex?.test(segment));
+  }
+
+  if (rule.hasSlash) {
+    return relativePath === rule.pattern || relativePath.startsWith(`${rule.pattern}/`);
+  }
+
+  return relativePath.split("/").includes(rule.pattern);
+}
+
+function shouldSkipIgnoredBundlePath(
+  relativePath: string,
+  isDirectory: boolean,
+  ignoreRules: readonly AgentScienceIgnoreRule[],
+): boolean {
+  return ignoreRules.some((rule) =>
+    pathMatchesAgentScienceIgnoreRule(relativePath, isDirectory, rule),
+  );
+}
+
 function guessBundleContentType(relativePath: string): string {
   return Mime.getType(relativePath) ?? "application/octet-stream";
 }
@@ -532,6 +586,7 @@ async function walkPublishBundle(
   workspaceDir: string,
   artifacts: ArtifactUploadDescriptor[],
   figures: UploadDescriptor[],
+  ignoreRules: readonly AgentScienceIgnoreRule[],
 ): Promise<void> {
   let entries: import("node:fs").Dirent[];
   try {
@@ -544,12 +599,15 @@ async function walkPublishBundle(
     const absolutePath = path.join(currentDir, entry.name);
     const relativePath = path.relative(workspaceDir, absolutePath).replaceAll("\\", "/");
 
-    if (shouldSkipBundlePath(relativePath)) {
+    if (
+      shouldSkipBundlePath(relativePath) ||
+      shouldSkipIgnoredBundlePath(relativePath, entry.isDirectory(), ignoreRules)
+    ) {
       continue;
     }
 
     if (entry.isDirectory()) {
-      await walkPublishBundle(absolutePath, workspaceDir, artifacts, figures);
+      await walkPublishBundle(absolutePath, workspaceDir, artifacts, figures, ignoreRules);
       continue;
     }
 
@@ -590,11 +648,14 @@ async function collectPublishBundle(folderAbsolutePath: string): Promise<{
 }> {
   const artifacts: ArtifactUploadDescriptor[] = [];
   const figures: UploadDescriptor[] = [];
-  await walkPublishBundle(folderAbsolutePath, folderAbsolutePath, artifacts, figures);
+  const ignoreRules = await readAgentScienceIgnoreRules(folderAbsolutePath);
+  await walkPublishBundle(folderAbsolutePath, folderAbsolutePath, artifacts, figures, ignoreRules);
   return { artifacts, figures };
 }
 
-function assertPublishablePaper(summary: LocalPaperSummary): asserts summary is LocalPaperSummary & {
+function assertPublishablePaper(
+  summary: LocalPaperSummary,
+): asserts summary is LocalPaperSummary & {
   pdf: LocalPaperFile;
   source: LocalPaperFile;
 } {
@@ -640,19 +701,12 @@ async function buildPublishBody(input: {
     );
   }
 
-  const sourceAbsolutePath = path.join(
-    input.folderAbsolutePath,
-    input.summary.source.relativePath,
-  );
+  const sourceAbsolutePath = path.join(input.folderAbsolutePath, input.summary.source.relativePath);
   const pdfAbsolutePath = path.join(input.folderAbsolutePath, input.summary.pdf.relativePath);
   const [latexSource, pdfBytes, bibMatch, bundle] = await Promise.all([
     readFileText(sourceAbsolutePath),
     readFileBuffer(pdfAbsolutePath),
-    findShallowestCandidate(
-      input.folderAbsolutePath,
-      BIB_FILENAME_CANDIDATES,
-      MAX_SCAN_DEPTH,
-    ),
+    findShallowestCandidate(input.folderAbsolutePath, BIB_FILENAME_CANDIDATES, MAX_SCAN_DEPTH),
     collectPublishBundle(input.folderAbsolutePath),
   ]);
 
@@ -783,10 +837,7 @@ async function cleanupPublishBodyBlobs(input: {
       pathnames,
     });
   } catch (error) {
-    console.warn(
-      `Failed to clean up ${pathnames.length} uploaded AgentScience blob(s).`,
-      error,
-    );
+    console.warn(`Failed to clean up ${pathnames.length} uploaded AgentScience blob(s).`, error);
   }
 }
 
@@ -1008,20 +1059,22 @@ const LATEX_DROP_COMMANDS = new Set([
 ]);
 
 function stripBasicLatex(input: string): string {
-  return input
-    .replace(/\\textbf\s*\{([^{}]*)\}/g, "$1")
-    .replace(/\\textit\s*\{([^{}]*)\}/g, "$1")
-    .replace(/\\emph\s*\{([^{}]*)\}/g, "$1")
-    .replace(/\\([a-zA-Z]+)\s*\{([^{}]*)\}/g, (_m, name, body) =>
-      LATEX_DROP_COMMANDS.has(name) ? "" : body,
-    )
-    .replace(/\\[a-zA-Z]+/g, "")
-    .replace(/\{([^{}]*)\}/g, "$1")
-    .replace(/~/g, " ")
-    .replace(/\\\\/g, " ")
-    // LaTeX escape sequences for common text characters. Keep after the
-    // command-stripping passes above so we don't accidentally collapse them.
-    .replace(/\\([%$&#_{}])/g, "$1");
+  return (
+    input
+      .replace(/\\textbf\s*\{([^{}]*)\}/g, "$1")
+      .replace(/\\textit\s*\{([^{}]*)\}/g, "$1")
+      .replace(/\\emph\s*\{([^{}]*)\}/g, "$1")
+      .replace(/\\([a-zA-Z]+)\s*\{([^{}]*)\}/g, (_m, name, body) =>
+        LATEX_DROP_COMMANDS.has(name) ? "" : body,
+      )
+      .replace(/\\[a-zA-Z]+/g, "")
+      .replace(/\{([^{}]*)\}/g, "$1")
+      .replace(/~/g, " ")
+      .replace(/\\\\/g, " ")
+      // LaTeX escape sequences for common text characters. Keep after the
+      // command-stripping passes above so we don't accidentally collapse them.
+      .replace(/\\([%$&#_{}])/g, "$1")
+  );
 }
 
 /**
@@ -1140,9 +1193,7 @@ function extractMarkdownAbstract(source: string): string | null {
   const lines = source.split(/\r?\n/);
 
   // 1) Find an "## Abstract" / "# Abstract" / "### Abstract" heading.
-  const headingIdx = lines.findIndex((line) =>
-    /^#{1,6}\s+abstract\s*$/i.test(line.trim()),
-  );
+  const headingIdx = lines.findIndex((line) => /^#{1,6}\s+abstract\s*$/i.test(line.trim()));
   if (headingIdx !== -1) {
     const collected: string[] = [];
     for (let i = headingIdx + 1; i < lines.length; i += 1) {
@@ -1170,10 +1221,7 @@ function cleanAbstractWhitespace(value: string): string {
 }
 
 function folderNameToTitle(folderName: string): string {
-  const cleaned = folderName
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const cleaned = folderName.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
   if (!cleaned) return "Untitled paper";
   return cleaned.slice(0, 1).toUpperCase() + cleaned.slice(1);
 }
@@ -1410,10 +1458,7 @@ async function inspectPaperFolder(
 
   const id = encodePaperId(candidate.folderAbsolutePath);
 
-  const toFile = (
-    relativePath: string,
-    stat: StatInfo,
-  ): LocalPaperFile => ({
+  const toFile = (relativePath: string, stat: StatInfo): LocalPaperFile => ({
     relativePath,
     url: localPaperFileRoutePath(id, relativePath),
     sizeBytes: stat.sizeBytes,
@@ -1530,18 +1575,13 @@ export const makeLocalPapersService = Effect.gen(function* () {
       const readModel = yield* orchestrationEngine.getReadModel();
       const containerRoot = normalizeWorkspacePath(settings.workspaceRoot);
       const authState = yield* agentScienceAuth.getState.pipe(
-        Effect.mapError(
-          (error) => new LocalPaperPublishError(error.message, 401),
-        ),
+        Effect.mapError((error) => new LocalPaperPublishError(error.message, 401)),
       );
       const token = yield* agentScienceAuth.getBearerToken;
 
       if (authState.status !== "signed-in" || !authState.user || !token) {
         return yield* Effect.fail(
-          new LocalPaperPublishError(
-            "Connect this device to AgentScience before publishing.",
-            401,
-          ),
+          new LocalPaperPublishError("Connect this device to AgentScience before publishing.", 401),
         );
       }
       if (authState.user.publishNameRequired) {
@@ -1659,10 +1699,7 @@ export const makeLocalPapersService = Effect.gen(function* () {
                 )}`,
               });
             } catch (error) {
-              if (
-                error instanceof LocalPaperPublishError &&
-                error.status === 404
-              ) {
+              if (error instanceof LocalPaperPublishError && error.status === 404) {
                 publication = await sendRequest({
                   method: "POST",
                   pathname: "/api/v1/papers",
@@ -1747,5 +1784,6 @@ export const __internal = {
   TEX_FILENAME_CANDIDATES,
   MD_FILENAME_CANDIDATES,
   MAX_SCAN_DEPTH,
+  AGENTSCIENCE_IGNORE_FILENAME,
   PUBLISHED_METADATA_FILENAME,
 };
