@@ -712,7 +712,7 @@ export default function Sidebar() {
                         key={thread.id}
                         draggable={!thread.isDraft}
                         className={cn(
-                          "group/thread flex items-start gap-1 rounded-md transition-colors",
+                          "group/thread relative flex items-start rounded-md transition-colors",
                           !thread.isDraft && "cursor-grab active:cursor-grabbing",
                           draggedThreadId === thread.id && "opacity-60",
                           routeThreadId === thread.id
@@ -735,7 +735,7 @@ export default function Sidebar() {
                       >
                         <button
                           type="button"
-                          className="flex min-w-0 flex-1 items-start px-3 py-2 text-left"
+                          className="flex min-w-0 flex-1 flex-col items-start px-3 py-2 text-left"
                           onClick={() => {
                             void navigate({
                               to: "/$threadId",
@@ -743,7 +743,7 @@ export default function Sidebar() {
                             });
                           }}
                         >
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0 w-full">
                             {isEditingThread ? (
                               <input
                                 autoFocus
@@ -768,12 +768,12 @@ export default function Sidebar() {
                               />
                             ) : (
                               <>
-                                <div className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
+                                <div className="w-full min-w-0 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
                                   {thread.title}
                                 </div>
                                 <div
                                   className={cn(
-                                    "mt-1 flex items-center gap-1.5 text-xs",
+                                    "mt-1 flex w-full min-w-0 items-center gap-1.5 text-xs",
                                     threadStatus
                                       ? threadStatus.colorClass
                                       : "text-sidebar-foreground/60",
@@ -793,7 +793,7 @@ export default function Sidebar() {
                           </div>
                         </button>
                         {!isEditingThread && !thread.isDraft ? (
-                          <div className="flex items-center gap-0.5 pr-2 pt-2 opacity-0 transition-opacity group-hover/thread:opacity-100 group-focus-within/thread:opacity-100">
+                          <div className="pointer-events-none absolute right-1 top-1 flex items-center gap-0.5 rounded-md bg-sidebar-accent/90 opacity-0 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
                             <button
                               type="button"
                               className="inline-flex size-7 items-center justify-center rounded-md text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
@@ -958,7 +958,7 @@ export default function Sidebar() {
                               key={thread.id}
                               draggable={!thread.isDraft}
                               className={cn(
-                                "group/thread flex items-start gap-1 rounded-md transition-colors",
+                                "group/thread relative flex items-start rounded-md transition-colors",
                                 !thread.isDraft && "cursor-grab active:cursor-grabbing",
                                 draggedThreadId === thread.id && "opacity-60",
                                 routeThreadId === thread.id
@@ -981,7 +981,7 @@ export default function Sidebar() {
                             >
                               <button
                                 type="button"
-                                className="flex min-w-0 flex-1 items-start px-3 py-2 text-left"
+                                className="flex min-w-0 flex-1 flex-col items-start px-3 py-2 text-left"
                                 onClick={() => {
                                   void navigate({
                                     to: "/$threadId",
@@ -989,7 +989,7 @@ export default function Sidebar() {
                                   });
                                 }}
                               >
-                                <div className="min-w-0 flex-1">
+                                <div className="min-w-0 w-full">
                                   {isEditingThread ? (
                                     <input
                                       autoFocus
@@ -1016,12 +1016,12 @@ export default function Sidebar() {
                                     />
                                   ) : (
                                     <>
-                                      <div className="min-w-0 flex-1 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
+                                      <div className="w-full min-w-0 truncate text-[0.9375rem] font-medium leading-snug tracking-[-0.005em] text-sidebar-foreground">
                                         {thread.title}
                                       </div>
                                       <div
                                         className={cn(
-                                          "mt-1 flex items-center gap-1.5 text-xs",
+                                          "mt-1 flex w-full min-w-0 items-center gap-1.5 text-xs",
                                           threadStatus
                                             ? threadStatus.colorClass
                                             : routeThreadId === thread.id
@@ -1046,7 +1046,7 @@ export default function Sidebar() {
                               </button>
 
                               {!isEditingThread && !thread.isDraft ? (
-                                <div className="flex items-center gap-0.5 pr-2 pt-2 opacity-0 transition-opacity group-hover/thread:opacity-100 group-focus-within/thread:opacity-100">
+                                <div className="pointer-events-none absolute right-1 top-1 flex items-center gap-0.5 rounded-md bg-sidebar-accent/90 opacity-0 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
                                   {canRenameThread ? (
                                     <button
                                       type="button"
