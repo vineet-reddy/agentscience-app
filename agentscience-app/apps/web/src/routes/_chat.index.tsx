@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ArrowUpIcon } from "lucide-react";
 import { useState } from "react";
 
+import { useComposerAutoSubmitStore } from "../composerAutoSubmitStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useComposerFocusStore } from "../composerFocusStore";
 import { isElectron } from "../env";
@@ -18,9 +19,10 @@ function ChatIndexRouteView() {
   const [prompt, setPromptValue] = useState("");
   const setPrompt = useComposerDraftStore((store) => store.setPrompt);
   const requestComposerFocus = useComposerFocusStore((store) => store.requestFocus);
+  const requestComposerAutoSubmit = useComposerAutoSubmitStore((store) => store.requestSubmit);
   const setPaperWorkflowMode = useUiStateStore((store) => store.setPaperWorkflowMode);
 
-  const startPaper = async () => {
+  const startPaper = async (options?: { submitPrompt?: boolean }) => {
     const threadId = await handleNewThread(null, { kind: "paper" });
     setPaperWorkflowMode(threadId, null);
     const trimmedPrompt = prompt.trim();
@@ -31,9 +33,15 @@ function ChatIndexRouteView() {
       threadId,
       ...(trimmedPrompt ? { seedPrompt: trimmedPrompt } : {}),
     });
+    if (options?.submitPrompt && trimmedPrompt) {
+      requestComposerAutoSubmit({ threadId });
+    }
   };
 
-  const startAgent = async (workflowMode: PaperWorkflowMode | null) => {
+  const startAgent = async (
+    workflowMode: PaperWorkflowMode | null,
+    options?: { submitPrompt?: boolean },
+  ) => {
     const threadId = await handleNewThread(null, { kind: "agent" });
     setPaperWorkflowMode(threadId, workflowMode);
     const trimmedPrompt = prompt.trim();
@@ -44,6 +52,9 @@ function ChatIndexRouteView() {
       threadId,
       ...(trimmedPrompt ? { seedPrompt: trimmedPrompt } : {}),
     });
+    if (options?.submitPrompt && trimmedPrompt) {
+      requestComposerAutoSubmit({ threadId });
+    }
   };
 
   return (
@@ -80,7 +91,7 @@ function ChatIndexRouteView() {
             className="mt-10 w-full border-y border-rule py-5"
             onSubmit={(event) => {
               event.preventDefault();
-              void startPaper();
+              void startPaper({ submitPrompt: true });
             }}
           >
             <div className="relative">
@@ -90,7 +101,7 @@ function ChatIndexRouteView() {
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" || event.shiftKey) return;
                   event.preventDefault();
-                  void startPaper();
+                  void startPaper({ submitPrompt: true });
                 }}
                 rows={4}
                 placeholder="Describe the paper you want to create"
@@ -113,7 +124,7 @@ function ChatIndexRouteView() {
                     key={mode.id}
                     type="button"
                     onClick={() => {
-                      void startAgent(mode.id);
+                      void startAgent(mode.id, { submitPrompt: true });
                     }}
                     className={cn(
                       "inline-flex items-center gap-2 rounded-[4px] border border-rule bg-background px-3 py-2 text-[0.8125rem] font-medium text-ink transition-colors duration-150 ease-linear hover:border-ink-faint hover:bg-snow-white",
@@ -134,7 +145,7 @@ function ChatIndexRouteView() {
             <button
               type="button"
               onClick={() => {
-                void startAgent(null);
+                void startAgent(null, { submitPrompt: true });
               }}
               className="text-[0.8125rem] text-ink-light transition-colors duration-150 ease-linear hover:text-ink"
             >

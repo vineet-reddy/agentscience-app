@@ -144,6 +144,7 @@ import {
   useComposerDatasetMentionStore,
   useComposerDatasetMentionsForThread,
 } from "../composerDatasetMentionStore";
+import { useComposerAutoSubmitStore } from "../composerAutoSubmitStore";
 import { useComposerFocusStore } from "../composerFocusStore";
 import {
   datasetToSlug,
@@ -1807,6 +1808,9 @@ export default function ChatView({
   const composerFocusToken = useComposerFocusStore((store) => store.token);
   const composerFocusTargetThreadId = useComposerFocusStore((store) => store.threadId);
   const consumeComposerFocus = useComposerFocusStore((store) => store.consume);
+  const composerAutoSubmitToken = useComposerAutoSubmitStore((store) => store.token);
+  const composerAutoSubmitThreadId = useComposerAutoSubmitStore((store) => store.threadId);
+  const consumeComposerAutoSubmit = useComposerAutoSubmitStore((store) => store.consume);
   useEffect(() => {
     if (composerFocusToken === 0) return;
     if (composerFocusTargetThreadId !== threadId) return;
@@ -3309,6 +3313,31 @@ export default function ChatView({
       resetLocalDispatch();
     }
   };
+
+  useEffect(() => {
+    if (composerAutoSubmitToken === 0) return;
+    if (composerAutoSubmitThreadId !== threadId) return;
+    if (!activeThread) return;
+    if (!composerSendState.hasSendableContent) return;
+    if (isSendBusy || isConnecting || sendInFlightRef.current) return;
+
+    scheduleComposerFocus();
+    void (async () => {
+      await onSend();
+      consumeComposerAutoSubmit(composerAutoSubmitToken);
+    })();
+  }, [
+    activeThread,
+    composerAutoSubmitThreadId,
+    composerAutoSubmitToken,
+    composerSendState.hasSendableContent,
+    consumeComposerAutoSubmit,
+    isConnecting,
+    isSendBusy,
+    onSend,
+    scheduleComposerFocus,
+    threadId,
+  ]);
 
   const onInterrupt = async () => {
     const api = readNativeApi();
