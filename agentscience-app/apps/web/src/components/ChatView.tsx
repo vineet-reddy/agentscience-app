@@ -4418,7 +4418,7 @@ export default function ChatView({
               <div
                 className={cn(
                   "group rounded-[22px] p-px transition-colors duration-200",
-                  researchDepth === "standard" ? "bg-primary/20" : "bg-warning/25",
+                  researchDepth === "standard" ? "bg-ring/20" : "bg-warning/25",
                   composerProviderState.composerFrameClassName,
                 )}
                 onDragEnter={onComposerDragEnter}
@@ -4431,7 +4431,7 @@ export default function ChatView({
                     "rounded-[20px] border bg-card transition-colors duration-200",
                     researchDepth === "max"
                       ? "has-focus-visible:border-warning/55"
-                      : "has-focus-visible:border-primary/55",
+                      : "has-focus-visible:border-ring/45",
                     isDragOverComposer
                       ? "border-primary/70 bg-accent/30"
                       : composerMenuOpen && !isComposerApprovalState
@@ -4495,7 +4495,7 @@ export default function ChatView({
                             "pointer-events-auto inline-flex h-7 items-center rounded-full border bg-background/92 p-0.5 text-[11px] font-medium shadow-sm backdrop-blur-sm",
                             researchDepth === "max"
                               ? "border-warning/45 bg-warning/8"
-                              : "border-primary/35 bg-primary/5",
+                              : "border-ring/35 bg-ring/5",
                           )}
                           aria-label="Answer mode"
                           role="group"
@@ -4505,7 +4505,7 @@ export default function ChatView({
                             className={cn(
                               "h-6 rounded-full px-2.5 transition-colors",
                               researchDepth === "standard"
-                                ? "bg-primary/14 text-foreground shadow-sm ring-1 ring-primary/35"
+                                ? "bg-ring/14 text-foreground shadow-sm ring-1 ring-ring/35"
                                 : "text-muted-foreground hover:text-foreground",
                             )}
                             aria-pressed={researchDepth === "standard"}
