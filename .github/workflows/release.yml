@@ -336,10 +336,6 @@ jobs:
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
         run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION" --github-output
 
-      - name: Format package.json files
-        if: steps.update_versions.outputs.changed == 'true'
-        run: bunx oxfmt apps/server/package.json apps/desktop/package.json apps/web/package.json packages/contracts/package.json
-
       - name: Refresh lockfile
         if: steps.update_versions.outputs.changed == 'true'
         run: bun install --lockfile-only --ignore-scripts

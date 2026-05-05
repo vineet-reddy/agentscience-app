@@ -39,5 +39,4 @@ Release checks run for this implementation:
 - `bun --filter @agentscience/server test -- src/agentScienceRuntimeStatus.test.ts src/provider/Layers/CodexAdapter.test.ts src/orchestration/decider.projectScripts.test.ts src/orchestration/Layers/OrchestrationEngine.test.ts`
 - `bun --filter @agentscience/web test -- src/lib/agentScienceRuntimeStatus.test.ts src/rpc/serverState.test.ts src/components/settings/SettingsPanels.browser.tsx src/composerDraftStore.test.ts`
 - `bun --filter @agentscience/shared test -- src/stagePromptBuilder.test.ts`
-- `bun run fmt:check -- <touched files>`
 - `bun run build`
