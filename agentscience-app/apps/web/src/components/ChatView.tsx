@@ -34,6 +34,7 @@ import {
   useRef,
   useState,
 } from "react";
+import * as Schema from "effect/Schema";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -103,7 +104,6 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  GaugeIcon,
   HandIcon,
   ListIcon,
   ListTodoIcon,
@@ -114,6 +114,14 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { cn, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
 import { type NewProjectScriptInput } from "./ProjectScriptsControl";
@@ -236,6 +244,7 @@ const EMPTY_DATASET_ENTRIES: DatasetEntry[] = [];
 const EMPTY_DATASET_PROVIDERS: DatasetProvider[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+const MAX_MODE_ACKNOWLEDGED_STORAGE_KEY = "agentscience:max-mode-acknowledged:v1";
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -703,6 +712,12 @@ export default function ChatView({
     select: (params) => parseDiffRouteSearch(params),
   });
   const { resolvedTheme } = useTheme();
+  const [hasAcknowledgedMaxMode, setHasAcknowledgedMaxMode] = useLocalStorage(
+    MAX_MODE_ACKNOWLEDGED_STORAGE_KEY,
+    false,
+    Schema.Boolean,
+  );
+  const [maxModeDialogOpen, setMaxModeDialogOpen] = useState(false);
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
@@ -2175,7 +2190,7 @@ export default function ChatView({
       threadId,
     ],
   );
-  const handleResearchDepthChange = useCallback(
+  const applyResearchDepthChange = useCallback(
     (depth: ResearchDepth) => {
       if (depth === researchDepth) return;
       setComposerDraftResearchDepth(threadId, depth, { persistSticky: true });
@@ -2209,6 +2224,21 @@ export default function ChatView({
       threadId,
     ],
   );
+  const handleResearchDepthChange = useCallback(
+    (depth: ResearchDepth) => {
+      if (depth === "max" && !hasAcknowledgedMaxMode) {
+        setMaxModeDialogOpen(true);
+        return;
+      }
+      applyResearchDepthChange(depth);
+    },
+    [applyResearchDepthChange, hasAcknowledgedMaxMode],
+  );
+  const confirmMaxMode = useCallback(() => {
+    setHasAcknowledgedMaxMode(true);
+    setMaxModeDialogOpen(false);
+    applyResearchDepthChange("max");
+  }, [applyResearchDepthChange, setHasAcknowledgedMaxMode]);
   const toggleInteractionMode = useCallback(() => {
     handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [handleInteractionModeChange, interactionMode]);
@@ -2217,9 +2247,6 @@ export default function ChatView({
       runtimeMode === "full-access" ? "approval-required" : "full-access",
     );
   }, [handleRuntimeModeChange, runtimeMode]);
-  const toggleResearchDepth = useCallback(() => {
-    handleResearchDepthChange(researchDepth === "max" ? "standard" : "max");
-  }, [handleResearchDepthChange, researchDepth]);
   const togglePlanSidebar = useCallback(() => {
     setPlanSidebarOpen((open) => {
       if (open) {
@@ -4391,7 +4418,7 @@ export default function ChatView({
               <div
                 className={cn(
                   "group rounded-[22px] p-px transition-colors duration-200",
-                  researchDepth === "max" && "bg-foreground/20",
+                  researchDepth === "max" && "bg-warning/25",
                   composerProviderState.composerFrameClassName,
                 )}
                 onDragEnter={onComposerDragEnter}
@@ -4407,7 +4434,7 @@ export default function ChatView({
                       : composerMenuOpen && !isComposerApprovalState
                         ? "border-primary/60"
                         : researchDepth === "max"
-                          ? "border-foreground/25"
+                          ? "border-warning/45"
                           : "border-border",
                     composerProviderState.composerSurfaceClassName,
                   )}
@@ -4457,6 +4484,50 @@ export default function ChatView({
                         />
                       </div>
                     )}
+
+                    {!isComposerApprovalState && pendingUserInputs.length === 0 ? (
+                      <div className="mb-2 flex justify-end">
+                        <div
+                          className={cn(
+                            "inline-flex h-7 items-center rounded-full border bg-muted/35 p-0.5 text-[11px] font-medium shadow-sm",
+                            researchDepth === "max"
+                              ? "border-warning/45 bg-warning/10"
+                              : "border-border/70",
+                          )}
+                          aria-label="Answer mode"
+                          role="group"
+                        >
+                          <button
+                            type="button"
+                            className={cn(
+                              "h-6 rounded-full px-2.5 transition-colors",
+                              researchDepth === "standard"
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                            aria-pressed={researchDepth === "standard"}
+                            onClick={() => handleResearchDepthChange("standard")}
+                            title="Standard: normal speed and token use."
+                          >
+                            Standard
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(
+                              "h-6 rounded-full px-2.5 transition-colors",
+                              researchDepth === "max"
+                                ? "bg-warning text-warning-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                            aria-pressed={researchDepth === "max"}
+                            onClick={() => handleResearchDepthChange("max")}
+                            title="Max: may take longer and use more tokens."
+                          >
+                            Max
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
 
                     {!isComposerApprovalState &&
                       pendingUserInputs.length === 0 &&
@@ -4609,12 +4680,10 @@ export default function ChatView({
                             )}
                             interactionMode={interactionMode}
                             planSidebarOpen={planSidebarOpen}
-                            researchDepth={researchDepth}
                             runtimeMode={runtimeMode}
                             traitsMenuContent={providerTraitsMenuContent}
                             onToggleInteractionMode={toggleInteractionMode}
                             onTogglePlanSidebar={togglePlanSidebar}
-                            onToggleResearchDepth={toggleResearchDepth}
                             onToggleRuntimeMode={toggleRuntimeMode}
                           />
                         ) : (
@@ -4628,38 +4697,6 @@ export default function ChatView({
                                 {providerTraitsPicker}
                               </>
                             ) : null}
-
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
-                            />
-
-                            <Button
-                              variant="ghost"
-                              className={cn(
-                                "shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3",
-                                researchDepth === "max" &&
-                                  "border border-foreground/20 bg-muted text-foreground",
-                              )}
-                              size="sm"
-                              type="button"
-                              onClick={toggleResearchDepth}
-                              title={
-                                researchDepth === "max"
-                                  ? "Max — runs frontier search, branch expansion, and critic passes. Click to switch to Standard."
-                                  : "Standard — adaptive research depth. Click to switch to Max frontier search."
-                              }
-                            >
-                              <GaugeIcon />
-                              <span className="sr-only sm:not-sr-only">
-                                {researchDepth === "max" ? "Max" : "Standard"}
-                              </span>
-                            </Button>
-
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
-                            />
 
                             <Button
                               variant="ghost"
@@ -4926,6 +4963,27 @@ export default function ChatView({
           )}
         </div>
       )}
+
+      <Dialog open={maxModeDialogOpen} onOpenChange={setMaxModeDialogOpen}>
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Use Max?</DialogTitle>
+            <DialogDescription>
+              Max may take longer and use substantially more tokens, which can increase cost. Use it
+              when you want AgentScience to spend more effort on the best possible scientific
+              answer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setMaxModeDialogOpen(false)}>
+              Stay Standard
+            </Button>
+            <Button size="sm" onClick={confirmMaxMode}>
+              Use Max
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }

@@ -4,11 +4,12 @@ Max mode is the high-rigor AgentScience research path for users who care more ab
 
 ## User Behavior
 
-- The composer exposes a `Standard` / `Max` depth control.
-- Standard remains the default and uses normal adaptive research depth.
-- Max visually marks the composer and sends `researchDepth: "max"` with the turn.
+- The composer exposes a binary `Standard` / `Max` control in the top-right of the prompt box.
+- Standard remains the default.
+- The visible product copy avoids implementation language such as search trees, reasoning, frontier expansion, or depth protocols.
+- The first time a user chooses Max, the app warns that Max may take longer, use substantially more tokens, and increase cost.
+- Max visually marks the composer with a subdued warning accent and sends `researchDepth: "max"` with the turn.
 - For Codex-backed turns, Max automatically disables fast mode and selects `xhigh` reasoning when the selected model supports it.
-- Compact composer controls expose the same depth choice in the menu.
 
 ## Runtime Behavior
 
