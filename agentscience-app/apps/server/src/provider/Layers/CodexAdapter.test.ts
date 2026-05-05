@@ -158,7 +158,7 @@ const agentScienceAuthTestLayer = Layer.mock(AgentScienceAuthService)({
   startLogin: Effect.die("unused"),
   cancelLogin: Effect.die("unused"),
   signOut: Effect.die("unused"),
-  getBearerToken: Effect.succeed(undefined),
+  getBearerToken: Effect.void.pipe(Effect.as(undefined as string | undefined)),
 });
 
 const validationManager = new FakeCodexManager();
@@ -294,6 +294,37 @@ sessionErrorLayer("CodexAdapterLive session errors", (it) => {
         model: "gpt-5.3-codex",
         effort: "high",
         serviceTier: "fast",
+      });
+    }),
+  );
+
+  it.effect("maps max research depth to xhigh effort without fast service tier", () =>
+    Effect.gen(function* () {
+      sessionErrorManager.sendTurnImpl.mockClear();
+      const adapter = yield* CodexAdapter;
+
+      yield* Effect.ignore(
+        adapter.sendTurn({
+          threadId: asThreadId("sess-missing"),
+          input: "hello",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.5",
+            options: {
+              fastMode: true,
+            },
+          },
+          researchDepth: "max",
+          attachments: [],
+        }),
+      );
+
+      assert.deepStrictEqual(sessionErrorManager.sendTurnImpl.mock.calls[0]?.[0], {
+        threadId: asThreadId("sess-missing"),
+        input: "hello",
+        model: "gpt-5.5",
+        effort: "xhigh",
+        researchDepth: "max",
       });
     }),
   );

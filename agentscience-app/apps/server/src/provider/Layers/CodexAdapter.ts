@@ -1407,7 +1407,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
-      const authState = yield* agentScienceAuth.getState.pipe(Effect.catchCause(() => Effect.succeed(null)));
+      const authState = yield* agentScienceAuth.getState.pipe(
+        Effect.catchCause(() => Effect.succeed(null)),
+      );
       const publishingIdentity =
         authState?.status === "signed-in" &&
         authState.user?.publicationProfileComplete &&
@@ -1497,13 +1499,18 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ...(input.modelSelection?.provider === "codex" &&
           input.modelSelection.options?.reasoningEffort !== undefined
             ? { effort: input.modelSelection.options.reasoningEffort }
-            : {}),
-          ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
+            : input.researchDepth === "max"
+              ? { effort: "xhigh" }
+              : {}),
+          ...(input.modelSelection?.provider === "codex" &&
+          input.modelSelection.options?.fastMode &&
+          input.researchDepth !== "max"
             ? { serviceTier: "fast" }
             : {}),
           ...(input.interactionMode !== undefined
             ? { interactionMode: input.interactionMode }
             : {}),
+          ...(input.researchDepth !== undefined ? { researchDepth: input.researchDepth } : {}),
           ...(codexAttachments.length > 0 ? { attachments: codexAttachments } : {}),
         };
         return manager.sendTurn(managerInput);

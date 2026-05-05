@@ -68,6 +68,18 @@ describe("buildWorkflowAgentInput", () => {
     expect(input.systemMessage).toContain("Take the lead");
     expect(input.systemMessage).toContain("materially change the science");
   });
+
+  it("adds the Max frontier-search protocol only for max research depth", () => {
+    const standard = buildWorkflowAgentInput("open", { researchDepth: "standard" });
+    const max = buildWorkflowAgentInput("open", { researchDepth: "max" });
+
+    expect(standard.systemMessage).toContain("Research depth: Standard");
+    expect(standard.systemMessage).not.toContain("Frontier Map");
+    expect(max.systemMessage).toContain("Research depth: Max");
+    expect(max.systemMessage).toContain("branching frontier-search protocol");
+    expect(max.systemMessage).toContain("Frontier Map");
+    expect(max.systemMessage).toContain("adversarial critic pass");
+  });
 });
 
 describe("gateToolForStage", () => {

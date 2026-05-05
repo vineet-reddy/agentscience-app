@@ -70,6 +70,9 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
+export const ResearchDepth = Schema.Literals(["standard", "max"]);
+export type ResearchDepth = typeof ResearchDepth.Type;
+export const DEFAULT_RESEARCH_DEPTH: ResearchDepth = "standard";
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
 export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
@@ -466,6 +469,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  researchDepth: Schema.optionalKey(ResearchDepth),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   createdAt: IsoDateTime,
@@ -485,6 +489,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
   titleSeed: Schema.optional(TrimmedNonEmptyString),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  researchDepth: Schema.optionalKey(ResearchDepth),
   bootstrap: Schema.optional(ThreadTurnStartBootstrap),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   createdAt: IsoDateTime,
@@ -832,6 +837,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
   ),
+  researchDepth: Schema.optionalKey(ResearchDepth),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
   createdAt: IsoDateTime,
 });

@@ -14,6 +14,7 @@ import {
   TurnId,
   type ProviderApprovalDecision,
   type ProviderEvent,
+  type ResearchDepth,
   type ProviderSession,
   type ProviderTurnStartResult,
   RuntimeMode,
@@ -119,6 +120,7 @@ export interface CodexAppServerSendTurnInput {
   readonly serviceTier?: string | null;
   readonly effort?: string;
   readonly interactionMode?: ProviderInteractionMode;
+  readonly researchDepth?: ResearchDepth;
 }
 
 export interface CodexAppServerStartSessionInput {
@@ -386,6 +388,33 @@ When you create or update a manuscript that should be reviewed in the desktop ap
 - Do not paste the full paper inline when the user is trying to review it in the app. Present the manuscript block instead so the review pane can open.
 </agentscience_paper_presentation>`;
 
+export const CODEX_AGENTSCIENCE_MAX_MODE_DEVELOPER_INSTRUCTIONS = `<agentscience_max_mode>
+This AgentScience turn is running in Max mode. Max mode is not permission to be verbose; it is a
+requirement to expand the search tree before synthesizing.
+
+Use the strongest available reasoning settings. Turn off fast shortcuts. For serious research
+questions, run a frontier-search protocol:
+
+1. Decompose the problem into assumptions, subclaims, expert-known baselines, and what would count
+   as a non-obvious contribution.
+2. Seed-search credible sources for the field, then build an internal Frontier Map of papers,
+   authors, methods, claims, datasets or benchmarks, objections, adjacent fields, and open
+   problems.
+3. Expand high-value frontier nodes for 2-3 rounds where warranted: forward citations, backward
+   citations, recent papers from the same author groups, competing methods, failure cases, critique
+   papers, and adjacent-field transfers.
+4. Use parallel subagents/scouts when the runtime exposes them and the branches can be bounded.
+   Do not duplicate work across scouts; synthesize their outputs yourself.
+5. Run an adversarial critic pass before the final answer. If the answer is only a competent
+   middle-of-the-literature summary, keep searching or say plainly that no strong original direction
+   was found.
+
+When the search is substantial, write durable notes in the workspace, such as
+\`frontier-map.md\`, \`claim-ledger.md\`, \`adversarial-review.md\`, or
+\`max-research-notes.md\`. Keep the visible response concise and expert-facing unless the user asks
+for the full audit trail.
+</agentscience_max_mode>`;
+
 const AGENTSCIENCE_PERSONALITY = loadPersonality();
 
 export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version;
@@ -551,6 +580,7 @@ function buildCodexCollaborationMode(input: {
   readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
+  readonly researchDepth?: ResearchDepth;
   readonly publishingIdentity?: AgentSciencePublishingIdentity;
 }):
   | {
@@ -566,15 +596,19 @@ function buildCodexCollaborationMode(input: {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? CODEX_DEFAULT_MODEL;
+  const developerInstructions = buildCodexModeDeveloperInstructions(
+    input.interactionMode,
+    input.publishingIdentity,
+  );
   return {
     mode: input.interactionMode,
     settings: {
       model,
-      reasoning_effort: input.effort ?? "medium",
-      developer_instructions: buildCodexModeDeveloperInstructions(
-        input.interactionMode,
-        input.publishingIdentity,
-      ),
+      reasoning_effort: input.researchDepth === "max" ? "xhigh" : (input.effort ?? "medium"),
+      developer_instructions:
+        input.researchDepth === "max"
+          ? `${developerInstructions}\n\n${CODEX_AGENTSCIENCE_MAX_MODE_DEVELOPER_INSTRUCTIONS}`
+          : developerInstructions,
     },
   };
 }
@@ -945,6 +979,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.researchDepth !== undefined ? { researchDepth: input.researchDepth } : {}),
       ...(context.publishingIdentity !== undefined
         ? { publishingIdentity: context.publishingIdentity }
         : {}),
