@@ -47,8 +47,8 @@ export function QuestionStagePanel({ state, view }: BasePanelProps) {
         <>
           <SectionLabel>Assumptions</SectionLabel>
           <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
-            {artifact.assumptions.map((assumption, index) => (
-              <li key={index} className="leading-relaxed">
+            {artifact.assumptions.map((assumption) => (
+              <li key={assumption} className="leading-relaxed">
                 {assumption}
               </li>
             ))}
@@ -89,8 +89,8 @@ export function NoveltyStagePanel({ state, view }: BasePanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {artifact.priorWork.map((row, index) => (
-                  <tr key={index} className="border-t border-border/60 align-top">
+                {artifact.priorWork.map((row) => (
+                  <tr key={`${row.title}:${row.claim}`} className="border-t border-border/60 align-top">
                     <td className="px-3 py-2 font-medium text-foreground">{row.title}</td>
                     <td className="px-3 py-2 text-foreground">{row.claim}</td>
                     <td className="px-3 py-2 text-muted-foreground uppercase tracking-[0.12em] text-[10px]">

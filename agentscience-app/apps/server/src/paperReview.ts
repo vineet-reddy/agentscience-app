@@ -162,17 +162,18 @@ function managedToolchainBinDirs(): string[] {
   }
 
   return unique(
-    [
-      ...managedToolchainRoots().flatMap((root) => {
+    managedToolchainRoots()
+      .flatMap((root) => {
         const platformKeys = platformToolchainKeys();
-        return [
-          ...platformKeys.map((platformKey) => path.join(root, platformKey, "bin")),
-          path.join(root, "bin"),
-          ...platformKeys.map((platformKey) => path.join(root, platformKey)),
-          root,
-        ];
-      }),
-    ].filter((candidate) => candidate.length > 0),
+        return platformKeys
+          .map((platformKey) => path.join(root, platformKey, "bin"))
+          .concat(
+            path.join(root, "bin"),
+            platformKeys.map((platformKey) => path.join(root, platformKey)),
+            root,
+          );
+      })
+      .filter((candidate) => candidate.length > 0),
   );
 }
 
@@ -582,7 +583,7 @@ function renderMarkdownBodyToLatex(markdown: string): string {
     const line = lines[index] ?? "";
 
     if (codeLines) {
-      if (/^```/.test(line.trim())) {
+      if (line.trim().startsWith("```")) {
         output.push(["\\begin{verbatim}", ...codeLines, "\\end{verbatim}"].join("\n"));
         codeLines = null;
       } else {
@@ -591,7 +592,7 @@ function renderMarkdownBodyToLatex(markdown: string): string {
       continue;
     }
 
-    if (/^```/.test(line.trim())) {
+    if (line.trim().startsWith("```")) {
       flushBlocks();
       codeLines = [];
       continue;
@@ -744,7 +745,7 @@ async function discoverSourceArtifact(
   const topLevelEntries = await readTopLevelEntries(workspaceRoot);
   const latexCandidate = topLevelEntries
     .filter((entry) => entry.toLowerCase().endsWith(".tex"))
-    .sort((left, right) => left.localeCompare(right))[0];
+    .toSorted((left, right) => left.localeCompare(right))[0];
   if (latexCandidate) {
     return toArtifact(threadId, workspaceRoot, latexCandidate, {
       kind: "latex",
@@ -758,7 +759,7 @@ async function discoverSourceArtifact(
         entry.toLowerCase().endsWith(".md") &&
         !NOTES_PRIORITY.includes(entry as (typeof NOTES_PRIORITY)[number]),
     )
-    .sort((left, right) => left.localeCompare(right))[0];
+    .toSorted((left, right) => left.localeCompare(right))[0];
   if (markdownCandidate) {
     return toArtifact(threadId, workspaceRoot, markdownCandidate, {
       kind: "markdown",
@@ -781,7 +782,7 @@ async function discoverPdfArtifact(
         ? `${path.basename(sourceArtifact.relativePath, path.extname(sourceArtifact.relativePath))}.pdf`
         : "",
       "paper.pdf",
-      ...topLevelEntries.filter((entry) => entry.toLowerCase().endsWith(".pdf")).sort(),
+      ...topLevelEntries.filter((entry) => entry.toLowerCase().endsWith(".pdf")).toSorted(),
     ].filter((candidate) => candidate.length > 0),
   );
 
@@ -989,7 +990,7 @@ async function toArtifactFromAbsolutePath(
 function latestPresentedManuscript(
   thread: ResolvedPaperReviewThread,
 ): PresentedManuscriptManifest | null {
-  for (const activity of [...thread.activities].reverse()) {
+  for (const activity of thread.activities.toReversed()) {
     if (activity.kind !== PAPER_PRESENTED_ACTIVITY_KIND) {
       continue;
     }

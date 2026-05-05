@@ -245,22 +245,22 @@ function toSuggestionItem(question: SuggestedQuestion): PickedItem {
   };
 }
 
+const byUpdatedDesc = <T extends { updatedAt?: string | undefined }>(
+  a: T,
+  b: T,
+): number => {
+  const aTs = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+  const bTs = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+  return bTs - aTs;
+};
+
 function buildOwnWorkItems(input: {
   inflightThreads: ReadonlyArray<ThreadLikeSummary>;
   completedThreads: ReadonlyArray<ThreadLikeSummary>;
   drafts: ReadonlyArray<DraftLikeSummary>;
   projects: ReadonlyArray<ProjectSummary>;
 }): PickedItem[] {
-  const byUpdatedDesc = <T extends { updatedAt?: string | undefined }>(
-    a: T,
-    b: T,
-  ): number => {
-    const aTs = a.updatedAt ? Date.parse(a.updatedAt) : 0;
-    const bTs = b.updatedAt ? Date.parse(b.updatedAt) : 0;
-    return bTs - aTs;
-  };
-
-  const inflight = [...input.inflightThreads].sort(byUpdatedDesc).map<PickedItem>((thread) => ({
+  const inflight = input.inflightThreads.toSorted(byUpdatedDesc).map<PickedItem>((thread) => ({
     kind: "thread",
     id: thread.id,
     title: thread.title || "Untitled thread",
@@ -268,8 +268,8 @@ function buildOwnWorkItems(input: {
     sourceTag: "In progress",
   }));
 
-  const drafts = [...input.drafts]
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+  const drafts = input.drafts
+    .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     .map<PickedItem>((draft) => ({
       kind: "draft",
       id: draft.threadId,
@@ -280,7 +280,7 @@ function buildOwnWorkItems(input: {
 
   const completed = [...input.completedThreads]
     .filter((thread) => !input.inflightThreads.some((t) => t.id === thread.id))
-    .sort(byUpdatedDesc)
+    .toSorted(byUpdatedDesc)
     .slice(0, 3)
     .map<PickedItem>((thread) => ({
       kind: "thread",

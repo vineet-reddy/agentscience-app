@@ -1794,23 +1794,6 @@ export function ArchivedThreadsPanel() {
   );
 }
 
-const ANALYTICS_PAYLOAD_PREVIEW = `{
-  "timestamp": "2026-05-04T03:42:00.000Z",
-  "sessionId": "171234567890123456",
-  "eventName": "app_opened",
-  "systemProps": {
-    "isDebug": false,
-    "locale": "en-US",
-    "osName": "macOS",
-    "osVersion": "14.5",
-    "engineName": "Chromium",
-    "engineVersion": "118.0.5993.159",
-    "appVersion": "1.4.2",
-    "sdkVersion": "aptabase-electron@0.3.1"
-  },
-  "props": {}
-}`;
-
 function PrivacySettingsSection() {
   const [settings, setSettings] = useState<AnalyticsSettings | null>(null);
   const [isToggling, setIsToggling] = useState(false);

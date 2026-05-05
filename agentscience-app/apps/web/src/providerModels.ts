@@ -81,7 +81,7 @@ function getLatestBuiltInGptModel(
       .filter(
         (entry): entry is { model: ServerProviderModel; rank: GptModelRank } => entry.rank !== null,
       )
-      .sort(compareGptModelRanks)[0]?.model ?? null
+      .toSorted(compareGptModelRanks)[0]?.model ?? null
   );
 }
 

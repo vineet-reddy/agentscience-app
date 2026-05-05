@@ -262,7 +262,7 @@ describe("buildProviderOptions", () => {
     const counts = countDatasetsByProvider([]);
     const options = buildProviderOptions([openneuro, huggingface], counts);
 
-    expect(options.map((o) => o.provider.id).sort()).toEqual(["prov_1", "prov_2"]);
+    expect(options.map((o) => o.provider.id).toSorted()).toEqual(["prov_1", "prov_2"]);
     options.forEach((option) => {
       expect(option.liveCount).toBe(0);
     });

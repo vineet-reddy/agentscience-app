@@ -49,14 +49,15 @@ export const StagePanel = memo(function StagePanel({
   const state = useThreadStageState(threadId);
   const [view, setView] = useState<CanvasView>("preview");
   const [localFocusedStageId, setLocalFocusedStageId] = useState<StageId | null>(null);
+  const currentStageId = state?.currentStageId ?? null;
 
   useEffect(() => {
-    if (!state) {
+    if (!currentStageId) {
       setLocalFocusedStageId(null);
       return;
     }
-    setLocalFocusedStageId(state.currentStageId);
-  }, [state?.currentStageId]);
+    setLocalFocusedStageId(currentStageId);
+  }, [currentStageId]);
 
   // Threads without stage state fall back to the legacy paper review panel.
   if (!state) {
@@ -114,7 +115,7 @@ export const StagePanel = memo(function StagePanel({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <StageBody stageId={stageId} threadId={threadId} state={state} view={view} />
+        <StageBody stageId={stageId} state={state} view={view} />
         {!stage?.artifact && (
           <div className="mx-auto max-w-3xl px-5 py-12 text-center">
             <p className="font-display text-[1.4rem] text-foreground">
@@ -158,12 +159,11 @@ function ViewButton({
 
 interface StageBodyProps {
   stageId: StageId;
-  threadId: ThreadId;
   state: NonNullable<ReturnType<typeof useThreadStageState>>;
   view: CanvasView;
 }
 
-function StageBody({ stageId, threadId, state, view }: StageBodyProps) {
+function StageBody({ stageId, state, view }: StageBodyProps) {
   switch (stageId) {
     case "question":
       return <QuestionStagePanel state={state} view={view} />;

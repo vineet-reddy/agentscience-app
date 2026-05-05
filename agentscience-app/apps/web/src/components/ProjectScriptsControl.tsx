@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import React, { type FormEvent, useCallback, useMemo, useState } from "react";
 
-import { nextProjectScriptId, primaryProjectScript } from "~/projectScripts";
+import { primaryProjectScript } from "~/projectScripts";
 import {
   AlertDialog,
   AlertDialogClose,

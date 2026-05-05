@@ -17,6 +17,9 @@ const testLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
   Layer.provideMerge(NodeServices.layer),
 );
 
+const isoAt = (offsetSeconds: number) =>
+  new Date(Date.UTC(2026, 2, 1, 0, 0, 0, 0) + offsetSeconds * 1_000).toISOString();
+
 describe("ProjectionSnapshotQuery", () => {
   it("hydrates the read model from projection tables and local metadata", async () => {
     const snapshot = await Effect.gen(function* () {
@@ -540,8 +543,6 @@ describe("ProjectionSnapshotQuery", () => {
     const MAX_PROPOSED_PLANS = 200;
     const MAX_ACTIVITIES = 500;
     const MAX_CHECKPOINTS = 500;
-    const isoAt = (offsetSeconds: number) =>
-      new Date(Date.UTC(2026, 2, 1, 0, 0, 0, 0) + offsetSeconds * 1_000).toISOString();
 
     const snapshot = await Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

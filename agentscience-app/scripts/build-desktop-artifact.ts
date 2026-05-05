@@ -1139,7 +1139,7 @@ function createDevManagedResourcesRecipe(
         tinytexVersion: MANAGED_PAPER_TOOLCHAIN_TINYTEX_VERSION,
         tinytexBundle: MANAGED_PAPER_TOOLCHAIN_TINYTEX_BUNDLE,
         requiredLatexPackages: [...MANAGED_PAPER_TOOLCHAIN_REQUIRED_LATEX_PACKAGES],
-        targets: paperTargets.map((target) => ({ ...target })),
+        targets: paperTargets.map((target) => Object.assign({}, target)),
         wrapperScripts: {
           latexmk: managedTinyTeXWrapperScript("latexmk", "universal-darwin"),
           pdflatex: managedTinyTeXWrapperScript("pdflatex", "universal-darwin"),
@@ -1151,11 +1151,12 @@ function createDevManagedResourcesRecipe(
         pythonVersion: MANAGED_SCIENCE_RUNTIME_PYTHON_VERSION,
         uvVersion: MANAGED_SCIENCE_RUNTIME_UV_VERSION,
         packageSpecs: [...MANAGED_SCIENCE_RUNTIME_PACKAGE_SPECS],
-        targets: scienceTargets.map((target) => ({
-          ...target,
-          pythonArchiveName: resolveManagedSciencePythonArchiveName(target),
-          uvArchiveName: resolveManagedScienceUvArchiveName(target),
-        })),
+        targets: scienceTargets.map((target) =>
+          Object.assign({}, target, {
+            pythonArchiveName: resolveManagedSciencePythonArchiveName(target),
+            uvArchiveName: resolveManagedScienceUvArchiveName(target),
+          }),
+        ),
       },
     },
   };

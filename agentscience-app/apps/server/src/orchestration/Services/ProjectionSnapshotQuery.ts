@@ -8,7 +8,6 @@
  */
 import type {
   OrchestrationCheckpointSummary,
-  OrchestrationProject,
   OrchestrationReadModel,
   ProjectId,
   ThreadId,

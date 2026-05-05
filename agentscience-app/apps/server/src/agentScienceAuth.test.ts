@@ -131,7 +131,7 @@ it.effect(
       );
       const tokenFilePath = path.join(tempDir, "agentscience-auth.json");
 
-      const { fetch, calls } = makeStubFetch([
+      const { fetch } = makeStubFetch([
         {
           method: "POST",
           pathname: "/api/v1/auth/device",

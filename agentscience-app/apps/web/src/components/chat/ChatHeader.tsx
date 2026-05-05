@@ -1,10 +1,9 @@
 import { type EditorId, type ProjectScript, type ThreadId } from "@agentscience/contracts";
 import { memo } from "react";
-import GitActionsControl from "../GitActionsControl";
-import { BookOpenTextIcon, DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { BookOpenTextIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
+import { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { SidebarReopenTrigger } from "../SidebarReopenTrigger";
@@ -38,29 +37,17 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader = memo(function ChatHeader({
-  activeThreadId,
   activeThreadTitle,
   activeProjectName,
-  isGitRepo,
   openInCwd,
-  activeProjectScripts,
-  preferredScriptId,
   availableEditors,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
-  diffToggleShortcutLabel,
-  gitCwd,
-  diffOpen,
   paperReviewAvailable,
   paperReviewOpen,
   activeWorkStatusLabel,
-  onRunProjectScript,
-  onAddProjectScript,
-  onUpdateProjectScript,
-  onDeleteProjectScript,
   onToggleTerminal,
-  onToggleDiff,
   onTogglePaperReview,
 }: ChatHeaderProps) {
   return (
@@ -93,27 +80,11 @@ export const ChatHeader = memo(function ChatHeader({
             </span>
           </div>
         ) : null}
-        {/* {activeProjectName && !isGitRepo && (
-          <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
-            No Git
-          </Badge>
-        )} */}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
-        {/* {activeProjectScripts && (
-          <ProjectScriptsControl
-            scripts={activeProjectScripts}
-            preferredScriptId={preferredScriptId}
-            onRunScript={onRunProjectScript}
-            onAddScript={onAddProjectScript}
-            onUpdateScript={onUpdateProjectScript}
-            onDeleteScript={onDeleteProjectScript}
-          />
-        )} */}
         {activeProjectName && (
           <OpenInPicker availableEditors={availableEditors} openInCwd={openInCwd} />
         )}
-        {/* {activeProjectName && <GitActionsControl gitCwd={gitCwd} activeThreadId={activeThreadId} />} */}
         {terminalAvailable && (
           <Tooltip>
             <TooltipTrigger
@@ -158,30 +129,6 @@ export const ChatHeader = memo(function ChatHeader({
             </TooltipPopup>
           </Tooltip>
         )}
-        {/* <Tooltip>
-          <TooltipTrigger
-            render={
-              <Toggle
-                className="shrink-0"
-                pressed={diffOpen}
-                onPressedChange={onToggleDiff}
-                aria-label="Toggle diff panel"
-                variant="outline"
-                size="xs"
-                disabled={!isGitRepo}
-              >
-                <DiffIcon className="size-3" />
-              </Toggle>
-            }
-          />
-          <TooltipPopup side="bottom">
-            {!isGitRepo
-              ? "Diff panel is unavailable because this project is not a git repository."
-              : diffToggleShortcutLabel
-                ? `Toggle diff panel (${diffToggleShortcutLabel})`
-                : "Toggle diff panel"}
-          </TooltipPopup>
-        </Tooltip> */}
       </div>
     </div>
   );

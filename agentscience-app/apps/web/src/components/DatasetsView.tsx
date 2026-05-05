@@ -68,6 +68,9 @@ import { toastManager } from "./ui/toast";
 const DATASET_REGISTRY_QUERY_KEY = ["dataset-registry"] as const;
 const DATASET_PROVIDERS_QUERY_KEY = ["dataset-providers"] as const;
 const DATASET_TOPICS_QUERY_KEY = ["dataset-topics"] as const;
+const EMPTY_DATASETS: DatasetEntry[] = [];
+const EMPTY_PROVIDERS: DatasetProvider[] = [];
+const EMPTY_TOPICS: DatasetTopic[] = [];
 
 // Fallback labels for areas in case the topics endpoint hasn't responded yet.
 // Mirrors DATASET_AREA_META on the backend.
@@ -103,9 +106,9 @@ export function DatasetsView() {
     staleTime: 30_000,
   });
 
-  const datasets = datasetsQuery.data ?? [];
-  const providers = providersQuery.data ?? [];
-  const topics = topicsQuery.data?.topics ?? [];
+  const datasets = datasetsQuery.data ?? EMPTY_DATASETS;
+  const providers = providersQuery.data ?? EMPTY_PROVIDERS;
+  const topics = topicsQuery.data?.topics ?? EMPTY_TOPICS;
   const areasMeta = useMemo<DatasetAreaMeta[]>(() => {
     const fromApi = topicsQuery.data?.areas;
     if (fromApi && fromApi.length > 0) return fromApi;

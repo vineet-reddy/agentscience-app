@@ -50,7 +50,7 @@ type ProviderRegistryEntry = {
 function getProviderStateFromCapabilities(
   input: ComposerProviderStateInput,
 ): ComposerProviderState {
-  const { provider, model, models, prompt, modelOptions } = input;
+  const { provider, model, models, modelOptions } = input;
   const caps = getProviderModelCapabilities(models, model, provider);
   const providerOptions = modelOptions?.[provider];
 

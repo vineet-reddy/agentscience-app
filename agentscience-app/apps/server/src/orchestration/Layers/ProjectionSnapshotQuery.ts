@@ -871,40 +871,46 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => {
             const threadTurns = turnsByThread.get(row.threadId) ?? [];
             const session = sessionsByThread.get(row.threadId) ?? null;
-            return {
-              id: row.threadId,
-              projectId: row.projectId,
-              folderSlug: row.folderSlug,
-              resolvedWorkspacePath: resolveThreadWorkspacePath({
-                settingsWorkspaceRoot: settings.workspaceRoot,
-                threadId: row.threadId,
+            return Object.assign(
+              {
+                id: row.threadId,
                 projectId: row.projectId,
-                projectMetadataById,
-                threadMetadataById,
-              }),
-              title: row.title,
-              workspaceKind: threadMetadataById.get(row.threadId)?.workspaceKind ?? "paper",
-              modelSelection: row.modelSelection,
-              runtimeMode: row.runtimeMode,
-              interactionMode: row.interactionMode,
-              branch: row.branch,
-              worktreePath: row.worktreePath,
-              latestTurn: buildLatestTurn({
-                sessionActiveTurnId: session?.activeTurnId ?? null,
-                threadLatestTurnId: row.latestTurnId,
-                turns: threadTurns,
-              }),
-              createdAt: row.createdAt,
-              updatedAt: row.updatedAt,
-              archivedAt: row.archivedAt,
-              deletedAt: row.deletedAt,
-              messages: messagesByThread.get(row.threadId) ?? [],
-              proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
-              activities: activitiesByThread.get(row.threadId) ?? [],
-              checkpoints: buildCheckpointsFromTurns(threadTurns),
-              session,
-              ...(row.stageState !== null ? { stageState: row.stageState } : {}),
-            };
+                folderSlug: row.folderSlug,
+                resolvedWorkspacePath: resolveThreadWorkspacePath({
+                  settingsWorkspaceRoot: settings.workspaceRoot,
+                  threadId: row.threadId,
+                  projectId: row.projectId,
+                  projectMetadataById,
+                  threadMetadataById,
+                }),
+                title: row.title,
+                workspaceKind: threadMetadataById.get(row.threadId)?.workspaceKind ?? "paper",
+                modelSelection: row.modelSelection,
+                runtimeMode: row.runtimeMode,
+                interactionMode: row.interactionMode,
+                branch: row.branch,
+                worktreePath: row.worktreePath,
+                latestTurn: buildLatestTurn({
+                  sessionActiveTurnId: session?.activeTurnId ?? null,
+                  threadLatestTurnId: row.latestTurnId,
+                  turns: threadTurns,
+                }),
+                createdAt: row.createdAt,
+                updatedAt: row.updatedAt,
+                archivedAt: row.archivedAt,
+                deletedAt: row.deletedAt,
+                messages: messagesByThread.get(row.threadId) ?? [],
+                proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
+                activities: activitiesByThread.get(row.threadId) ?? [],
+                checkpoints: buildCheckpointsFromTurns(threadTurns),
+                session,
+              },
+              row.stageState !== null
+                ? {
+                    stageState: row.stageState,
+                  }
+                : {},
+            );
           });
 
           return yield* decodeReadModel({

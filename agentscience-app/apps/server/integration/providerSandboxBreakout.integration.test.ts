@@ -72,7 +72,7 @@ function changedPaths(
       }
       return left.type === "file" && right.type === "file" && left.contents !== right.contents;
     })
-    .sort();
+    .toSorted();
 }
 
 function readFileIfExists(filePath: string): string | null {

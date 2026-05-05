@@ -532,10 +532,15 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     };
 
     const getStartedSessions = (): ReadonlyArray<ProviderSessionStartInput> =>
-      startedSessions.map((input) => ({
-        ...input,
-        ...(input.modelSelection ? { modelSelection: { ...input.modelSelection } } : {}),
-      }));
+      startedSessions.map((input) =>
+        Object.assign(
+          {},
+          input,
+          input.modelSelection
+            ? { modelSelection: Object.assign({}, input.modelSelection) }
+            : {},
+        ),
+      );
 
     const getStartCount = (): number => sessionCount;
 

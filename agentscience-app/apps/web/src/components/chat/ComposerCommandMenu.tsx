@@ -133,8 +133,8 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         className="relative overflow-hidden rounded-xl border border-border/80 bg-popover/96 shadow-lg/8 backdrop-blur-xs"
       >
         <CommandList className="max-h-72">
-          {groupedItems.map((group, groupIndex) => (
-            <div key={`${group.key}-${groupIndex}`} className="py-1">
+          {groupedItems.map((group) => (
+            <div key={group.key} className="py-1">
               {group.label ? (
                 <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   {group.label}

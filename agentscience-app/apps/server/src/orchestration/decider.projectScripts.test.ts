@@ -37,7 +37,10 @@ describe("decider project scripts", () => {
 
     const events = Array.isArray(result) ? result : [result];
     expect(events.map((event) => event.type)).toEqual(["project.created"]);
-    expect((events[0]?.payload as { scripts: unknown[] }).scripts).toEqual([]);
+    const firstEvent = events[0];
+    expect(firstEvent).toBeDefined();
+    if (!firstEvent) throw new Error("Expected a project.created event.");
+    expect((firstEvent.payload as { scripts: unknown[] }).scripts).toEqual([]);
   });
 
   it("propagates scripts in project.meta.update payload", async () => {

@@ -86,7 +86,7 @@ export function buildTopicOptionsForArea(
   const scoped = activeArea === ALL_AREAS_ID ? topics : topics.filter((t) => t.area === activeArea);
   return scoped
     .filter((topic) => topic.providerCount > 0 || topic.datasetCount > 0)
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
       return a.name.localeCompare(b.name);
     });
@@ -122,7 +122,7 @@ export function buildProviderOptions(
     .filter(
       ({ liveCount, provider }) => liveCount > 0 || provider.datasetCount > 0,
     )
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       if (b.liveCount !== a.liveCount) return b.liveCount - a.liveCount;
       return a.provider.name.localeCompare(b.provider.name);
     });

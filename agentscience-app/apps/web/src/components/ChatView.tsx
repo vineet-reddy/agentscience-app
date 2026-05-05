@@ -2096,7 +2096,7 @@ export default function ChatView({
         nextScripts,
       });
     },
-    [activeProject, persistProjectScripts],
+    [activeProject, activeThread?.resolvedWorkspacePath, persistProjectScripts],
   );
   const updateProjectScript = useCallback(
     async (scriptId: string, input: NewProjectScriptInput) => {
@@ -2128,7 +2128,7 @@ export default function ChatView({
         nextScripts,
       });
     },
-    [activeProject, persistProjectScripts],
+    [activeProject, activeThread?.resolvedWorkspacePath, persistProjectScripts],
   );
   const deleteProjectScript = useCallback(
     async (scriptId: string) => {
@@ -2156,7 +2156,7 @@ export default function ChatView({
         });
       }
     },
-    [activeProject, persistProjectScripts],
+    [activeProject, activeThread?.resolvedWorkspacePath, persistProjectScripts],
   );
 
   const handleRuntimeModeChange = useCallback(
@@ -3418,6 +3418,8 @@ export default function ChatView({
       resetLocalDispatch();
     }
   };
+  const onSendRef = useRef(onSend);
+  onSendRef.current = onSend;
 
   useEffect(() => {
     if (composerAutoSubmitToken === 0) return;
@@ -3428,7 +3430,7 @@ export default function ChatView({
 
     scheduleComposerFocus();
     void (async () => {
-      await onSend();
+      await onSendRef.current();
       consumeComposerAutoSubmit(composerAutoSubmitToken);
     })();
   }, [
@@ -3439,7 +3441,6 @@ export default function ChatView({
     consumeComposerAutoSubmit,
     isConnecting,
     isSendBusy,
-    onSend,
     scheduleComposerFocus,
     threadId,
   ]);
@@ -3853,6 +3854,7 @@ export default function ChatView({
     selectedProvider,
     selectedProviderModels,
     selectedModel,
+    nextThreadFolderSlug,
   ]);
 
   const onProviderModelSelect = useCallback(
