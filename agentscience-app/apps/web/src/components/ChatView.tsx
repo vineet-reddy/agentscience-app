@@ -160,6 +160,10 @@ import {
   useComposerDatasetMentionStore,
   useComposerDatasetMentionsForThread,
 } from "../composerDatasetMentionStore";
+import {
+  appendAgentIntakeContextToPrompt,
+  useAgentIntakeStore,
+} from "../agentIntakeStore";
 import { useComposerAutoSubmitStore } from "../composerAutoSubmitStore";
 import { useComposerFocusStore } from "../composerFocusStore";
 import {
@@ -298,6 +302,21 @@ function derivePaperWorkStatusLabel(entries: ReturnType<typeof deriveWorkLogEntr
     return "Writing paper";
   }
   return "Working";
+}
+
+function initialAgentComposerPlaceholder(workflowMode: string): string | null {
+  switch (workflowMode) {
+    case "literature-review":
+      return "Describe what you want to review, or paste papers above";
+    case "experimental-design":
+      return "Describe the question you want to test, or attach existing work above";
+    case "data-analysis":
+      return "Describe what you want to find in the data, or connect a dataset above";
+    case "grant-writing":
+      return "Describe what you're applying for, or add the funding call above";
+    default:
+      return null;
+  }
 }
 
 const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
@@ -1507,6 +1526,8 @@ export default function ChatView({
       deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
     [activeThread?.proposedPlans, timelineMessages, workLogEntries],
   );
+  const agentComposerPlaceholder =
+    timelineEntries.length === 0 ? initialAgentComposerPlaceholder(activeWorkflowMode) : null;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
@@ -3350,12 +3371,24 @@ export default function ChatView({
       promptForSend,
       composerTerminalContextsSnapshot,
     );
-    const messageTextForSend = appendDatasetReferencesToPrompt(
+    const messageTextWithDatasetReferences = appendDatasetReferencesToPrompt(
       promptWithTerminalContexts,
       composerDatasetMentionsForThread,
     );
+    const messageTextForSend = appendAgentIntakeContextToPrompt(
+      messageTextWithDatasetReferences,
+      useAgentIntakeStore.getState().contextsByThreadId[threadIdForSend] ?? null,
+    );
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
+    const visibleMessageText = promptWithTerminalContexts || IMAGE_ONLY_BOOTSTRAP_PROMPT;
+    const outgoingVisibleMessageText = formatOutgoingPrompt({
+      provider: selectedProvider,
+      model: selectedModel,
+      models: selectedProviderModels,
+      effort: selectedPromptEffort,
+      text: visibleMessageText,
+    });
     const outgoingMessageText = formatOutgoingPrompt({
       provider: selectedProvider,
       model: selectedModel,
@@ -3388,7 +3421,7 @@ export default function ChatView({
       {
         id: messageIdForSend,
         role: "user",
-        text: outgoingMessageText,
+        text: outgoingVisibleMessageText,
         ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
         createdAt: messageCreatedAt,
         streaming: false,
@@ -3516,7 +3549,8 @@ export default function ChatView({
         message: {
           messageId: messageIdForSend,
           role: "user",
-          text: outgoingMessageText,
+          text: outgoingVisibleMessageText,
+          providerText: outgoingMessageText,
           attachments: turnAttachments,
         },
         modelSelection: selectedModelSelection,
@@ -3528,6 +3562,7 @@ export default function ChatView({
         createdAt: messageCreatedAt,
       });
       turnStartSucceeded = true;
+      useAgentIntakeStore.getState().clearContext(threadIdForSend);
     })().catch(async (err: unknown) => {
       if (
         !turnStartSucceeded &&
@@ -4757,6 +4792,8 @@ export default function ChatView({
                             ? "Type your own answer, or leave this blank to use the selected option"
                             : showPlanFollowUpPrompt && activeProposedPlan
                               ? "Add feedback to refine the plan, or leave this blank to implement it"
+                              : agentComposerPlaceholder
+                                ? agentComposerPlaceholder
                               : phase === "disconnected"
                                 ? "Ask for follow-up changes or attach files"
                                 : "Ask anything, @tag files/folders, or use / to show available commands"

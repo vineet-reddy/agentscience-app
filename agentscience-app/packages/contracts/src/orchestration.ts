@@ -483,6 +483,7 @@ export const ThreadTurnStartCommand = Schema.Struct({
     messageId: MessageId,
     role: Schema.Literal("user"),
     text: Schema.String,
+    providerText: Schema.optional(Schema.String),
     attachments: Schema.Array(ChatAttachment),
   }),
   modelSelection: Schema.optional(ModelSelection),
@@ -505,6 +506,7 @@ const ClientThreadTurnStartCommand = Schema.Struct({
     messageId: MessageId,
     role: Schema.Literal("user"),
     text: Schema.String,
+    providerText: Schema.optional(Schema.String),
     attachments: Schema.Array(UploadChatAttachment),
   }),
   modelSelection: Schema.optional(ModelSelection),
@@ -861,6 +863,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
   ),
   researchDepth: Schema.optionalKey(ResearchDepth),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
+  providerMessageText: Schema.optional(Schema.String),
   createdAt: IsoDateTime,
 });
 
