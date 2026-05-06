@@ -8,7 +8,7 @@ import {
 } from "./baseSchemas";
 import { EditorId } from "./editor";
 import { ModelCapabilities } from "./model";
-import { ProviderKind } from "./orchestration";
+import { ChatAttachment, ProviderKind } from "./orchestration";
 import { ServerSettings } from "./settings";
 
 export const ServerProviderState = Schema.Literals(["ready", "warning", "error", "disabled"]);
@@ -51,6 +51,25 @@ export type ServerProvider = typeof ServerProvider.Type;
 
 export const ServerProviders = Schema.Array(ServerProvider);
 export type ServerProviders = typeof ServerProviders.Type;
+
+export const AttachmentImportFilesInput = Schema.Struct({
+  threadId: ThreadId,
+  paths: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(8)),
+});
+export type AttachmentImportFilesInput = typeof AttachmentImportFilesInput.Type;
+
+export const AttachmentImportFilesResult = Schema.Struct({
+  attachments: Schema.Array(ChatAttachment),
+});
+export type AttachmentImportFilesResult = typeof AttachmentImportFilesResult.Type;
+
+export class AttachmentImportFilesError extends Schema.TaggedErrorClass<AttachmentImportFilesError>()(
+  "AttachmentImportFilesError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
 
 export const CodexAuthLoginType = Schema.Literals(["apiKey", "chatgpt"]);
 export type CodexAuthLoginType = typeof CodexAuthLoginType.Type;

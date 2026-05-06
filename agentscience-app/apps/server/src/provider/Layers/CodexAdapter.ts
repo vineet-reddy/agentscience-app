@@ -1464,6 +1464,18 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         new Error(`Invalid attachment id '${attachment.id}'.`),
       );
     }
+    if (attachment.type === "file") {
+      return {
+        type: "file" as const,
+        id: attachment.id,
+        path: attachmentPath,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes,
+        sha256: attachment.sha256,
+        storageName: attachment.storageName,
+      };
+    }
     const bytes = yield* fileSystem.readFile(attachmentPath).pipe(
       Effect.mapError(
         (cause) =>

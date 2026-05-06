@@ -84,6 +84,7 @@ const APTABASE_APP_KEY: string | undefined =
 initializeAnalyticsIfEligible({ appKey: APTABASE_APP_KEY });
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
+const PICK_FILES_CHANNEL = "desktop:pick-files";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
@@ -1470,6 +1471,20 @@ function registerIpcHandlers(): void {
         });
     if (result.canceled) return null;
     return result.filePaths[0] ?? null;
+  });
+
+  ipcMain.removeHandler(PICK_FILES_CHANNEL);
+  ipcMain.handle(PICK_FILES_CHANNEL, async () => {
+    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    const result = owner
+      ? await dialog.showOpenDialog(owner, {
+          properties: ["openFile", "multiSelections"],
+        })
+      : await dialog.showOpenDialog({
+          properties: ["openFile", "multiSelections"],
+        });
+    if (result.canceled) return [];
+    return result.filePaths;
   });
 
   ipcMain.removeHandler(CONFIRM_CHANNEL);

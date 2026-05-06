@@ -29,6 +29,8 @@ import type {
   CodexAuthCancelLoginInput,
   CodexAuthState,
   ServerConfig,
+  AttachmentImportFilesInput,
+  AttachmentImportFilesResult,
   ServerProviderUpdatedPayload,
   ServerRuntimeAgentScience,
 } from "./server";
@@ -112,6 +114,8 @@ export interface DesktopUpdateCheckResult {
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
+  pickFiles: () => Promise<string[]>;
+  getFilePaths: (files: File[]) => Promise<string[]>;
   confirm: (message: string) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   showContextMenu: <T extends string>(
@@ -150,6 +154,8 @@ export interface DesktopBridge {
 export interface NativeApi {
   dialogs: {
     pickFolder: () => Promise<string | null>;
+    pickFiles: () => Promise<string[]>;
+    getFilePaths: (files: File[]) => Promise<string[]>;
     confirm: (message: string) => Promise<boolean>;
   };
   terminal: {
@@ -164,6 +170,9 @@ export interface NativeApi {
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+  };
+  attachments: {
+    importFiles: (input: AttachmentImportFilesInput) => Promise<AttachmentImportFilesResult>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;

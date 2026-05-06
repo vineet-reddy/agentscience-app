@@ -64,6 +64,9 @@ import {
 } from "./terminal";
 import {
   AgentScienceRuntimeActionError,
+  AttachmentImportFilesError,
+  AttachmentImportFilesInput,
+  AttachmentImportFilesResult,
   CodexAuthApiKeyLoginInput,
   CodexAuthCancelLoginInput,
   CodexAuthError,
@@ -120,6 +123,7 @@ export const WS_METHODS = {
   serverCancelCodexChatgptLogin: "server.cancelCodexChatgptLogin",
   serverLogoutCodex: "server.logoutCodex",
   serverApplyAgentScienceRuntimeUpdates: "server.applyAgentScienceRuntimeUpdates",
+  attachmentsImportFiles: "attachments.importFiles",
   serverGetAgentScienceAuthState: "server.getAgentScienceAuthState",
   serverStartAgentScienceLogin: "server.startAgentScienceLogin",
   serverCancelAgentScienceLogin: "server.cancelAgentScienceLogin",
@@ -203,6 +207,12 @@ export const WsServerApplyAgentScienceRuntimeUpdatesRpc = Rpc.make(
     error: AgentScienceRuntimeActionError,
   },
 );
+
+export const WsAttachmentsImportFilesRpc = Rpc.make(WS_METHODS.attachmentsImportFiles, {
+  payload: AttachmentImportFilesInput,
+  success: AttachmentImportFilesResult,
+  error: AttachmentImportFilesError,
+});
 
 export const WsServerGetAgentScienceAuthStateRpc = Rpc.make(
   WS_METHODS.serverGetAgentScienceAuthState,
@@ -437,6 +447,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerStartAgentScienceLoginRpc,
   WsServerCancelAgentScienceLoginRpc,
   WsServerSignOutAgentScienceRpc,
+  WsAttachmentsImportFilesRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,

@@ -101,6 +101,9 @@ const rpcClientMock = {
       registerListener(orchestrationEventListeners, listener),
     ),
   },
+  attachments: {
+    importFiles: vi.fn(),
+  },
 };
 
 vi.mock("./wsRpcClient", () => {
@@ -134,6 +137,8 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
   return {
     getWsUrl: () => null,
     pickFolder: async () => null,
+    pickFiles: async () => [],
+    getFilePaths: async () => [],
     confirm: async () => true,
     setTheme: async () => undefined,
     showContextMenu: async () => null,
