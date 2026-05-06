@@ -1,6 +1,8 @@
 import { resolveServerUrl } from "./utils";
 
 const DATASET_REGISTRY_PROXY_PATH = "/api/datasets/registry";
+const DATASET_REGISTRY_CHECK_PROXY_PATH = "/api/datasets/registry/check";
+const DATASET_REGISTRY_INSPECT_PROXY_PATH = "/api/datasets/registry/inspect";
 const DATASET_PROVIDERS_PROXY_PATH = "/api/datasets/registry/providers";
 const DATASET_TOPICS_PROXY_PATH = "/api/datasets/registry/topics";
 const DEFAULT_AGENTSCIENCE_BASE_URL = "https://agentscience.app";
@@ -101,6 +103,77 @@ export interface DatasetRegistryResponse {
   datasets: unknown[];
 }
 
+export interface DatasetRegistryCandidateInput {
+  name: string;
+  shortName?: string | null;
+  url: string;
+  description: string;
+  keywords?: string[];
+  providerSlug?: string | null;
+  topicSlugs?: string[];
+  registryEligible?: boolean;
+}
+
+export type DatasetRegistryCheckStatus = "registered" | "possible-duplicate" | "new";
+
+export interface DatasetRegistryCheckResult {
+  candidate: {
+    name: string;
+    shortName: string | null;
+    url: string;
+    domain: string;
+    description: string;
+    keywords: string[];
+    providerSlug: string | null;
+    topicSlugs: string[];
+    unknownTopicSlugs: string[];
+    registryEligible: boolean;
+  };
+  status: DatasetRegistryCheckStatus;
+  matches: DatasetEntry[];
+}
+
+export interface DatasetRegistryCreateResult {
+  dataset: DatasetEntry;
+  created: boolean;
+  duplicateStatus: DatasetRegistryCheckStatus;
+  check: DatasetRegistryCheckResult;
+}
+
+export interface DatasetValidationReport {
+  status: string;
+  summary: string;
+  finalUrl?: string | null;
+  httpStatus?: number | null;
+  title?: string | null;
+  contentType?: string | null;
+  directFileLinks?: string[];
+  githubDataLinks?: string[];
+  apiLinks?: string[];
+  providerEvidence?: string[];
+  license?: string | null;
+  licenseStatus?: string | null;
+  notes?: string[];
+}
+
+export interface DatasetStandalonePolicyResult {
+  ok: boolean;
+  mode: string;
+  errors: string[];
+  identifiers: Record<string, string> | null;
+}
+
+export interface DatasetRegistryInspectResult {
+  candidate: DatasetRegistryCandidateInput;
+  check: DatasetRegistryCheckResult | null;
+  validation: DatasetValidationReport | null;
+  validationLines: string[];
+  standalonePolicy: DatasetStandalonePolicyResult | null;
+  standalonePolicyLines: string[];
+  provider: DatasetProvider | null;
+  hydratedFrom: "registered-match" | "provider-url-template" | "url";
+}
+
 export interface DatasetProvidersResponse {
   providers: unknown[];
 }
@@ -141,6 +214,30 @@ function resolveDatasetRegistryRequestUrl(): string {
   }
 
   return new URL("/api/v1/registry", resolveRegistryBaseUrl()).toString();
+}
+
+function resolveDatasetRegistryCheckRequestUrl(): string {
+  if (shouldUseEmbeddedRegistryProxy()) {
+    return resolveServerUrl({
+      protocol: "http",
+      pathname: DATASET_REGISTRY_CHECK_PROXY_PATH,
+      searchParams: {},
+    });
+  }
+
+  return new URL("/api/v1/registry/check", resolveRegistryBaseUrl()).toString();
+}
+
+function resolveDatasetRegistryInspectRequestUrl(): string {
+  if (shouldUseEmbeddedRegistryProxy()) {
+    return resolveServerUrl({
+      protocol: "http",
+      pathname: DATASET_REGISTRY_INSPECT_PROXY_PATH,
+      searchParams: {},
+    });
+  }
+
+  return new URL(DATASET_REGISTRY_INSPECT_PROXY_PATH, window.location.origin).toString();
 }
 
 function resolveDatasetProvidersRequestUrl(): string {
@@ -246,6 +343,67 @@ function normalizeDatasetEntry(
           : 0,
     provider: normalizeProviderSummary(dataset.provider),
     topics: normalizeTopicSummaries((dataset as { topics?: unknown }).topics),
+  };
+}
+
+function extractErrorMessage(payload: unknown, fallback: string): string {
+  if (payload && typeof payload === "object") {
+    const error = (payload as Record<string, unknown>).error;
+    if (typeof error === "string" && error.trim().length > 0) {
+      return error;
+    }
+  }
+  return fallback;
+}
+
+function normalizeDatasetRegistryCheckResult(value: unknown): DatasetRegistryCheckResult | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const candidateRecord =
+    record.candidate && typeof record.candidate === "object"
+      ? (record.candidate as Record<string, unknown>)
+      : null;
+  const status = record.status;
+  if (
+    !candidateRecord ||
+    (status !== "registered" && status !== "possible-duplicate" && status !== "new")
+  ) {
+    return null;
+  }
+
+  return {
+    candidate: {
+      name: typeof candidateRecord.name === "string" ? candidateRecord.name : "",
+      shortName:
+        typeof candidateRecord.shortName === "string" ? candidateRecord.shortName : null,
+      url: typeof candidateRecord.url === "string" ? candidateRecord.url : "",
+      domain: typeof candidateRecord.domain === "string" ? candidateRecord.domain : "",
+      description:
+        typeof candidateRecord.description === "string" ? candidateRecord.description : "",
+      keywords: normalizeStringArray(candidateRecord.keywords),
+      providerSlug:
+        typeof candidateRecord.providerSlug === "string" ? candidateRecord.providerSlug : null,
+      topicSlugs: normalizeStringArray(candidateRecord.topicSlugs),
+      unknownTopicSlugs: normalizeStringArray(candidateRecord.unknownTopicSlugs),
+      registryEligible:
+        typeof candidateRecord.registryEligible === "boolean"
+          ? candidateRecord.registryEligible
+          : true,
+    },
+    status,
+    matches: Array.isArray(record.matches)
+      ? record.matches
+          .filter(
+            (dataset): dataset is Partial<DatasetEntry> & Pick<DatasetEntry, "id" | "name"> =>
+              typeof dataset === "object" &&
+              dataset !== null &&
+              "id" in dataset &&
+              "name" in dataset &&
+              typeof dataset.id === "string" &&
+              typeof dataset.name === "string",
+          )
+          .map((dataset) => normalizeDatasetEntry(dataset))
+      : [],
   };
 }
 
@@ -382,6 +540,218 @@ export async function fetchDatasetRegistry(options?: {
         typeof dataset.name === "string",
     )
     .map((dataset) => normalizeDatasetEntry(dataset));
+}
+
+export async function checkDatasetRegistryCandidate(
+  dataset: DatasetRegistryCandidateInput,
+  options?: { signal?: AbortSignal },
+): Promise<DatasetRegistryCheckResult> {
+  const response = await fetch(resolveDatasetRegistryCheckRequestUrl(), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ datasets: [dataset] }),
+    signal: options?.signal ?? null,
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      extractErrorMessage(
+        payload,
+        `Registry check failed: ${response.status} ${response.statusText}`,
+      ),
+    );
+  }
+
+  const datasets = Array.isArray((payload as { datasets?: unknown[] } | null)?.datasets)
+    ? (payload as { datasets: unknown[] }).datasets
+    : [];
+  const result = normalizeDatasetRegistryCheckResult(datasets[0]);
+  if (!result) {
+    throw new Error("Registry check returned an unexpected response.");
+  }
+  return result;
+}
+
+function normalizeDatasetValidationReport(value: unknown): DatasetValidationReport | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const status = typeof record.status === "string" ? record.status : null;
+  const summary = typeof record.summary === "string" ? record.summary : null;
+  if (!status || !summary) return null;
+  return {
+    status,
+    summary,
+    finalUrl: typeof record.finalUrl === "string" ? record.finalUrl : null,
+    httpStatus: typeof record.httpStatus === "number" ? record.httpStatus : null,
+    title: typeof record.title === "string" ? record.title : null,
+    contentType: typeof record.contentType === "string" ? record.contentType : null,
+    directFileLinks: normalizeStringArray(record.directFileLinks),
+    githubDataLinks: normalizeStringArray(record.githubDataLinks),
+    apiLinks: normalizeStringArray(record.apiLinks),
+    providerEvidence: normalizeStringArray(record.providerEvidence),
+    license: typeof record.license === "string" ? record.license : null,
+    licenseStatus: typeof record.licenseStatus === "string" ? record.licenseStatus : null,
+    notes: normalizeStringArray(record.notes),
+  };
+}
+
+function normalizeStandalonePolicyResult(value: unknown): DatasetStandalonePolicyResult | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.ok !== "boolean" || typeof record.mode !== "string") return null;
+  const rawIdentifiers =
+    record.identifiers && typeof record.identifiers === "object"
+      ? (record.identifiers as Record<string, unknown>)
+      : null;
+  const identifiers = rawIdentifiers
+    ? Object.fromEntries(
+        Object.entries(rawIdentifiers).flatMap(([key, value]) =>
+          typeof value === "string" ? [[key, value]] : [],
+        ),
+      )
+    : null;
+  return {
+    ok: record.ok,
+    mode: record.mode,
+    errors: normalizeStringArray(record.errors),
+    identifiers,
+  };
+}
+
+export async function inspectDatasetRegistryCandidate(
+  input: {
+    url: string;
+    candidate?: Partial<DatasetRegistryCandidateInput>;
+  },
+  options?: { signal?: AbortSignal },
+): Promise<DatasetRegistryInspectResult> {
+  const response = await fetch(resolveDatasetRegistryInspectRequestUrl(), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+    signal: options?.signal ?? null,
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      extractErrorMessage(
+        payload,
+        `Registry inspection failed: ${response.status} ${response.statusText}`,
+      ),
+    );
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Registry inspection returned an unexpected response.");
+  }
+
+  const record = payload as Record<string, unknown>;
+  const candidateRecord =
+    record.candidate && typeof record.candidate === "object"
+      ? (record.candidate as Record<string, unknown>)
+      : null;
+  if (!candidateRecord) {
+    throw new Error("Registry inspection did not return a dataset candidate.");
+  }
+
+  const candidate: DatasetRegistryCandidateInput = {
+    name: typeof candidateRecord.name === "string" ? candidateRecord.name : "",
+    shortName:
+      typeof candidateRecord.shortName === "string" ? candidateRecord.shortName : null,
+    url: typeof candidateRecord.url === "string" ? candidateRecord.url : input.url,
+    description:
+      typeof candidateRecord.description === "string" ? candidateRecord.description : "",
+    keywords: normalizeStringArray(candidateRecord.keywords),
+    providerSlug:
+      typeof candidateRecord.providerSlug === "string" ? candidateRecord.providerSlug : null,
+    topicSlugs: normalizeStringArray(candidateRecord.topicSlugs),
+    registryEligible:
+      typeof candidateRecord.registryEligible === "boolean"
+        ? candidateRecord.registryEligible
+        : true,
+  };
+
+  return {
+    candidate,
+    check: normalizeDatasetRegistryCheckResult(record.check),
+    validation: normalizeDatasetValidationReport(record.validation),
+    validationLines: normalizeStringArray(record.validationLines),
+    standalonePolicy: normalizeStandalonePolicyResult(record.standalonePolicy),
+    standalonePolicyLines: normalizeStringArray(record.standalonePolicyLines),
+    provider: normalizeDatasetProvider(record.provider),
+    hydratedFrom:
+      record.hydratedFrom === "registered-match" ||
+      record.hydratedFrom === "provider-url-template" ||
+      record.hydratedFrom === "url"
+        ? record.hydratedFrom
+        : "url",
+  };
+}
+
+export async function createDatasetRegistryEntry(
+  dataset: DatasetRegistryCandidateInput,
+  options?: { signal?: AbortSignal },
+): Promise<DatasetRegistryCreateResult> {
+  const response = await fetch(resolveDatasetRegistryRequestUrl(), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(dataset),
+    signal: options?.signal ?? null,
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      extractErrorMessage(
+        payload,
+        `Registry write failed: ${response.status} ${response.statusText}`,
+      ),
+    );
+  }
+
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Registry write returned an unexpected response.");
+  }
+  const record = payload as Record<string, unknown>;
+  const rawDataset = record.dataset;
+  if (
+    !rawDataset ||
+    typeof rawDataset !== "object" ||
+    typeof (rawDataset as Record<string, unknown>).id !== "string" ||
+    typeof (rawDataset as Record<string, unknown>).name !== "string"
+  ) {
+    throw new Error("Registry write did not return a dataset.");
+  }
+
+  const check = normalizeDatasetRegistryCheckResult(record.check);
+  if (!check) {
+    throw new Error("Registry write did not return a validation result.");
+  }
+
+  const duplicateStatus = record.duplicateStatus;
+  return {
+    dataset: normalizeDatasetEntry(
+      rawDataset as Partial<DatasetEntry> & Pick<DatasetEntry, "id" | "name">,
+    ),
+    created: record.created === true,
+    duplicateStatus:
+      duplicateStatus === "registered" ||
+      duplicateStatus === "possible-duplicate" ||
+      duplicateStatus === "new"
+        ? duplicateStatus
+        : check.status,
+    check,
+  };
 }
 
 export async function fetchDatasetProviders(options?: {
