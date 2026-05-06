@@ -11,6 +11,17 @@ Main source tree: `agentscience-app/`.
 
 Treat this fork as its own product. Do not re-import T3 Code product assumptions or release policy.
 
+## Workspaces
+
+User-facing workspaces live under the managed container, normally `~/AgentScience`.
+
+- Top-level: `Papers/`, `Agents/`, `Projects/`.
+- Project workspaces: `Projects/<project>/papers/<thread>/` and `Projects/<project>/agents/<thread>/`.
+- Unassigned threads: `Papers/<thread>/` or `Agents/<thread>/`.
+- Runtime/app state lives separately under `~/.agentscience/{dev,userdata}`; do not treat it as a user workspace.
+- For attachments/imports, preserve originals in app-managed state, then stage disposable working copies inside the active paper/agent workspace. Embedded Codex sessions use an `agentscience-workspace` permissions profile scoped to that active workspace. Never expose or mutate the user's original selected path.
+- Attachment privacy design: `agentscience-app/docs/safe-file-attachments.md`.
+
 ## Commands
 
 Run from `agentscience-app/`:

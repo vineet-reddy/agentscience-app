@@ -201,14 +201,26 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
 }
 
 function mapMessage(message: OrchestrationMessage): ChatMessage {
-  const attachments = message.attachments?.map((attachment) => ({
-    type: "image" as const,
-    id: attachment.id,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
-  }));
+  const attachments = message.attachments?.map((attachment) =>
+    attachment.type === "image"
+      ? {
+          type: "image" as const,
+          id: attachment.id,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
+        }
+      : {
+          type: "file" as const,
+          id: attachment.id,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          sha256: attachment.sha256,
+          storageName: attachment.storageName,
+        },
+  );
 
   return {
     id: message.id,

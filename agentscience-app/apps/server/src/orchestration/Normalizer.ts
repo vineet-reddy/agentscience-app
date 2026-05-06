@@ -24,6 +24,19 @@ export const normalizeDispatchCommand = (command: ClientOrchestrationCommand) =>
       command.message.attachments,
       (attachment) =>
         Effect.gen(function* () {
+          if (!("dataUrl" in attachment)) {
+            const attachmentPath = resolveAttachmentPath({
+              attachmentsDir: serverConfig.attachmentsDir,
+              attachment,
+            });
+            if (!attachmentPath) {
+              return yield* new OrchestrationDispatchCommandError({
+                message: `Invalid persisted attachment '${attachment.name}'.`,
+              });
+            }
+            return attachment;
+          }
+
           const parsed = parseBase64DataUrl(attachment.dataUrl);
           if (!parsed || !parsed.mimeType.startsWith("image/")) {
             return yield* new OrchestrationDispatchCommandError({

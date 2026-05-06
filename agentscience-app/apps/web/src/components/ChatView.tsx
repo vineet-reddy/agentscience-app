@@ -89,6 +89,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
+  type ChatFileAttachment,
   type ChatMessage,
   type SessionPhase,
   type Thread,
@@ -105,6 +106,7 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  FileIcon,
   HandIcon,
   ListIcon,
   ListTodoIcon,
@@ -141,6 +143,7 @@ import {
 import { useSettings } from "../hooks/useSettings";
 import { getSelectableModelOptionsByProvider, resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { formatFileSize } from "../lib/fileSize";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
   type ComposerImageAttachment,
@@ -238,7 +241,7 @@ const PullRequestThreadDialog = lazy(() =>
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
-  "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+  "[User attached one or more files without additional text. Respond using the conversation context and the attached file(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_DATASET_ENTRIES: DatasetEntry[] = [];
@@ -246,6 +249,8 @@ const EMPTY_DATASET_PROVIDERS: DatasetProvider[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const MAX_MODE_ACKNOWLEDGED_STORAGE_KEY = "agentscience:max-mode-acknowledged:v1";
+const FILE_ATTACHMENTS_ACKNOWLEDGED_STORAGE_KEY =
+  "agentscience:file-attachments-acknowledged:v1";
 
 type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
 
@@ -718,10 +723,18 @@ export default function ChatView({
     false,
     Schema.Boolean,
   );
+  const [hasAcknowledgedFileAttachments, setHasAcknowledgedFileAttachments] = useLocalStorage(
+    FILE_ATTACHMENTS_ACKNOWLEDGED_STORAGE_KEY,
+    false,
+    Schema.Boolean,
+  );
   const [maxModeDialogOpen, setMaxModeDialogOpen] = useState(false);
+  const [fileAttachmentDialogOpen, setFileAttachmentDialogOpen] = useState(false);
+  const [pendingFileImportPaths, setPendingFileImportPaths] = useState<string[]>([]);
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
+  const composerFiles = composerDraft.files;
   const composerTerminalContexts = composerDraft.terminalContexts;
   const standardCodexModelSelectionBeforeMax =
     composerDraft.standardModelSelectionBeforeMaxByProvider.codex ?? null;
@@ -729,10 +742,10 @@ export default function ChatView({
     () =>
       deriveComposerSendState({
         prompt,
-        imageCount: composerImages.length,
+        imageCount: composerImages.length + composerFiles.length,
         terminalContexts: composerTerminalContexts,
       }),
-    [composerImages.length, composerTerminalContexts, prompt],
+    [composerFiles.length, composerImages.length, composerTerminalContexts, prompt],
   );
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const setComposerDraftModelSelection = useComposerDraftStore((store) => store.setModelSelection);
@@ -746,7 +759,9 @@ export default function ChatView({
   const setComposerDraftResearchDepth = useComposerDraftStore((store) => store.setResearchDepth);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
+  const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
+  const removeComposerDraftFile = useComposerDraftStore((store) => store.removeFile);
   const insertComposerDraftTerminalContext = useComposerDraftStore(
     (store) => store.insertTerminalContext,
   );
@@ -852,13 +867,13 @@ export default function ChatView({
   } | null>(null);
   const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
   const composerEditorRef = useRef<ComposerPromptEditorHandle>(null);
-  const composerFileInputRef = useRef<HTMLInputElement>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerFormHeightRef = useRef(0);
   const composerFooterRef = useRef<HTMLDivElement>(null);
   const composerFooterLeadingRef = useRef<HTMLDivElement>(null);
   const composerFooterActionsRef = useRef<HTMLDivElement>(null);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
+  const composerFilesRef = useRef<ChatFileAttachment[]>([]);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
@@ -934,6 +949,12 @@ export default function ChatView({
     },
     [addComposerDraftImages, threadId],
   );
+  const addComposerFilesToDraft = useCallback(
+    (files: ChatFileAttachment[]) => {
+      addComposerDraftFiles(threadId, files);
+    },
+    [addComposerDraftFiles, threadId],
+  );
   const addComposerTerminalContextsToDraft = useCallback(
     (contexts: TerminalContextDraft[]) => {
       addComposerDraftTerminalContexts(threadId, contexts);
@@ -945,6 +966,12 @@ export default function ChatView({
       removeComposerDraftImage(threadId, imageId);
     },
     [removeComposerDraftImage, threadId],
+  );
+  const removeComposerFileFromDraft = useCallback(
+    (fileId: string) => {
+      removeComposerDraftFile(threadId, fileId);
+    },
+    [removeComposerDraftFile, threadId],
   );
   const removeComposerTerminalContextFromDraft = useCallback(
     (contextId: string) => {
@@ -2623,6 +2650,9 @@ export default function ChatView({
   useEffect(() => {
     composerImagesRef.current = composerImages;
   }, [composerImages]);
+  useEffect(() => {
+    composerFilesRef.current = composerFiles;
+  }, [composerFiles]);
 
   useEffect(() => {
     composerTerminalContextsRef.current = composerTerminalContexts;
@@ -2979,7 +3009,7 @@ export default function ChatView({
     }
 
     const nextImages: ComposerImageAttachment[] = [];
-    let nextImageCount = composerImagesRef.current.length;
+    let nextAttachmentCount = composerImagesRef.current.length + composerFilesRef.current.length;
     let error: string | null = null;
     for (const file of files) {
       if (!file.type.startsWith("image/")) {
@@ -2990,8 +3020,8 @@ export default function ChatView({
         error = `'${file.name}' exceeds the ${IMAGE_SIZE_LIMIT_LABEL} attachment limit.`;
         continue;
       }
-      if (nextImageCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-        error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`;
+      if (nextAttachmentCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+        error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`;
         break;
       }
 
@@ -3005,7 +3035,7 @@ export default function ChatView({
         previewUrl,
         file,
       });
-      nextImageCount += 1;
+      nextAttachmentCount += 1;
     }
 
     if (nextImages.length === 1 && nextImages[0]) {
@@ -3016,19 +3046,100 @@ export default function ChatView({
     setThreadError(activeThreadId, error);
   };
 
-  const openComposerFilePicker = () => {
-    composerFileInputRef.current?.click();
+  const importComposerFilesFromPaths = async (paths: string[]) => {
+    if (!activeThreadId || paths.length === 0) return;
+    const api = readNativeApi();
+    if (!api) return;
+
+    if (pendingUserInputs.length > 0) {
+      toastManager.add({
+        type: "error",
+        title: "Attach files after answering plan questions.",
+      });
+      return;
+    }
+
+    const availableSlots =
+      PROVIDER_SEND_TURN_MAX_ATTACHMENTS -
+      composerImagesRef.current.length -
+      composerFilesRef.current.length;
+    if (availableSlots <= 0) {
+      setThreadError(
+        activeThreadId,
+        `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`,
+      );
+      return;
+    }
+    const pathsToImport = paths.slice(0, availableSlots);
+
+    try {
+      const result = await api.attachments.importFiles({
+        threadId: activeThreadId,
+        paths: pathsToImport,
+      });
+      const importedFiles = result.attachments.filter(
+        (attachment): attachment is ChatFileAttachment => attachment.type === "file",
+      );
+      if (importedFiles.length > 0) {
+        addComposerFilesToDraft(importedFiles);
+      }
+      setThreadError(
+        activeThreadId,
+        paths.length > availableSlots
+          ? `Attached ${availableSlots} files. You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`
+          : null,
+      );
+    } catch (error) {
+      setThreadError(
+        activeThreadId,
+        error instanceof Error ? error.message : "Failed to attach file.",
+      );
+    }
   };
 
-  const onComposerFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.currentTarget.files ?? []);
-    event.currentTarget.value = "";
-    addComposerImages(files);
-    focusComposer();
+  const requestFileImport = (paths: string[]) => {
+    const uniquePaths = Array.from(new Set(paths.filter((filePath) => filePath.trim().length > 0)));
+    if (uniquePaths.length === 0) return;
+    if (!hasAcknowledgedFileAttachments) {
+      setPendingFileImportPaths(uniquePaths);
+      setFileAttachmentDialogOpen(true);
+      return;
+    }
+    void importComposerFilesFromPaths(uniquePaths);
+  };
+
+  const confirmFileAttachmentWarning = () => {
+    setHasAcknowledgedFileAttachments(true);
+    setFileAttachmentDialogOpen(false);
+    const paths = pendingFileImportPaths;
+    setPendingFileImportPaths([]);
+    void importComposerFilesFromPaths(paths);
+  };
+
+  const cancelFileAttachmentWarning = () => {
+    setFileAttachmentDialogOpen(false);
+    setPendingFileImportPaths([]);
+  };
+
+  const openComposerFilePicker = async () => {
+    const api = readNativeApi();
+    if (!api) return;
+    try {
+      const paths = await api.dialogs.pickFiles();
+      requestFileImport(paths);
+    } catch {
+      if (activeThreadId) {
+        setThreadError(activeThreadId, "Failed to open the file picker.");
+      }
+    }
   };
 
   const removeComposerImage = (imageId: string) => {
     removeComposerImageFromDraft(imageId);
+  };
+
+  const removeComposerFile = (fileId: string) => {
+    removeComposerFileFromDraft(fileId);
   };
 
   const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
@@ -3085,7 +3196,23 @@ export default function ChatView({
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
     const files = Array.from(event.dataTransfer.files);
-    addComposerImages(files);
+    const api = readNativeApi();
+    if (api) {
+      void api.dialogs
+        .getFilePaths(files)
+        .then((paths) => {
+          if (paths.length > 0) {
+            requestFileImport(paths);
+            return;
+          }
+          addComposerImages(files);
+        })
+        .catch(() => {
+          addComposerImages(files);
+        });
+    } else {
+      addComposerImages(files);
+    }
     focusComposer();
   };
 
@@ -3146,7 +3273,7 @@ export default function ChatView({
       hasSendableContent,
     } = deriveComposerSendState({
       prompt: promptForSend,
-      imageCount: composerImages.length,
+      imageCount: composerImages.length + composerFiles.length,
       terminalContexts: composerTerminalContexts,
     });
     if (showPlanFollowUpPrompt && activeProposedPlan) {
@@ -3166,7 +3293,9 @@ export default function ChatView({
       return;
     }
     const standaloneSlashCommand =
-      composerImages.length === 0 && sendableComposerTerminalContexts.length === 0
+      composerImages.length === 0 &&
+      composerFiles.length === 0 &&
+      sendableComposerTerminalContexts.length === 0
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
     if (standaloneSlashCommand) {
@@ -3215,6 +3344,7 @@ export default function ChatView({
     beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
 
     const composerImagesSnapshot = [...composerImages];
+    const composerFilesSnapshot = [...composerFiles];
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const promptWithTerminalContexts = appendTerminalContextsToPrompt(
       promptForSend,
@@ -3241,15 +3371,18 @@ export default function ChatView({
         sizeBytes: image.sizeBytes,
         dataUrl: await readFileAsDataUrl(image.file),
       })),
-    );
-    const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
-      id: image.id,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      previewUrl: image.previewUrl,
-    }));
+    ).then((imageAttachments) => [...imageAttachments, ...composerFilesSnapshot]);
+    const optimisticAttachments = [
+      ...composerImagesSnapshot.map((image) => ({
+        type: "image" as const,
+        id: image.id,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        previewUrl: image.previewUrl,
+      })),
+      ...composerFilesSnapshot,
+    ];
     setOptimisticUserMessages((existing) => [
       ...existing,
       {
@@ -3293,10 +3426,19 @@ export default function ChatView({
           firstComposerImageName = firstComposerImage.name;
         }
       }
+      let firstComposerFileName: string | null = null;
+      if (composerFilesSnapshot.length > 0) {
+        const firstComposerFile = composerFilesSnapshot[0];
+        if (firstComposerFile) {
+          firstComposerFileName = firstComposerFile.name;
+        }
+      }
       let titleSeed = trimmed;
       if (!titleSeed) {
         if (firstComposerImageName) {
           titleSeed = `Image: ${firstComposerImageName}`;
+        } else if (firstComposerFileName) {
+          titleSeed = `File: ${firstComposerFileName}`;
         } else if (composerTerminalContextsSnapshot.length > 0) {
           titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
         } else {
@@ -3391,6 +3533,7 @@ export default function ChatView({
         !turnStartSucceeded &&
         promptRef.current.length === 0 &&
         composerImagesRef.current.length === 0 &&
+        composerFilesRef.current.length === 0 &&
         composerTerminalContextsRef.current.length === 0
       ) {
         setOptimisticUserMessages((existing) => {
@@ -3405,6 +3548,7 @@ export default function ChatView({
         setPrompt(promptForSend);
         setComposerCursor(collapseExpandedComposerCursor(promptForSend, promptForSend.length));
         addComposerImagesToDraft(composerImagesSnapshot.map(cloneComposerImageForRetry));
+        addComposerFilesToDraft(composerFilesSnapshot);
         addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
         setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
       }
@@ -4441,15 +4585,6 @@ export default function ChatView({
               className="mx-auto w-full min-w-0 max-w-208"
               data-chat-composer-form="true"
             >
-              <input
-                ref={composerFileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                tabIndex={-1}
-                onChange={onComposerFileInputChange}
-              />
               <div
                 className={cn(
                   "group rounded-[22px] p-px transition-colors duration-200",
@@ -4525,7 +4660,7 @@ export default function ChatView({
 
                     {!isComposerApprovalState &&
                       pendingUserInputs.length === 0 &&
-                      composerImages.length > 0 && (
+                      (composerImages.length > 0 || composerFiles.length > 0) && (
                         <div className="mb-3 flex flex-wrap gap-2">
                           {composerImages.map((image) => (
                             <div
@@ -4568,6 +4703,31 @@ export default function ChatView({
                               </Button>
                             </div>
                           ))}
+                          {composerFiles.map((file) => (
+                            <div
+                              key={file.id}
+                              className="flex min-w-0 max-w-full items-center gap-2 rounded-md border border-border/80 bg-background px-2.5 py-1.5 text-xs"
+                            >
+                              <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-foreground/85">
+                                  {file.name}
+                                </div>
+                                <div className="truncate text-[10px] text-muted-foreground/65">
+                                  {formatFileSize(file.sizeBytes)}
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="ml-1 shrink-0 text-muted-foreground/65"
+                                onClick={() => removeComposerFile(file.id)}
+                                aria-label={`Remove ${file.name}`}
+                              >
+                                <XIcon />
+                              </Button>
+                            </div>
+                          ))}
                         </div>
                       )}
                     <ComposerPromptEditor
@@ -4598,7 +4758,7 @@ export default function ChatView({
                             : showPlanFollowUpPrompt && activeProposedPlan
                               ? "Add feedback to refine the plan, or leave this blank to implement it"
                               : phase === "disconnected"
-                                ? "Ask for follow-up changes or attach images"
+                                ? "Ask for follow-up changes or attach files"
                                 : "Ask anything, @tag files/folders, or use / to show available commands"
                       }
                       disabled={isConnecting || isComposerApprovalState}
@@ -4642,8 +4802,8 @@ export default function ChatView({
                           className="shrink-0 px-2 text-muted-foreground/70 hover:text-foreground/80"
                           onClick={openComposerFilePicker}
                           disabled={isConnecting || isComposerApprovalState}
-                          title="Attach images"
-                          aria-label="Attach images"
+                          title="Attach files"
+                          aria-label="Attach files"
                         >
                           <PlusIcon />
                         </Button>
@@ -5015,6 +5175,36 @@ export default function ChatView({
             </Button>
             <Button size="sm" onClick={confirmMaxMode}>
               Use Max
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
+        open={fileAttachmentDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setFileAttachmentDialogOpen(true);
+            return;
+          }
+          cancelFileAttachmentWarning();
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Attach files?</DialogTitle>
+            <DialogDescription>
+              AgentScience is still in development. Files are copied before the agent reads them,
+              but keep your own backup and do not attach sensitive, regulated, or confidential data
+              unless you are allowed to share it with the AI provider.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={cancelFileAttachmentWarning}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={confirmFileAttachmentWarning}>
+              I understand
             </Button>
           </DialogFooter>
         </DialogPopup>

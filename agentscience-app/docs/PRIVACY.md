@@ -109,6 +109,7 @@ This document is the design specification. The implementation that backs it live
 - The Aptabase SDK initialization and daily-ping logic: `apps/desktop/src/main.ts` (the only place that imports `@aptabase/electron`).
 - The Settings → Privacy panel: `apps/web/src/components/settings/SettingsPanels.tsx` (`PrivacySettingsPanel`).
 - The dedupe via `lastPingDay`: also in `apps/desktop/src/main.ts`.
+- The local file attachment safety model: `docs/safe-file-attachments.md`.
 
 If any of these files reference Aptabase outside the main process, that is a bug — please open an issue.
 

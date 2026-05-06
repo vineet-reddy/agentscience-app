@@ -457,9 +457,6 @@ function collectThreadAttachmentRelativePaths(
   const relativePaths = new Set<string>();
   for (const message of messages) {
     for (const attachment of message.attachments ?? []) {
-      if (attachment.type !== "image") {
-        continue;
-      }
       const attachmentThreadSegment = parseThreadSegmentFromAttachmentId(attachment.id);
       if (!attachmentThreadSegment || attachmentThreadSegment !== threadSegment) {
         continue;
@@ -518,7 +515,9 @@ const runAttachmentSideEffects = Effect.fn("runAttachmentSideEffects")(function*
       if (normalizedEntry.length === 0 || normalizedEntry.includes("/")) {
         return;
       }
-      const attachmentId = parseAttachmentIdFromRelativePath(normalizedEntry);
+      const attachmentId =
+        parseAttachmentIdFromRelativePath(normalizedEntry) ??
+        (normalizedEntry.includes(".") ? null : normalizedEntry);
       if (!attachmentId) {
         return;
       }
@@ -528,6 +527,7 @@ const runAttachmentSideEffects = Effect.fn("runAttachmentSideEffects")(function*
       }
       yield* fileSystem.remove(path.join(attachmentsRootDir, normalizedEntry), {
         force: true,
+        recursive: true,
       });
     },
   );
@@ -562,7 +562,9 @@ const runAttachmentSideEffects = Effect.fn("runAttachmentSideEffects")(function*
     if (relativePath.length === 0 || relativePath.includes("/")) {
       return;
     }
-    const attachmentId = parseAttachmentIdFromRelativePath(relativePath);
+    const attachmentId =
+      parseAttachmentIdFromRelativePath(relativePath) ??
+      (relativePath.includes(".") ? null : relativePath);
     if (!attachmentId) {
       return;
     }
@@ -575,12 +577,17 @@ const runAttachmentSideEffects = Effect.fn("runAttachmentSideEffects")(function*
     const fileInfo = yield* fileSystem
       .stat(absolutePath)
       .pipe(Effect.catch(() => Effect.succeed(null)));
-    if (!fileInfo || fileInfo.type !== "File") {
+    if (!fileInfo || (fileInfo.type !== "File" && fileInfo.type !== "Directory")) {
       return;
     }
 
-    if (!keptThreadRelativePaths.has(relativePath)) {
-      yield* fileSystem.remove(absolutePath, { force: true });
+    const keepEntry =
+      keptThreadRelativePaths.has(relativePath) ||
+      Array.from(keptThreadRelativePaths).some((keptPath) =>
+        keptPath.startsWith(`${relativePath}/`),
+      );
+    if (!keepEntry) {
+      yield* fileSystem.remove(absolutePath, { force: true, recursive: true });
     }
   });
 

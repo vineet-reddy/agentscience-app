@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ApprovalRequestId, ThreadId } from "@agentscience/contracts";
@@ -11,6 +18,7 @@ import {
   buildCodexModeDeveloperInstructions,
   buildCodexInitializeParams,
   buildCodexAppServerLaunchSpec,
+  buildCodexWorkspacePermissionsConfig,
   CodexAppServerManager,
   classifyCodexStderrLine,
   isRecoverableThreadResumeError,
@@ -333,6 +341,36 @@ describe("mapCodexRuntimeMode", () => {
   });
 });
 
+describe("buildCodexWorkspacePermissionsConfig", () => {
+  it("scopes Codex filesystem access to minimal reads plus the active workspace", () => {
+    expect(buildCodexWorkspacePermissionsConfig("/tmp/agentscience-chat")).toEqual({
+      sandbox_mode: "workspace-write",
+      project_root_markers: [],
+      default_permissions: "agentscience-workspace",
+      permissions: {
+        "agentscience-workspace": {
+          filesystem: {
+            ":minimal": "read",
+            ":project_roots": {
+              ".": "write",
+            },
+          },
+          network: {
+            enabled: true,
+            mode: "full",
+          },
+        },
+      },
+      sandbox_workspace_write: {
+        writable_roots: ["/tmp/agentscience-chat"],
+        network_access: true,
+        exclude_slash_tmp: true,
+        exclude_tmpdir_env_var: true,
+      },
+    });
+  });
+});
+
 describe("isRecoverableThreadResumeError", () => {
   it("matches not-found resume errors", () => {
     expect(
@@ -534,7 +572,7 @@ describe("startSession", () => {
       )
       .mockImplementation(() => {
         throw new Error(
-          "Codex CLI v0.36.0 is too old for Agent Science. Upgrade to v0.37.0 or newer and restart Agent Science.",
+          "Codex CLI v0.127.0 is too old for Agent Science. Upgrade to v0.128.0 or newer and restart Agent Science.",
         );
       });
 
@@ -548,7 +586,7 @@ describe("startSession", () => {
           runtimeMode: "full-access",
         }),
       ).rejects.toThrow(
-        "Codex CLI v0.36.0 is too old for Agent Science. Upgrade to v0.37.0 or newer and restart Agent Science.",
+        "Codex CLI v0.127.0 is too old for Agent Science. Upgrade to v0.128.0 or newer and restart Agent Science.",
       );
       expect(versionCheck).toHaveBeenCalledTimes(1);
       expect(events).toEqual([
@@ -556,7 +594,7 @@ describe("startSession", () => {
           method: "session/startFailed",
           kind: "error",
           message:
-            "Codex CLI v0.36.0 is too old for Agent Science. Upgrade to v0.37.0 or newer and restart Agent Science.",
+            "Codex CLI v0.127.0 is too old for Agent Science. Upgrade to v0.128.0 or newer and restart Agent Science.",
         },
       ]);
     } finally {
@@ -608,13 +646,6 @@ describe("sendTurn", () => {
       model: "gpt-5.3-codex",
       serviceTier: "fast",
       effort: "high",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/tmp/workspace"],
-        networkAccess: true,
-        excludeSlashTmp: true,
-        excludeTmpdirEnvVar: true,
-      },
     });
     expect(updateSession).toHaveBeenCalledWith(context, {
       status: "running",
@@ -646,14 +677,63 @@ describe("sendTurn", () => {
       ],
       cwd: "/tmp/workspace",
       model: "gpt-5.4",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/tmp/workspace"],
-        networkAccess: true,
-        excludeSlashTmp: true,
-        excludeTmpdirEnvVar: true,
-      },
     });
+  });
+
+  it("stages file attachments inside the workspace and keeps the same sandbox boundary", async () => {
+    const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "agentscience-codex-workspace-"));
+    const sourceRoot = mkdtempSync(path.join(os.tmpdir(), "agentscience-source-file-"));
+    const sourcePath = path.join(sourceRoot, "ACG_2023_Stockfish.pdf");
+    writeFileSync(sourcePath, "paper contents");
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.session.cwd = workspaceRoot;
+
+    try {
+      await manager.sendTurn({
+        threadId: asThreadId("thread_1"),
+        input: "Summarize this file",
+        attachments: [
+          {
+            type: "file",
+            id: "thread-1-00000000-0000-4000-8000-000000000001",
+            path: sourcePath,
+            name: "ACG_2023_Stockfish.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 14,
+            sha256: "0".repeat(64),
+            storageName: "ACG_2023_Stockfish.pdf",
+          },
+        ],
+      });
+
+      const stagedPath = path.join(
+        workspaceRoot,
+        ".agentscience",
+        "attachments",
+        "thread-1-00000000-0000-4000-8000-000000000001",
+        "ACG_2023_Stockfish.pdf",
+      );
+      expect(existsSync(stagedPath)).toBe(true);
+      expect(readFileSync(stagedPath, "utf8")).toBe("paper contents");
+      expect(sendRequest).toHaveBeenCalledWith(
+        context,
+        "turn/start",
+        expect.objectContaining({
+          cwd: workspaceRoot,
+        }),
+      );
+      const params = sendRequest.mock.calls[0]?.[2] as {
+        input?: Array<{ type: "text"; text?: string }>;
+      };
+      expect(params.input?.[0]?.text).toContain("ACG_2023_Stockfish.pdf");
+      expect(params.input?.[0]?.text).toContain(
+        ".agentscience/attachments/thread-1-00000000-0000-4000-8000-000000000001/ACG_2023_Stockfish.pdf",
+      );
+      expect(params.input?.[0]?.text).not.toContain(sourceRoot);
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(sourceRoot, { recursive: true, force: true });
+    }
   });
 
   it("refreshes account metadata before sending spark turns when support is unknown", async () => {
@@ -698,13 +778,6 @@ describe("sendTurn", () => {
       ],
       cwd: "/tmp/workspace",
       model: "gpt-5.5",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/tmp/workspace"],
-        networkAccess: true,
-        excludeSlashTmp: true,
-        excludeTmpdirEnvVar: true,
-      },
     });
   });
 
@@ -728,13 +801,6 @@ describe("sendTurn", () => {
       ],
       cwd: "/tmp/workspace",
       model: "gpt-5.4",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/tmp/workspace"],
-        networkAccess: true,
-        excludeSlashTmp: true,
-        excludeTmpdirEnvVar: true,
-      },
       collaborationMode: {
         mode: "plan",
         settings: {
@@ -766,13 +832,6 @@ describe("sendTurn", () => {
       ],
       cwd: "/tmp/workspace",
       model: "gpt-5.4",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/tmp/workspace"],
-        networkAccess: true,
-        excludeSlashTmp: true,
-        excludeTmpdirEnvVar: true,
-      },
       collaborationMode: {
         mode: "default",
         settings: {
@@ -863,13 +922,6 @@ describe("sendTurn", () => {
       ],
       cwd: "/tmp/workspace",
       model: "gpt-5.2-codex",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/tmp/workspace"],
-        networkAccess: true,
-        excludeSlashTmp: true,
-        excludeTmpdirEnvVar: true,
-      },
       collaborationMode: {
         mode: "plan",
         settings: {

@@ -5,6 +5,7 @@ import {
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
+  AttachmentImportFilesError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   OrchestrationGetFullThreadDiffError,
@@ -49,6 +50,7 @@ import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
 import { AgentScienceRuntimeStatus } from "./agentScienceRuntimeStatus";
+import { importAttachmentFromPath } from "./attachmentStore";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -586,6 +588,32 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             return runtime;
           }),
           { "rpc.aggregate": "server" },
+        ),
+      [WS_METHODS.attachmentsImportFiles]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.attachmentsImportFiles,
+          Effect.forEach(
+            input.paths,
+            (sourcePath) =>
+              Effect.tryPromise({
+                try: () =>
+                  importAttachmentFromPath({
+                    attachmentsDir: config.attachmentsDir,
+                    threadId: input.threadId,
+                    sourcePath,
+                  }),
+                catch: (cause) =>
+                  new AttachmentImportFilesError({
+                    message:
+                      cause instanceof Error && cause.message.trim().length > 0
+                        ? cause.message
+                        : "Failed to import attachment.",
+                    cause,
+                  }),
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.map((attachments) => ({ attachments }))),
+          { "rpc.aggregate": "attachments" },
         ),
       [WS_METHODS.projectsSearchEntries]: (input) =>
         observeRpcEffect(

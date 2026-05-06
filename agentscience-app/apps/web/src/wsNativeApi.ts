@@ -33,6 +33,14 @@ export function createWsNativeApi(): NativeApi {
         if (!window.desktopBridge) return null;
         return window.desktopBridge.pickFolder();
       },
+      pickFiles: async () => {
+        if (!window.desktopBridge) return [];
+        return window.desktopBridge.pickFiles();
+      },
+      getFilePaths: async (files) => {
+        if (!window.desktopBridge) return [];
+        return window.desktopBridge.getFilePaths(files);
+      },
       confirm: async (message) => {
         if (window.desktopBridge) {
           return window.desktopBridge.confirm(message);
@@ -52,6 +60,9 @@ export function createWsNativeApi(): NativeApi {
     projects: {
       searchEntries: rpcClient.projects.searchEntries,
       writeFile: rpcClient.projects.writeFile,
+    },
+    attachments: {
+      importFiles: rpcClient.attachments.importFiles,
     },
     shell: {
       openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),

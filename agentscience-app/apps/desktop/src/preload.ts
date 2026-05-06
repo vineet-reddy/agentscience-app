@@ -1,7 +1,8 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { DesktopBridge } from "@agentscience/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
+const PICK_FILES_CHANNEL = "desktop:pick-files";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
@@ -24,6 +25,13 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return typeof result === "string" ? result : null;
   },
   pickFolder: () => ipcRenderer.invoke(PICK_FOLDER_CHANNEL),
+  pickFiles: () => ipcRenderer.invoke(PICK_FILES_CHANNEL),
+  getFilePaths: (files) =>
+    Promise.resolve(
+      files
+        .map((file) => webUtils.getPathForFile(file))
+        .filter((filePath): filePath is string => filePath.length > 0),
+    ),
   confirm: (message) => ipcRenderer.invoke(CONFIRM_CHANNEL, message),
   setTheme: (theme) => ipcRenderer.invoke(SET_THEME_CHANNEL, theme),
   showContextMenu: (items, position) => ipcRenderer.invoke(CONTEXT_MENU_CHANNEL, items, position),
