@@ -1,7 +1,16 @@
 import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync, realpathSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
 
 import {
@@ -38,6 +47,7 @@ import {
 } from "./provider/codexAccount";
 import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
 import { buildCodexSpawnEnv } from "./provider/codexCli";
+import { toPromptSafeFileLabel, toSafeAttachmentFileName } from "./attachmentNames";
 
 export { buildCodexAppServerEnv, buildCodexInitializeParams } from "./provider/codexAppServer";
 export { readCodexAccountSnapshot, resolveCodexModelForAccount } from "./provider/codexAccount";
@@ -115,7 +125,19 @@ interface JsonRpcNotification {
 export interface CodexAppServerSendTurnInput {
   readonly threadId: ThreadId;
   readonly input?: string;
-  readonly attachments?: ReadonlyArray<{ type: "image"; url: string }>;
+  readonly attachments?: ReadonlyArray<
+    | { type: "image"; url: string }
+    | {
+        type: "file";
+        id: string;
+        path: string;
+        name: string;
+        mimeType: string;
+        sizeBytes: number;
+        sha256: string;
+        storageName: string;
+      }
+  >;
   readonly model?: string;
   readonly serviceTier?: string | null;
   readonly effort?: string;
@@ -169,6 +191,57 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
   "unknown thread",
   "does not exist",
 ];
+
+function stageCodexFileAttachments(input: {
+  readonly cwd: string | undefined;
+  readonly attachments: NonNullable<CodexAppServerSendTurnInput["attachments"]>;
+}): string[] {
+  const files = input.attachments.filter((attachment) => attachment.type === "file");
+  if (files.length === 0) {
+    return [];
+  }
+  if (!input.cwd) {
+    throw new Error("File attachments require an active thread workspace.");
+  }
+  const stagedLines: string[] = [];
+  for (const file of files) {
+    const attachmentsRoot = path.join(input.cwd, ".agentscience", "attachments");
+    const stagedDir = path.join(attachmentsRoot, file.id);
+    const stagedFileName = toSafeAttachmentFileName(file.name || file.storageName);
+    const stagedPath = path.join(stagedDir, stagedFileName);
+    try {
+      ensurePlainDirectory(path.join(input.cwd, ".agentscience"));
+      ensurePlainDirectory(attachmentsRoot);
+      ensurePlainDirectory(stagedDir);
+      rmSync(stagedPath, { force: true, recursive: true });
+      copyFileSync(file.path, stagedPath);
+      chmodSync(stagedPath, 0o444);
+    } catch {
+      throw new Error("Failed to stage attached file in the thread workspace.");
+    }
+    const displayName = toPromptSafeFileLabel(file.name);
+    const relativeStagedPath = path.relative(input.cwd, stagedPath).replaceAll(path.sep, "/");
+    stagedLines.push(
+      [
+        `- filename ${JSON.stringify(displayName)}`,
+        `workspace path ${JSON.stringify(relativeStagedPath)}`,
+        `${file.mimeType}, ${file.sizeBytes} bytes, sha256 ${file.sha256}`,
+      ].join("; "),
+    );
+  }
+  return stagedLines;
+}
+
+function ensurePlainDirectory(directoryPath: string): void {
+  const existing = lstatSync(directoryPath, { throwIfNoEntry: false });
+  if (existing) {
+    if (existing.isDirectory() && !existing.isSymbolicLink()) {
+      return;
+    }
+    rmSync(directoryPath, { force: true, recursive: true });
+  }
+  mkdirSync(directoryPath, { recursive: true });
+}
 export const CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Plan Mode (Conversational)
 
 You work in 3 phases, and you should *chat your way* to a great plan before finalizing it. A great plan is very detailed-intent- and implementation-wise-so that it can be handed to another engineer or agent to be implemented right away. It must be **decision complete**, where the implementer does not need to make any decisions.
@@ -476,27 +549,26 @@ export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   };
 }
 
-function buildCodexWorkspaceWriteSandboxPolicy(cwd: string): {
-  readonly type: "workspaceWrite";
-  readonly writableRoots: readonly [string];
-  readonly networkAccess: true;
-  readonly excludeSlashTmp: true;
-  readonly excludeTmpdirEnvVar: true;
-} {
-  return {
-    type: "workspaceWrite",
-    writableRoots: [cwd],
-    // Keep filesystem writes pinned to the active workspace, but allow the
-    // agent to fetch web pages, APIs, and datasets without falling back to
-    // brittle non-shell workarounds.
-    networkAccess: true,
-    excludeSlashTmp: true,
-    excludeTmpdirEnvVar: true,
-  };
-}
+const AGENTSCIENCE_CODEX_PERMISSION_PROFILE = "agentscience-workspace";
 
-function buildCodexWorkspaceWriteConfig(cwd: string): {
+export function buildCodexWorkspacePermissionsConfig(cwd: string): {
   readonly sandbox_mode: "workspace-write";
+  readonly project_root_markers: readonly [];
+  readonly default_permissions: typeof AGENTSCIENCE_CODEX_PERMISSION_PROFILE;
+  readonly permissions: {
+    readonly [AGENTSCIENCE_CODEX_PERMISSION_PROFILE]: {
+      readonly filesystem: {
+        readonly ":minimal": "read";
+        readonly ":project_roots": {
+          readonly ".": "write";
+        };
+      };
+      readonly network: {
+        readonly enabled: true;
+        readonly mode: "full";
+      };
+    };
+  };
   readonly sandbox_workspace_write: {
     readonly writable_roots: readonly [string];
     readonly network_access: true;
@@ -506,6 +578,25 @@ function buildCodexWorkspaceWriteConfig(cwd: string): {
 } {
   return {
     sandbox_mode: "workspace-write",
+    // AgentScience chat workspaces do not contain a VCS marker. Treat the
+    // active thread cwd as the whole project so `:project_roots` cannot drift
+    // upward to a parent directory.
+    project_root_markers: [],
+    default_permissions: AGENTSCIENCE_CODEX_PERMISSION_PROFILE,
+    permissions: {
+      [AGENTSCIENCE_CODEX_PERMISSION_PROFILE]: {
+        filesystem: {
+          ":minimal": "read",
+          ":project_roots": {
+            ".": "write",
+          },
+        },
+        network: {
+          enabled: true,
+          mode: "full",
+        },
+      },
+    },
     sandbox_workspace_write: {
       writable_roots: [cwd],
       network_access: true,
@@ -534,9 +625,9 @@ export function buildCodexAppServerLaunchSpec(
   const envBase = input.processEnv ?? process.env;
   const resolvedCwd = realpathSync(input.cwd);
   // Codex app-server applies its own native command sandboxing from the
-  // thread/turn workspace-write policy. Wrapping the server process itself in
-  // an outer macOS sandbox causes nested sandbox failures for legitimate
-  // in-workspace shell execution.
+  // thread permissions profile. Wrapping the server process itself in an outer
+  // macOS sandbox causes nested sandbox failures for legitimate in-workspace
+  // shell execution.
   return {
     command: input.binaryPath,
     args: ["app-server"],
@@ -764,17 +855,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       const normalizedModel = resolveCodexModelForAccount(requestedModel, context.account);
+      const workspacePermissionsConfig = buildCodexWorkspacePermissionsConfig(resolvedCwd);
       const sessionOverrides = {
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: input.cwd ?? null,
         ...mapCodexRuntimeMode(input.runtimeMode ?? "approval-required"),
       };
-      const workspaceWriteConfig = buildCodexWorkspaceWriteConfig(resolvedCwd);
 
       const threadStartParams = {
         ...sessionOverrides,
-        config: workspaceWriteConfig,
+        config: workspacePermissionsConfig,
         experimentalRawEvents: false,
         persistExtendedHistory: false,
       };
@@ -802,6 +893,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           threadOpenResponse = await this.sendRequest(context, "thread/resume", {
             ...sessionOverrides,
             threadId: resumeThreadId,
+            config: workspacePermissionsConfig,
             persistExtendedHistory: false,
           });
         } catch (error) {
@@ -898,14 +990,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   async sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
     context.collabReceiverTurns.clear();
+    const stagedFileLines = stageCodexFileAttachments({
+      cwd: context.session.cwd,
+      attachments: input.attachments ?? [],
+    });
+    const fileAttachmentNote =
+      stagedFileLines.length > 0
+        ? [
+            "## Attached files",
+            "The files below were copied into this thread workspace. Treat them as disposable working copies. Do not try to access the user's original selected paths. If you transform data, write a new derived file instead of overwriting the staged input.",
+            ...stagedFileLines,
+          ].join("\n")
+        : "";
+    const textInput = [input.input, fileAttachmentNote]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join("\n\n");
 
     const turnInput: Array<
       { type: "text"; text: string; text_elements: [] } | { type: "image"; url: string }
     > = [];
-    if (input.input) {
+    if (textInput) {
       turnInput.push({
         type: "text",
-        text: input.input,
+        text: textInput,
         text_elements: [],
       });
     }
@@ -938,13 +1045,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       model?: string;
       serviceTier?: string | null;
       effort?: string;
-      sandboxPolicy?: {
-        readonly type: "workspaceWrite";
-        readonly writableRoots: readonly [string];
-        readonly networkAccess: true;
-        readonly excludeSlashTmp: true;
-        readonly excludeTmpdirEnvVar: true;
-      };
       collaborationMode?: {
         mode: "default" | "plan";
         settings: {
@@ -959,7 +1059,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
     if (context.session.cwd) {
       turnStartParams.cwd = context.session.cwd;
-      turnStartParams.sandboxPolicy = buildCodexWorkspaceWriteSandboxPolicy(context.session.cwd);
     }
     const requestedModel = normalizeCodexModelSlug(input.model ?? context.session.model);
     if (requestedModel === CODEX_SPARK_MODEL && context.account.type === "unknown") {
