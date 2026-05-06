@@ -1,200 +1,126 @@
 # Release
 
-This doc is for engineers cutting desktop releases, or touching the release pipeline itself. If you are changing anything in here, also read the workflow file directly:
+This repo releases the desktop app from GitHub Actions. The source of truth is
+[`release.yml`](../../.github/workflows/release.yml).
 
-- [release.yml](../../.github/workflows/release.yml)
+## Normal Flow
 
-The big picture: one git tag drives one release. Pushing a tag like `v1.2.3` kicks off a GitHub Actions workflow that runs quality gates, builds desktop installers for **macOS** (two architectures) and **Windows** (x64 NSIS), and publishes one GitHub Release with all the files. Production macOS releases are signed and notarized; the workflow still has an auto-detected unsigned fallback for debugging broken or missing Apple credentials. Windows release builds run on `windows-latest` so native dependencies (`node-pty`, Electron rebuild, and transitive addons such as `msgpackr-extract`) compile on the target OS; **a Windows installer cannot be produced on macOS** with the current dependency set.
-
-Versions with a suffix after the numeric part (for example `1.2.3-alpha.1`) are published as GitHub prereleases and do not become the "latest" release. Only plain `X.Y.Z` tags are marked latest.
-
-## What the workflow actually does
-
-When a tag matching `v*.*.*` is pushed, the workflow:
-
-- runs preflight quality gates (lint, typecheck, test) and fails fast if they fail
-- builds desktop artifacts in parallel (matrix):
-  - macOS `arm64` DMG
-  - macOS `x64` DMG
-  - Windows `x64` NSIS installer (`.exe`)
-- signs and notarizes macOS builds when Apple secrets are present; the production repo is configured for this path
-- publishes one GitHub Release with all the installers plus electron-updater metadata files (`latest*.yml`, `*.blockmap`, mac `.zip` payloads, Windows `.exe` and related updater files)
-- publishes stable alias assets for the public website download buttons:
-  - `Agent-Science-mac-arm64.dmg`
-  - `Agent-Science-mac-intel.dmg`
-  - `Agent-Science-win-x64.exe`
-- aligns internal workspace package versions to the release tag before committing the release bump back to `main`
-
-macOS and Windows matrix legs run in parallel. The GitHub Release happens in a final job after the matrix completes.
-
-## The normal release flow
-
-Day to day this is the only path you need. There is no separate manual production release flow.
-
-1. Make sure CI is green on the branch you are releasing from.
-2. Create and push the tag:
+Run from the repo root after CI is green:
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-3. Wait for the workflow to finish. It takes a while because of the signing and notarization steps on macOS, the Windows native build, and large bundled runtimes.
-4. Verify the GitHub Release contains the Mac artifacts, the Windows installer, and the updater metadata files (`latest-mac.yml`, `latest-win.yml`, blockmaps, mac `.zip` files).
-5. Download the Mac builds (both arches) and the Windows installer; smoke test on real hardware or VMs.
+A tag matching `v*.*.*` triggers `Release Desktop`.
 
-That is it. If you find yourself doing anything else, read the sections below.
+- Plain tags like `v1.2.3` publish a latest release.
+- Suffix tags like `v1.2.3-test.1` publish prereleases and do not become latest.
+- The release can take a while because macOS signing/notarization and large runtime artifacts are slow.
 
-Public website download links should point at the stable alias asset paths under the latest GitHub release, not at a specific versioned file. Example:
+After a successful release, the workflow may commit package version alignment
+back to `main`. Pull before continuing local work:
+
+```bash
+git pull --ff-only origin main
+```
+
+## What The Workflow Builds
+
+The workflow:
+
+1. Runs preflight: `bun install --frozen-lockfile --ignore-scripts`, `bun run lint`, `bun run typecheck`, `bun run test`.
+2. Builds three release legs in parallel:
+   - macOS arm64 DMG on `macos-14`
+   - macOS x64 DMG on `macos-15-intel`
+   - Windows x64 NSIS installer on `windows-latest`
+3. Publishes one GitHub Release.
+4. Finalizes workspace package versions back to `main` when needed.
+
+Windows installers must be built on Windows CI. Do not treat local macOS
+Windows packaging as authoritative.
+
+## Required Assets
+
+Every public release should include these stable download aliases:
+
+- `Agent-Science-mac-arm64.dmg`
+- `Agent-Science-mac-intel.dmg`
+- `Agent-Science-win-x64.exe`
+
+Updater metadata/assets should also be present:
+
+- `latest-mac.yml`
+- `latest.yml`
+- mac `.zip` payloads
+- `*.blockmap` files
+
+Website download links should use stable latest aliases, for example:
 
 ```text
-https://github.com/<owner>/<repo>/releases/latest/download/Agent-Science-mac-arm64.dmg
-https://github.com/<owner>/<repo>/releases/latest/download/Agent-Science-win-x64.exe
+https://github.com/vineet-reddy/agentscience-app/releases/latest/download/Agent-Science-mac-arm64.dmg
+https://github.com/vineet-reddy/agentscience-app/releases/latest/download/Agent-Science-win-x64.exe
 ```
-
-## Doing a dry run without cutting a real release
-
-Push a prerelease tag. Because anything with a suffix becomes a prerelease and is not marked latest, it is safe to throw away.
-
-```bash
-git tag v0.0.0-test.1
-git push origin v0.0.0-test.1
-```
-
-Then check the resulting GitHub Release, download the Mac and Windows artifacts, and install them on test machines. Delete the release afterwards if you care about keeping the list clean.
-
-This is also the right thing to do when you are changing the release workflow itself. Do not test release pipeline changes by cutting a real release.
-
-## Local desktop runtime parity
-
-`bun run dev:desktop` launches the development app from the repo. It does not
-build the large managed paper/science runtimes on startup.
-
-Before testing behavior that depends on bundled TinyTeX, bundled Python, or the
-managed science packages, run:
-
-```bash
-bun run dev:desktop:resources
-```
-
-Then launch:
-
-```bash
-bun run dev:desktop
-```
-
-`dev:desktop:resources` uses the same managed resource bundling code as the
-release artifact builder, but writes into
-`apps/desktop/managed-resources`. It is idempotent: it hashes the managed
-runtime recipe, writes `apps/desktop/managed-resources/.manifest.json`, and
-skips work when the hash and expected binaries still match.
-
-To build a non-default target, pass artifact-builder flags after `--`, for
-example `bun run dev:desktop:resources -- --platform mac --arch x64`.
-
-Use this rule of thumb:
-
-- app/server/web code changed: `Ctrl-C`, then `bun run dev:desktop`
-- managed runtime/toolchain recipe changed: `bun run dev:desktop:resources`, then `bun run dev:desktop`
-- final pre-release smoke test: build and install the actual DMG; on Windows run `bun run dist:desktop:win` from `agentscience-app/` and install the produced `.exe` (local Windows packaging does not work from macOS)
 
 ## Signing
 
-Signing is expected for public production releases. The release path has an unsigned fallback, which is useful because it means a broken cert or expired key can be isolated from general build health, but unsigned artifacts should be treated as degraded test output. The workflow decides at runtime whether macOS signing is enabled based on whether the Apple secrets exist and are non-empty.
+Public macOS releases should be signed and notarized. The workflow enables
+macOS signing only when all Apple signing secrets are present:
 
-### Windows packaging and code signing
+- `CSC_LINK`
+- `CSC_KEY_PASSWORD`
+- `APPLE_API_KEY`
+- `APPLE_API_KEY_ID`
+- `APPLE_API_ISSUER`
 
-Release builds use the same **`dist:desktop:artifact`** entrypoint as macOS, with `--platform win --target nsis`. CI runs that on **`windows-latest`**. There is no Windows Authenticode signing wired into the workflow today; installers are **unsigned**, so SmartScreen may show “unknown publisher” until you add a cert and signing step later.
+`APPLE_API_KEY` is raw `.p8` text; the workflow writes it to a temporary
+`AuthKey_<id>.p8` file before notarization.
 
-### macOS signing and notarization
+Windows Authenticode signing is not wired up yet, so Windows installers are
+currently unsigned.
 
-When these secrets are present, the workflow signs and notarizes macOS builds automatically. The production repository has this configuration; `v0.0.43` verified the configured path for both `arm64` and Intel builds.
+## Managed Runtimes
 
-- `CSC_LINK`: base64-encoded `.p12` containing the Developer ID Application certificate and its private key
-- `CSC_KEY_PASSWORD`: the `.p12` export password
-- `APPLE_API_KEY`: raw text contents of the App Store Connect API key `.p8` file
-- `APPLE_API_KEY_ID`: the key ID for that API key
-- `APPLE_API_ISSUER`: the issuer ID for that API key
+Release artifacts bundle managed Codex, TinyTeX, and Python/science runtimes.
 
-First-time setup checklist:
+For local behavior that depends on bundled TinyTeX/Python/science packages:
 
-1. Confirm the Apple Developer team has rights to create Developer ID certificates.
-2. Create a `Developer ID Application` certificate in Apple Developer.
-3. Export the certificate plus private key from Keychain as `.p12`.
-4. Base64-encode the `.p12` and store it as `CSC_LINK` in GitHub Actions secrets.
-5. Store the `.p12` export password as `CSC_KEY_PASSWORD`.
-6. In App Store Connect, create a Team API key.
-7. Save the three Apple API secrets: `APPLE_API_KEY` holds the raw `.p8` text, `APPLE_API_KEY_ID` is the key ID, `APPLE_API_ISSUER` is the issuer ID.
-8. Push a prerelease tag and confirm the mac DMGs come out signed and notarized.
+```bash
+bun run dev:desktop:resources
+bun run dev:desktop
+```
 
-One implementation detail worth knowing: `APPLE_API_KEY` is stored as raw key text because that is what the workflow expects. The workflow writes it to a temporary `AuthKey_<id>.p8` file at runtime before invoking notarization.
+The managed Python/science runtime should prune test fixtures, caches, and debug
+files before packaging/signing. Keep smoke checks for core packages including
+`scipy`, `scipy.io`, `scipy.optimize`, and `scipy.stats`; `v0.0.50` failed
+because macOS x64 signing hit a SciPy test fixture, and `v0.0.51` fixed this by
+pruning those fixtures.
 
-### What to do if signing is breaking a release
+## Auto-Update
 
-Do not ship a public release by intentionally skipping signing. Instead:
+Desktop updates use GitHub Releases through `electron-updater`, wired in
+[`apps/desktop/src/main.ts`](../apps/desktop/src/main.ts).
 
-1. Cut a prerelease with no signing secrets present and confirm the unsigned path still works, so you know the build itself is healthy.
-2. Re-add the Apple signing secrets.
-3. Check that every required secret is present and non-empty. Empty secrets are the single most common failure.
-4. Double-check the Apple team rights, cert, key id, and issuer id.
+- Production builds are pinned to `vineet-reddy/agentscience-app`.
+- The app checks in the background.
+- Updates are not installed silently: users download, then restart/install.
+- macOS has one merged `latest-mac.yml` for both arm64 and x64.
+- Windows uses `latest.yml` for the NSIS installer.
 
-## Internal Server Runtime
+Most update failures are missing release assets, stale packaged builds, or
+missing updater metadata.
 
-`apps/server` is an internal backend package. It ships inside the desktop app and
-is versioned with the app release, but it is not published as a standalone npm
-package.
+## Troubleshooting
 
-That means the release pipeline only needs to:
+Start with the GitHub Actions logs and the release asset list.
 
-1. build the desktop artifacts
-2. publish the GitHub Release
-3. commit any internal version alignment back to `main`
+Common failures:
 
-If the `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` secrets are not configured, the workflow still builds and publishes the GitHub Release, but it skips the final version-bump commit.
+- Preflight failed: fix lint/typecheck/tests and push a new tag.
+- Matrix build failed: inspect that platform job.
+- macOS signing/notarization failed: verify Apple secrets and check nested files in the app bundle.
+- Missing assets: inspect `Collect release assets`, manifest merge, and `Publish release`.
+- Version drift after release: pull `origin/main`; the finalize job may have pushed package version bumps.
 
-If you are debugging the backend locally, run it from the monorepo with the repo
-scripts instead of trying to install it from npm.
-
-## Desktop auto-update
-
-Updates are served from GitHub Releases through `electron-updater`, wired up in [apps/desktop/src/main.ts](../apps/desktop/src/main.ts). A few things are worth knowing because they affect what goes into a release and how users experience it.
-
-Update UX:
-
-- background checks run after a startup delay and then at an interval
-- nothing downloads or installs automatically
-- when an update is available the desktop UI shows a rocket button, first click downloads, second click after download restarts and installs
-
-Provider and repo resolution:
-
-- provider is GitHub Releases (`provider: github`), configured at build time
-- production builds are pinned to `vineet-reddy/agentscience-app`
-- local mock-update testing still uses the generic mock-update server path
-
-Private-repo auth workaround:
-
-- setting `AGENTSCIENCE_DESKTOP_UPDATE_GITHUB_TOKEN` (or `GH_TOKEN`) in the desktop runtime environment makes the updater send `Authorization: Bearer <token>` on its API calls, so private repos are reachable
-- this is a stopgap, not a long-term answer
-
-Required release assets for the updater to work at all:
-
-- macOS installers: `.dmg` plus macOS `.zip` for Squirrel.Mac update payloads
-- Windows: NSIS `.exe` installer plus `latest-win.yml` and the matching `*.blockmap` for that payload (electron-builder generates these when publishing metadata is configured)
-- `latest*.yml` updater metadata files at the release root
-- `*.blockmap` files, used for differential downloads
-
-One macOS quirk: `electron-updater` reads `latest-mac.yml` for both Intel and Apple Silicon, but the build produces one per-arch manifest. The workflow merges the two per-arch mac manifests into a single `latest-mac.yml` before publishing the GitHub Release. If updates are broken on one mac arch only, this merge step is the first place to look. Windows uses `latest-win.yml` and does not need a merge step for a single x64 NSIS artifact.
-
-If update behavior is acting weird in a specific build, check the desktop main process code in `main.ts` and check the release assets on GitHub. Almost every update bug is either missing assets, a stale packaged build, or missing updater metadata.
-
-## Troubleshooting a broken release
-
-Start with the workflow logs. The failure almost always falls in one of four buckets:
-
-- quality gate failure: lint, typecheck, or tests fail in preflight. Fix and re-push the tag.
-- signing secrets missing or wrong: the build succeeds on the unsigned path but signing fails, or secrets are empty and you expected signed output. Verify secrets are present and non-empty, check cert and profile names.
-- internal release automation drift: usually the workflow, package-version alignment, or lockfile refresh step no longer matches the repo layout.
-- missing release assets: a matrix job silently dropped an artifact, or updater metadata files did not get uploaded. Re-run the matrix job if it was flaky, investigate the upload step if it was a real bug.
-- Windows `electron-builder` / `@electron/rebuild` failures on macOS: packaging for Windows must run on Windows (for example `windows-latest` in CI or a local PC). See the note in “Windows packaging and code signing.”
-
-If you need to re-cut the same version, delete the tag and the GitHub Release, then push the tag again. Do not publish `vX.Y.Z.1` or similar ad hoc variants to "get around" a broken run.
+If re-cutting the same version, delete the GitHub Release and tag first, then
+push the tag again. Do not invent ad hoc versions like `vX.Y.Z.1`.
