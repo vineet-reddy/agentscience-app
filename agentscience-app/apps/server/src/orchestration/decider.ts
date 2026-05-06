@@ -503,6 +503,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: targetThread.interactionMode,
           researchDepth: command.researchDepth,
           ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
+          ...(command.message.providerText !== undefined
+            ? { providerMessageText: command.message.providerText }
+            : {}),
           createdAt: command.createdAt,
         },
       };

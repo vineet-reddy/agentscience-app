@@ -195,6 +195,29 @@ it.effect("preserves explicit provider and runtime mode in thread.turn.start", (
   }),
 );
 
+it.effect("accepts hidden provider text in thread.turn.start without replacing visible text", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartCommand({
+      type: "thread.turn.start",
+      commandId: "cmd-turn-provider-text",
+      threadId: "thread-1",
+      message: {
+        messageId: "msg-provider-text",
+        role: "user",
+        text: "Visible user instruction",
+        providerText: "Visible user instruction\n\nHidden agent intake context",
+        attachments: [],
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.message.text, "Visible user instruction");
+    assert.strictEqual(
+      parsed.message.providerText,
+      "Visible user instruction\n\nHidden agent intake context",
+    );
+  }),
+);
+
 it.effect("accepts bootstrap metadata in thread.turn.start", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeThreadTurnStartCommand({
@@ -420,6 +443,18 @@ it.effect(
       assert.strictEqual(parsed.interactionMode, DEFAULT_PROVIDER_INTERACTION_MODE);
       assert.strictEqual(parsed.sourceProposedPlan, undefined);
     }),
+);
+
+it.effect("decodes thread.turn-start-requested hidden provider text when present", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadTurnStartRequestedPayload({
+      threadId: "thread-2",
+      messageId: "msg-2",
+      providerMessageText: "Visible text\n\nHidden context",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.providerMessageText, "Visible text\n\nHidden context");
+  }),
 );
 
 it.effect("decodes thread.turn-start-requested source proposed plan metadata when present", () =>

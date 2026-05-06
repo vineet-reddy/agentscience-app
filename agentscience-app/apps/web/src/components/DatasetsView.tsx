@@ -2,13 +2,17 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeftIcon,
+  CheckIcon,
   CopyIcon,
   DatabaseIcon,
   ExternalLinkIcon,
   FileTextIcon,
   LibraryIcon,
+  LinkIcon,
+  PlusIcon,
   SearchIcon,
   TagIcon,
+  XIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -23,14 +27,21 @@ import {
   type DatasetEntry,
   type DatasetProvider,
   type DatasetProviderSummary,
+  type DatasetRegistryCandidateInput,
+  type DatasetRegistryCheckResult,
+  type DatasetRegistryInspectResult,
   type DatasetSourcePaper,
+  type DatasetStandalonePolicyResult,
   type DatasetTopic,
   type DatasetTopicSummary,
+  type DatasetValidationReport,
   buildDatasetMentionRef,
   buildProviderMentionRef,
+  createDatasetRegistryEntry,
   fetchDatasetProviders,
   fetchDatasetRegistry,
   fetchDatasetTopics,
+  inspectDatasetRegistryCandidate,
   resolveSourcePaperUrl,
 } from "../lib/datasetRegistry";
 import { cn, newThreadId } from "../lib/utils";
@@ -126,6 +137,7 @@ export function DatasetsView() {
     ALL_PROVIDERS_ID,
   );
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+  const [addDatasetOpen, setAddDatasetOpen] = useState(false);
 
   const providerById = useMemo(() => {
     const map = new Map<string, DatasetProvider>();
@@ -223,6 +235,7 @@ export function DatasetsView() {
     setActiveTopicSlug(ALL_TOPICS_ID);
     setActiveProviderId(ALL_PROVIDERS_ID);
     setSelectedDatasetId(null);
+    setAddDatasetOpen(false);
   }, []);
 
   const handleSelectTopic = useCallback(
@@ -236,6 +249,7 @@ export function DatasetsView() {
           setActiveArea(topic.area);
         }
       }
+      setAddDatasetOpen(false);
     },
     [activeArea, topicBySlug],
   );
@@ -243,12 +257,14 @@ export function DatasetsView() {
   const handleSelectProvider = useCallback((providerId: ProviderFilter) => {
     setActiveProviderId(providerId);
     setSelectedDatasetId(null);
+    setAddDatasetOpen(false);
   }, []);
 
   const handleOpenProviderForDataset = useCallback(
     (provider: DatasetProviderSummary) => {
       setActiveProviderId(provider.id);
       setSelectedDatasetId(null);
+      setAddDatasetOpen(false);
     },
     [],
   );
@@ -260,9 +276,29 @@ export function DatasetsView() {
       setActiveTopicSlug(topic.slug);
       setActiveProviderId(ALL_PROVIDERS_ID);
       setSelectedDatasetId(null);
+      setAddDatasetOpen(false);
       void hydrated;
     },
     [topicBySlug],
+  );
+
+  const handleSelectDataset = useCallback((id: string) => {
+    setSelectedDatasetId(id);
+    setAddDatasetOpen(false);
+  }, []);
+
+  const handleAddDataset = useCallback(() => {
+    setSelectedDatasetId(null);
+    setAddDatasetOpen(true);
+  }, []);
+
+  const handleDatasetCreated = useCallback(
+    (dataset: DatasetEntry) => {
+      setSelectedDatasetId(dataset.id);
+      setAddDatasetOpen(false);
+      void datasetsQuery.refetch();
+    },
+    [datasetsQuery],
   );
 
   const selectedDataset = useMemo(
@@ -360,13 +396,19 @@ export function DatasetsView() {
               activeProviderId={activeProviderId}
               onActiveProviderChange={handleSelectProvider}
               selectedDatasetId={selectedDatasetId}
-              onSelectDataset={setSelectedDatasetId}
+              onSelectDataset={handleSelectDataset}
+              onAddDataset={handleAddDataset}
             />
           </ResizablePanel>
           <ResizableHandle />
           <ResizablePanel defaultSize={66} minSize={35}>
             <RightPane
               state={rightPaneState}
+              addDatasetOpen={addDatasetOpen}
+              providers={providers}
+              topics={topics}
+              onCloseAddDataset={() => setAddDatasetOpen(false)}
+              onDatasetCreated={handleDatasetCreated}
               onOpenProvider={handleOpenProviderForDataset}
               onOpenTopic={handleOpenTopicFromChip}
             />
@@ -379,13 +421,33 @@ export function DatasetsView() {
 
 function RightPane({
   state,
+  addDatasetOpen,
+  providers,
+  topics,
+  onCloseAddDataset,
+  onDatasetCreated,
   onOpenProvider,
   onOpenTopic,
 }: {
   state: RightPaneState;
+  addDatasetOpen: boolean;
+  providers: DatasetProvider[];
+  topics: DatasetTopic[];
+  onCloseAddDataset: () => void;
+  onDatasetCreated: (dataset: DatasetEntry) => void;
   onOpenProvider: (provider: DatasetProviderSummary) => void;
   onOpenTopic: (topic: DatasetTopicSummary) => void;
 }) {
+  if (addDatasetOpen) {
+    return (
+      <AddDatasetBody
+        providers={providers}
+        topics={topics}
+        onClose={onCloseAddDataset}
+        onDatasetCreated={onDatasetCreated}
+      />
+    );
+  }
   if (state.kind === "dataset") {
     return (
       <DatasetDetailBody
@@ -405,6 +467,665 @@ function RightPane({
     return <UnassignedEmptyState count={state.count} />;
   }
   return <DefaultEmptyState />;
+}
+
+function AddDatasetBody({
+  topics,
+  onClose,
+  onDatasetCreated,
+}: {
+  providers: DatasetProvider[];
+  topics: DatasetTopic[];
+  onClose: () => void;
+  onDatasetCreated: (dataset: DatasetEntry) => void;
+}) {
+  const [source, setSource] = useState("");
+  const sourceText = source.trim();
+  const [name, setName] = useState("");
+  const [shortName, setShortName] = useState("");
+  const [description, setDescription] = useState("");
+  const [providerSlug, setProviderSlug] = useState("");
+  const [topicSlugsText, setTopicSlugsText] = useState("");
+  const [keywordsText, setKeywordsText] = useState("");
+  const [inspectResult, setInspectResult] = useState<DatasetRegistryInspectResult | null>(null);
+  const [checkResult, setCheckResult] = useState<DatasetRegistryCheckResult | null>(null);
+  const [validationResult, setValidationResult] = useState<DatasetValidationReport | null>(null);
+  const [standalonePolicy, setStandalonePolicy] =
+    useState<DatasetStandalonePolicyResult | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [isAdding, setIsAdding] = useState(false);
+  const hasSource = sourceText.length > 0;
+
+  const resetInspection = useCallback(() => {
+    setInspectResult(null);
+    setCheckResult(null);
+    setValidationResult(null);
+    setStandalonePolicy(null);
+    setReviewError(null);
+  }, []);
+
+  const candidateState = useMemo(
+    () =>
+      buildDatasetRegistryCandidate({
+        source: sourceText,
+        name,
+        shortName,
+        description,
+        providerSlug,
+        topicSlugsText,
+        keywordsText,
+      }),
+    [sourceText, name, shortName, description, providerSlug, topicSlugsText, keywordsText],
+  );
+
+  const validationAllowsWrite =
+    validationResult?.status === "OPEN_USABLE" || checkResult?.status === "registered";
+  const policyAllowsWrite =
+    standalonePolicy?.ok === true || checkResult?.status === "registered";
+  const canCreate = Boolean(candidateState.candidate && validationAllowsWrite && policyAllowsWrite);
+
+  const applyInspectionResult = useCallback((result: DatasetRegistryInspectResult) => {
+    const candidate = result.candidate;
+    setInspectResult(result);
+    setCheckResult(result.check);
+    setValidationResult(result.validation);
+    setStandalonePolicy(result.standalonePolicy);
+    setName(candidate.name);
+    setShortName(candidate.shortName ?? "");
+    setDescription(candidate.description);
+    setProviderSlug(candidate.providerSlug ?? "");
+    setTopicSlugsText(candidate.topicSlugs?.join(", ") ?? "");
+    setKeywordsText(candidate.keywords?.join(", ") ?? "");
+  }, []);
+
+  const handleCheck = useCallback(async (): Promise<DatasetRegistryInspectResult | null> => {
+    if (!sourceText) {
+      setReviewError("Paste a dataset source URL before checking.");
+      return null;
+    }
+    try {
+      const parsedUrl = new URL(sourceText);
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        setReviewError("Dataset source must use http or https.");
+        return null;
+      }
+    } catch {
+      setReviewError("Dataset source must be a valid http or https URL.");
+      return null;
+    }
+    const editableCandidate = candidateState.candidate ?? undefined;
+    setIsChecking(true);
+    setReviewError(null);
+    try {
+      const result = await inspectDatasetRegistryCandidate({
+        url: sourceText,
+        ...(editableCandidate ? { candidate: editableCandidate } : {}),
+      });
+      applyInspectionResult(result);
+      const policyErrors = result.standalonePolicy?.errors ?? [];
+      const validationStatus = result.validation?.status ?? null;
+      if (policyErrors.length > 0 && result.check?.status !== "registered") {
+        setReviewError(policyErrors.join(" "));
+      } else if (validationStatus && validationStatus !== "OPEN_USABLE") {
+        setReviewError(result.validation?.summary ?? "Dataset validation needs attention.");
+      } else {
+        setReviewError(null);
+      }
+      return result;
+    } catch (error) {
+      setInspectResult(null);
+      setCheckResult(null);
+      setValidationResult(null);
+      setStandalonePolicy(null);
+      setReviewError(error instanceof Error ? error.message : "Dataset registry check failed.");
+      return null;
+    } finally {
+      setIsChecking(false);
+    }
+  }, [applyInspectionResult, candidateState.candidate, sourceText]);
+
+  const handleSourceChange = (value: string) => {
+    setSource(value);
+    if (inspectResult || checkResult || validationResult || standalonePolicy || reviewError) {
+      resetInspection();
+    }
+  };
+
+  const handleEditableChange = (setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    if (inspectResult || checkResult || validationResult || standalonePolicy || reviewError) {
+      resetInspection();
+    }
+  };
+
+  const ensureInspectedCandidate = async () => {
+    if (canCreate && candidateState.candidate) {
+      return candidateState.candidate;
+    }
+    const result = await handleCheck();
+    if (!result) return null;
+    const hydrated = result.candidate;
+    const isRegistered = result.check?.status === "registered";
+    const validationOk = result.validation?.status === "OPEN_USABLE" || isRegistered;
+    const policyOk = result.standalonePolicy?.ok === true || isRegistered;
+    if (!validationOk || !policyOk) {
+      return null;
+    }
+    return hydrated;
+  };
+
+  const handleAdd = async () => {
+    const candidate = await ensureInspectedCandidate();
+    if (!candidate) {
+      setReviewError((existing) => existing ?? "Check and resolve the agent review before writing.");
+      return;
+    }
+
+    setIsAdding(true);
+    setReviewError(null);
+    try {
+      const result = await createDatasetRegistryEntry(candidate);
+      setCheckResult(result.check);
+      toastManager.add({
+        type: "success",
+        title: result.created ? "Dataset added" : "Dataset already registered",
+        description: result.dataset.name,
+      });
+      onDatasetCreated(result.dataset);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Dataset registry write failed.";
+      setReviewError(message);
+      toastManager.add({
+        type: "error",
+        title: "Could not add dataset",
+        description: message,
+      });
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  return (
+    <section className="flex h-full min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between border-b border-border px-6 py-3">
+        <div className="flex min-w-0 items-center gap-2 text-[0.8125rem]">
+          <span className="text-ink-light">Datasets</span>
+          <span className="text-ink-faint">/</span>
+          <span className="font-medium text-ink">Add dataset instructions</span>
+        </div>
+        <Button size="icon-xs" variant="ghost" aria-label="Close add dataset" onClick={onClose}>
+          <XIcon className="size-3.5" />
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-8 py-8">
+          <header className="flex items-start gap-4">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-ink-light">
+              <DatabaseIcon className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="font-display text-[1.5rem] leading-[1.2] text-ink sm:text-[1.625rem]">
+                Add a dataset
+              </h1>
+              <p className="mt-1 max-w-[620px] text-[0.9375rem] leading-relaxed text-ink-light">
+                Store the access recipe, not the data. The agent checks access, metadata, license,
+                and reuse fit before it becomes a registry reference.
+              </p>
+            </div>
+          </header>
+
+          <section className="flex flex-col gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+              Source
+            </p>
+            <div className="flex items-center gap-2 rounded-[8px] border border-rule bg-card px-3 py-2 focus-within:border-ink">
+              <LinkIcon className="size-4 shrink-0 text-ink-light" />
+              <input
+                type="text"
+                value={source}
+                onChange={(event) => handleSourceChange(event.target.value)}
+                placeholder="Public URL, API endpoint, DOI, S3 bucket, or local access note"
+                className="min-w-0 flex-1 bg-transparent font-mono text-[0.8125rem] text-ink outline-none placeholder:font-sans placeholder:text-ink-faint"
+              />
+            </div>
+            <p className="text-[0.8125rem] text-ink-light">
+              Paste the canonical dataset page or API endpoint. AgentScience verifies it before
+              writing to the shared registry.
+            </p>
+          </section>
+
+          <AgentDatasetReview
+            hasSource={hasSource}
+            candidate={candidateState.candidate}
+            canCreate={canCreate}
+            checkResult={checkResult}
+            validationResult={validationResult}
+            standalonePolicy={standalonePolicy}
+            error={reviewError}
+            isChecking={isChecking}
+            providerLabel={inspectResult?.provider?.name ?? providerSlug}
+          />
+
+          {hasSource ? (
+            <section className="flex flex-col gap-4">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+                  Registry payload
+                </p>
+                <span className="text-[0.8125rem] text-ink-light">
+                  Editable before write
+                </span>
+              </div>
+              <RegistryPayloadEditor
+                name={name}
+                shortName={shortName}
+                description={description}
+                providerSlug={providerSlug}
+                topicSlugsText={topicSlugsText}
+                keywordsText={keywordsText}
+                topics={topics}
+                onNameChange={handleEditableChange(setName)}
+                onShortNameChange={handleEditableChange(setShortName)}
+                onDescriptionChange={handleEditableChange(setDescription)}
+                onProviderSlugChange={handleEditableChange(setProviderSlug)}
+                onTopicSlugsTextChange={handleEditableChange(setTopicSlugsText)}
+                onKeywordsTextChange={handleEditableChange(setKeywordsText)}
+              />
+            </section>
+          ) : null}
+        </div>
+      </div>
+
+      <footer className="flex items-center justify-end gap-2 border-t border-border bg-card px-6 py-3">
+        <Button size="sm" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!hasSource || isChecking || isAdding}
+          onClick={() => void handleCheck()}
+        >
+          {isChecking ? "Checking..." : "Check source"}
+        </Button>
+        <Button size="sm" disabled={!canCreate || isAdding} onClick={handleAdd}>
+          <CheckIcon className="size-3.5" />
+          {isAdding ? "Adding..." : "Add to registry"}
+        </Button>
+      </footer>
+    </section>
+  );
+}
+
+function AgentDatasetReview({
+  hasSource,
+  candidate,
+  canCreate,
+  checkResult,
+  validationResult,
+  standalonePolicy,
+  error,
+  isChecking,
+  providerLabel,
+}: {
+  hasSource: boolean;
+  candidate: DatasetRegistryCandidateInput | null;
+  canCreate: boolean;
+  checkResult: DatasetRegistryCheckResult | null;
+  validationResult: DatasetValidationReport | null;
+  standalonePolicy: DatasetStandalonePolicyResult | null;
+  error: string | null;
+  isChecking: boolean;
+  providerLabel: string;
+}) {
+  const checks = hasSource
+    ? [
+        {
+          label: checkResult
+            ? `Registry status: ${formatDatasetCheckStatus(checkResult.status)}`
+            : "Registry duplicate check waits for Check source",
+          state: checkResult ? ("pass" as const) : ("wait" as const),
+        },
+        {
+          label: validationResult
+            ? `Access validation: ${validationResult.status}`
+            : "Access validation waits for Check source",
+          state: validationResult
+            ? validationResult.status === "OPEN_USABLE" || checkResult?.status === "registered"
+              ? ("pass" as const)
+              : ("fail" as const)
+            : ("wait" as const),
+        },
+        {
+          label:
+            standalonePolicy && standalonePolicy.ok
+              ? "Standalone registry policy: PASS"
+              : standalonePolicy
+                ? "Standalone registry policy: FAIL"
+                : "Standalone registry policy waits for Check source",
+          state: standalonePolicy
+            ? standalonePolicy.ok || checkResult?.status === "registered"
+              ? ("pass" as const)
+              : ("fail" as const)
+            : ("wait" as const),
+        },
+        {
+          label: candidate?.providerSlug
+            ? `Canonical provider: ${providerLabel || candidate.providerSlug}`
+            : "Canonical provider slug required",
+          state: candidate?.providerSlug ? ("pass" as const) : ("fail" as const),
+        },
+        {
+          label:
+            candidate?.topicSlugs && candidate.topicSlugs.length > 0
+              ? `Topic slugs: ${candidate.topicSlugs.join(", ")}`
+              : "At least one topic slug required",
+          state:
+            candidate?.topicSlugs && candidate.topicSlugs.length > 0
+              ? ("pass" as const)
+              : ("fail" as const),
+        },
+        {
+          label:
+            checkResult && checkResult.candidate.unknownTopicSlugs.length > 0
+              ? `Unknown topic slugs: ${checkResult.candidate.unknownTopicSlugs.join(", ")}`
+              : "Topic slugs recognized by AgentScience",
+          state:
+            checkResult && checkResult.candidate.unknownTopicSlugs.length > 0
+              ? ("fail" as const)
+              : checkResult
+                ? ("pass" as const)
+                : ("wait" as const),
+        },
+      ]
+    : [
+        { label: "Source URL waits for input", state: "wait" as const },
+        { label: "Provider detection waits for input", state: "wait" as const },
+        { label: "Registry check waits for input", state: "wait" as const },
+      ];
+
+  return (
+    <section className="rounded-[12px] border border-rule bg-secondary/70 p-4">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-[0.9375rem] font-medium text-ink">Agent review</h2>
+        <span className="text-[0.8125rem] text-ink-light">
+          {isChecking
+            ? "Checking..."
+            : error
+              ? "Needs attention"
+              : checkResult
+                ? formatDatasetCheckStatus(checkResult.status)
+                : "Waiting"}
+        </span>
+      </div>
+      <ul className="mt-3 space-y-2">
+        {checks.map((check) => (
+          <li key={check.label} className="flex items-start gap-2 text-[0.875rem] text-ink">
+            <CheckIcon
+              className={cn(
+                "mt-0.5 size-3.5 shrink-0",
+                check.state === "pass"
+                  ? "text-success"
+                  : check.state === "fail"
+                    ? "text-destructive"
+                    : "text-ink-faint",
+              )}
+            />
+            <span>{check.label}</span>
+          </li>
+        ))}
+      </ul>
+      {error ? (
+        <p className="mt-4 border-t border-rule pt-3 text-[0.875rem] text-destructive">
+          {error}
+        </p>
+      ) : (
+        <p className="mt-4 border-t border-rule pt-3 text-[0.875rem] italic text-ink-light">
+          {hasSource
+            ? canCreate
+              ? "Ready to write through the AgentScience registry API."
+              : validationResult
+                ? validationResult.summary
+                : "Check the source to run the AgentScience registry review."
+            : "Paste a source and AgentScience will validate the registry payload."}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function RegistryPayloadEditor({
+  name,
+  shortName,
+  description,
+  providerSlug,
+  topicSlugsText,
+  keywordsText,
+  topics,
+  onNameChange,
+  onShortNameChange,
+  onDescriptionChange,
+  onProviderSlugChange,
+  onTopicSlugsTextChange,
+  onKeywordsTextChange,
+}: {
+  name: string;
+  shortName: string;
+  description: string;
+  providerSlug: string;
+  topicSlugsText: string;
+  keywordsText: string;
+  topics: DatasetTopic[];
+  onNameChange: (value: string) => void;
+  onShortNameChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onProviderSlugChange: (value: string) => void;
+  onTopicSlugsTextChange: (value: string) => void;
+  onKeywordsTextChange: (value: string) => void;
+}) {
+  const topicSlugs = parseSlugList(topicSlugsText);
+  const topicBySlug = useMemo(() => {
+    const map = new Map<string, DatasetTopic>();
+    for (const topic of topics) {
+      map.set(topic.slug, topic);
+    }
+    return map;
+  }, [topics]);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <EditablePreviewField label="Name" value={name} onChange={onNameChange} />
+      <EditablePreviewField
+        label="Short name"
+        value={shortName}
+        onChange={onShortNameChange}
+        placeholder="Optional, 35 characters max"
+      />
+      <EditablePreviewField
+        label="Description"
+        value={description}
+        onChange={onDescriptionChange}
+        multiline
+      />
+      <EditablePreviewField
+        label="Provider slug"
+        value={providerSlug}
+        onChange={onProviderSlugChange}
+        placeholder="e.g. openneuro, cbioportal, huggingface"
+      />
+      <EditablePreviewField
+        label="Topic slugs"
+        value={topicSlugsText}
+        onChange={onTopicSlugsTextChange}
+        placeholder="e.g. genomics, clinical-records"
+      />
+      {topicSlugs.length > 0 ? (
+        <PreviewChipField
+          label="Resolved topics"
+          values={topicSlugs.map((slug) => topicBySlug.get(slug)?.name ?? slug)}
+          icon={<TagIcon className="size-3" />}
+        />
+      ) : null}
+      <EditablePreviewField
+        label="Keywords"
+        value={keywordsText}
+        onChange={onKeywordsTextChange}
+        placeholder="Comma-separated keywords"
+      />
+    </div>
+  );
+}
+
+function EditablePreviewField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  multiline = false,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  multiline?: boolean;
+}) {
+  const sharedClassName =
+    "w-full rounded-[8px] border border-rule bg-card px-3 py-2 text-[0.9375rem] leading-relaxed text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-ink";
+  return (
+    <section className="flex flex-col gap-1">
+      <p className="text-[0.8125rem] font-medium text-ink-light">{label}</p>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          rows={3}
+          className={cn(sharedClassName, "resize-y")}
+        />
+      ) : (
+        <input
+          type="text"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className={sharedClassName}
+        />
+      )}
+    </section>
+  );
+}
+
+function PreviewChipField({
+  label,
+  values,
+  icon,
+}: {
+  label: string;
+  values: string[];
+  icon?: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <p className="text-[0.8125rem] font-medium text-ink-light">{label}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {values.map((value) => (
+          <span
+            key={value}
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2.5 py-[3px] text-[11px] font-medium text-ink-light"
+          >
+            {icon}
+            {value}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function parseSlugList(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function parseKeywordList(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(",")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ].slice(0, 16);
+}
+
+function formatDatasetCheckStatus(status: DatasetRegistryCheckResult["status"]): string {
+  if (status === "registered") return "Already registered";
+  if (status === "possible-duplicate") return "Possible duplicate";
+  return "New dataset";
+}
+
+function buildDatasetRegistryCandidate(input: {
+  source: string;
+  name: string;
+  shortName: string;
+  description: string;
+  providerSlug: string;
+  topicSlugsText: string;
+  keywordsText: string;
+}): { candidate: DatasetRegistryCandidateInput | null; error: string | null } {
+  if (input.source.length === 0) {
+    return { candidate: null, error: null };
+  }
+
+  let url: URL;
+  try {
+    url = new URL(input.source);
+  } catch {
+    return { candidate: null, error: "Dataset source must be a valid http or https URL." };
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { candidate: null, error: "Dataset source must use http or https." };
+  }
+
+  const name = input.name.trim();
+  if (name.length < 2) {
+    return { candidate: null, error: "Dataset name must be at least 2 characters." };
+  }
+
+  const description = input.description.trim();
+  if (description.length < 12) {
+    return {
+      candidate: null,
+      error: "Dataset description must be at least 12 characters.",
+    };
+  }
+
+  const shortName = input.shortName.trim();
+  const providerSlug = input.providerSlug.trim().toLowerCase();
+  const topicSlugs = parseSlugList(input.topicSlugsText);
+  return {
+    candidate: {
+      name,
+      shortName: shortName.length > 0 ? shortName : null,
+      url: url.toString(),
+      description,
+      keywords: parseKeywordList(input.keywordsText),
+      providerSlug: providerSlug.length > 0 ? providerSlug : null,
+      topicSlugs,
+      registryEligible: true,
+    },
+    error: null,
+  };
 }
 
 function DefaultEmptyState() {
@@ -469,6 +1190,7 @@ interface DatasetSidebarProps {
   onActiveProviderChange: (value: ProviderFilter) => void;
   selectedDatasetId: string | null;
   onSelectDataset: (id: string) => void;
+  onAddDataset: () => void;
 }
 
 /**
@@ -503,6 +1225,7 @@ function DatasetSidebar({
   onActiveProviderChange,
   selectedDatasetId,
   onSelectDataset,
+  onAddDataset,
 }: DatasetSidebarProps) {
   const inOverview = activeArea === ALL_AREAS_ID;
   const displayCount = datasets.length;
@@ -510,11 +1233,23 @@ function DatasetSidebar({
   return (
     <aside className="flex h-full w-full min-w-0 flex-1 flex-col">
       <div className="flex flex-col gap-4 border-b border-border px-4 py-4">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-center justify-between gap-3">
           <p className="font-display text-[1.0625rem] text-ink">Dataset registry</p>
-          <span className="text-[11px] uppercase tracking-[0.16em] text-ink-faint">
-            {isLoading ? "Loading" : `${displayCount} of ${totalCount}`}
-          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-[11px] uppercase tracking-[0.16em] text-ink-faint">
+              {isLoading ? "Loading" : `${displayCount} of ${totalCount}`}
+            </span>
+            <Button
+              size="xs"
+              variant="outline"
+              className="h-6 px-2"
+              onClick={onAddDataset}
+              title="Add dataset instructions"
+            >
+              <PlusIcon className="size-3" />
+              New
+            </Button>
+          </div>
         </div>
         <div className="relative">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-faint" />

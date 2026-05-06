@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import Mime from "@effect/platform-node/Mime";
 import { Data, Effect, FileSystem, Layer, Option, Path } from "effect";
 import { cast } from "effect/Function";
@@ -31,12 +34,15 @@ import { LocalPapersService } from "./localPapers.ts";
 import { PaperReviewService } from "./paperReview.ts";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver.ts";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup.ts";
+import { AgentScienceAuthService } from "./agentScienceAuth.ts";
 
 const DESKTOP_READY_PATH = "/api/desktop/ready";
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const FALLBACK_PROJECT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 const OTLP_TRACES_PROXY_PATH = "/api/observability/v1/traces";
 const DATASET_REGISTRY_PROXY_PATH = "/api/datasets/registry";
+const DATASET_REGISTRY_CHECK_PROXY_PATH = "/api/datasets/registry/check";
+const DATASET_REGISTRY_INSPECT_PROXY_PATH = "/api/datasets/registry/inspect";
 const DATASET_REGISTRY_PROVIDERS_PROXY_PATH = "/api/datasets/registry/providers";
 const DATASET_REGISTRY_TOPICS_PROXY_PATH = "/api/datasets/registry/topics";
 const DATASET_REGISTRY_DEFAULT_LIMIT = 500;
@@ -52,6 +58,13 @@ class DecodeOtlpTraceRecordsError extends Data.TaggedError("DecodeOtlpTraceRecor
 }> {}
 
 class DatasetRegistryProxyError extends Data.TaggedError("DatasetRegistryProxyError")<{
+  readonly cause: unknown;
+  readonly upstreamUrl: string;
+}> {}
+
+class DatasetRegistryPostProxyError extends Data.TaggedError(
+  "DatasetRegistryPostProxyError",
+)<{
   readonly cause: unknown;
   readonly upstreamUrl: string;
 }> {}
@@ -78,6 +91,58 @@ type NormalizedPaperSummary = NormalizedDatasetSourcePaper & {
   id: string;
 };
 
+type DatasetRegistryCandidate = {
+  name: string;
+  shortName?: string | null | undefined;
+  url: string;
+  description: string;
+  keywords?: string[] | undefined;
+  providerSlug?: string | null | undefined;
+  topicSlugs?: string[] | undefined;
+  registryEligible?: boolean | undefined;
+};
+
+type RegistryProvider = {
+  slug: string;
+  name: string;
+  domain: string;
+  homeUrl?: string | undefined;
+  description?: string | undefined;
+  searchKind?: string | null | undefined;
+  searchEndpoint?: string | null | undefined;
+  searchQueryTemplate?: string | null | undefined;
+  datasetUrlTemplate?: string | null | undefined;
+  agentInstructions?: string | null | undefined;
+  topics?: Array<{ slug?: string; name?: string }>;
+};
+
+type DatasetValidationModule = {
+  validateDatasetCandidate: (candidate: DatasetRegistryCandidate) => Promise<unknown>;
+  formatDatasetValidationLines: (report: unknown) => string[];
+};
+
+type StandalonePolicyModule = {
+  evaluateStandaloneRegistryPolicy: (input: {
+    candidate: DatasetRegistryCandidate;
+    provider: RegistryProvider | null;
+    knownTopicSlugs: Set<string> | null;
+  }) => unknown;
+  formatStandaloneRegistryPolicyLines: (policy: unknown) => string[];
+  extractProviderDatasetIdentifiers: (
+    template: string,
+    datasetUrl: string,
+    providerDomain: string,
+  ) => Record<string, string> | null;
+};
+
+const requireFromServer = createRequire(import.meta.url);
+let agentScienceCliModulesPromise:
+  | Promise<{
+      validation: DatasetValidationModule;
+      standalonePolicy: StandalonePolicyModule;
+    }>
+  | null = null;
+
 function parsePositiveInt(value: string | null, fallback: number, max = DATASET_REGISTRY_MAX_LIMIT) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -89,6 +154,209 @@ function parsePositiveInt(value: string | null, fallback: number, max = DATASET_
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function normalizeDatasetUrl(value: string): string {
+  const parsed = new URL(value.trim());
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Dataset URL must use http or https.");
+  }
+  parsed.hash = "";
+  if (parsed.pathname.length > 1) {
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  }
+  return parsed.toString();
+}
+
+function normalizeUrlDomain(value: string): string {
+  return new URL(value).hostname.replace(/^www\./i, "").toLowerCase();
+}
+
+function slugifyValue(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function providerFromUnknown(value: unknown): RegistryProvider | null {
+  if (!isRecord(value)) return null;
+  const slug = typeof value.slug === "string" ? value.slug : null;
+  const name = typeof value.name === "string" ? value.name : null;
+  const domain = typeof value.domain === "string" ? value.domain : null;
+  if (!slug || !name || !domain) return null;
+  return {
+    slug,
+    name,
+    domain,
+    homeUrl: typeof value.homeUrl === "string" ? value.homeUrl : undefined,
+    description: typeof value.description === "string" ? value.description : undefined,
+    searchKind: typeof value.searchKind === "string" ? value.searchKind : null,
+    searchEndpoint: typeof value.searchEndpoint === "string" ? value.searchEndpoint : null,
+    searchQueryTemplate:
+      typeof value.searchQueryTemplate === "string" ? value.searchQueryTemplate : null,
+    datasetUrlTemplate:
+      typeof value.datasetUrlTemplate === "string" ? value.datasetUrlTemplate : null,
+    agentInstructions:
+      typeof value.agentInstructions === "string" ? value.agentInstructions : null,
+    topics: Array.isArray(value.topics)
+      ? value.topics.flatMap((topic) =>
+          isRecord(topic) && typeof topic.slug === "string"
+            ? [{ slug: topic.slug, name: typeof topic.name === "string" ? topic.name : topic.slug }]
+            : [],
+        )
+      : [],
+  };
+}
+
+function findProviderForUrl(providers: RegistryProvider[], url: string): RegistryProvider | null {
+  const domain = normalizeUrlDomain(url);
+  return (
+    providers.find((provider) => provider.domain.toLowerCase() === domain) ??
+    providers.find((provider) => domain.endsWith(`.${provider.domain.toLowerCase()}`)) ??
+    null
+  );
+}
+
+function extractFallbackDatasetIdentifier(parsedUrl: URL): string {
+  const queryId =
+    parsedUrl.searchParams.get("id") ??
+    parsedUrl.searchParams.get("dataset") ??
+    parsedUrl.searchParams.get("accession") ??
+    null;
+  if (queryId) return queryId;
+  const pathSegments = parsedUrl.pathname.split("/").filter(Boolean);
+  const datasetIndex = pathSegments.findIndex((segment) => segment.toLowerCase() === "datasets");
+  if (datasetIndex >= 0 && pathSegments[datasetIndex + 1]) {
+    return decodeURIComponent(pathSegments[datasetIndex + 1]!);
+  }
+  return decodeURIComponent(pathSegments[pathSegments.length - 1] ?? "");
+}
+
+function firstProviderIdentifier(
+  identifiers: Record<string, string> | null | undefined,
+): string | null {
+  if (!identifiers) return null;
+  return (
+    identifiers.studyId ??
+    identifiers.datasetId ??
+    identifiers.articleId ??
+    identifiers.recordId ??
+    identifiers.id ??
+    Object.values(identifiers)[0] ??
+    null
+  );
+}
+
+async function loadAgentScienceCliModules() {
+  agentScienceCliModulesPromise ??= (async () => {
+    const packageJsonPath = requireFromServer.resolve("agentscience/package.json");
+    const packageRoot = dirname(packageJsonPath);
+    const validation = (await import(
+      pathToFileURL(join(packageRoot, "lib/dataset-validation.mjs")).href
+    )) as DatasetValidationModule;
+    const standalonePolicy = (await import(
+      pathToFileURL(join(packageRoot, "lib/registry-standalone-policy.mjs")).href
+    )) as StandalonePolicyModule;
+    return { validation, standalonePolicy };
+  })();
+  return agentScienceCliModulesPromise;
+}
+
+function buildCandidateFromUrl(input: {
+  url: string;
+  provider: RegistryProvider | null;
+  identifiers: Record<string, string> | null;
+  overrides: Partial<DatasetRegistryCandidate>;
+}): DatasetRegistryCandidate {
+  const parsedUrl = new URL(input.url);
+  const identifier =
+    firstProviderIdentifier(input.identifiers) || extractFallbackDatasetIdentifier(parsedUrl);
+  const providerName = input.provider?.name ?? normalizeUrlDomain(input.url);
+  const providerSlug = input.provider?.slug ?? null;
+  const topicSlugs =
+    input.overrides.topicSlugs ??
+    input.provider?.topics?.flatMap((topic) => (topic.slug ? [topic.slug] : [])) ??
+    [];
+  const providerKeyword = providerSlug ?? slugifyValue(providerName);
+  const identifierKeywords = identifier
+    ? identifier
+        .split(/[^A-Za-z0-9]+/)
+        .map((part) => part.trim().toLowerCase())
+        .filter((part) => part.length > 1)
+    : [];
+
+  return {
+    name:
+      input.overrides.name?.trim() ||
+      (identifier ? `${providerName} ${identifier}` : `${providerName} dataset`),
+    shortName:
+      input.overrides.shortName === null
+        ? null
+        : input.overrides.shortName?.trim() ||
+          (identifier && identifier.length <= 35 ? identifier : null),
+    url: input.url,
+    description:
+      input.overrides.description?.trim() ||
+      (identifier
+        ? `Dataset reference for ${identifier} hosted by ${providerName}.`
+        : `Dataset reference hosted by ${providerName}.`),
+    keywords:
+      input.overrides.keywords && input.overrides.keywords.length > 0
+        ? input.overrides.keywords
+        : Array.from(new Set([providerKeyword, ...identifierKeywords])).slice(0, 8),
+    providerSlug: input.overrides.providerSlug ?? providerSlug,
+    topicSlugs,
+    registryEligible: input.overrides.registryEligible ?? true,
+  };
+}
+
+function hydrateCandidateFromRegisteredMatch(
+  candidate: DatasetRegistryCandidate,
+  checkPayload: unknown,
+): { candidate: DatasetRegistryCandidate; hydrated: boolean } {
+  if (!isRecord(checkPayload) || !Array.isArray(checkPayload.datasets)) {
+    return { candidate, hydrated: false };
+  }
+  const firstCheck = checkPayload.datasets.find(isRecord);
+  if (!firstCheck || firstCheck.status !== "registered" || !Array.isArray(firstCheck.matches)) {
+    return { candidate, hydrated: false };
+  }
+  const firstMatch = firstCheck.matches.find(isRecord);
+  if (!firstMatch) return { candidate, hydrated: false };
+  return {
+    hydrated: true,
+    candidate: {
+      ...candidate,
+      name: typeof firstMatch.name === "string" ? firstMatch.name : candidate.name,
+      shortName:
+        typeof firstMatch.shortName === "string" ? firstMatch.shortName : candidate.shortName,
+      url: typeof firstMatch.url === "string" ? firstMatch.url : candidate.url,
+      description:
+        typeof firstMatch.description === "string"
+          ? firstMatch.description
+          : candidate.description,
+      keywords:
+        Array.isArray(firstMatch.keywords) && firstMatch.keywords.length > 0
+          ? normalizeStringArray(firstMatch.keywords)
+          : candidate.keywords,
+      providerSlug:
+        isRecord(firstMatch.provider) && typeof firstMatch.provider.slug === "string"
+          ? firstMatch.provider.slug
+          : candidate.providerSlug,
+      topicSlugs:
+        Array.isArray(firstMatch.topics) && firstMatch.topics.length > 0
+          ? firstMatch.topics.flatMap((topic) =>
+              isRecord(topic) && typeof topic.slug === "string" ? [topic.slug] : [],
+            )
+          : candidate.topicSlugs,
+    },
+  };
 }
 
 function resolveAbsoluteAgentScienceUrl(baseUrl: string, rawPathOrUrl: string): string {
@@ -348,6 +616,39 @@ async function loadDatasetTopicsPayload(input: {
   }
 
   return response.json();
+}
+
+async function postAgentScienceJson(input: {
+  baseUrl: string;
+  pathname: string;
+  body: unknown;
+  bearerToken?: string;
+}): Promise<{ status: number; payload: unknown }> {
+  const upstreamUrl = new URL(input.pathname, input.baseUrl);
+  const response = await fetch(upstreamUrl.toString(), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      ...(input.bearerToken ? { authorization: `Bearer ${input.bearerToken}` } : {}),
+    },
+    body: JSON.stringify(input.body),
+  });
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    const text = await response.text().catch(() => "");
+    payload = {
+      error: text.trim().length > 0 ? text : response.statusText,
+    };
+  }
+
+  return {
+    status: response.status,
+    payload,
+  };
 }
 
 export const otlpTracesProxyRouteLayer = HttpRouter.add(
@@ -660,6 +961,311 @@ export const datasetTopicsRouteLayer = HttpRouter.add(
               "Access-Control-Allow-Origin": "*",
             },
           }),
+        ),
+      ),
+    );
+  }),
+);
+
+export const datasetRegistryInspectRouteLayer = HttpRouter.add(
+  "POST",
+  DATASET_REGISTRY_INSPECT_PROXY_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const config = yield* ServerConfig;
+    const bodyJson = yield* request.json;
+
+    return yield* Effect.tryPromise({
+      try: async () => {
+        if (!isRecord(bodyJson) || typeof bodyJson.url !== "string") {
+          return {
+            status: 400,
+            payload: { error: "Dataset inspection requires a url." },
+          };
+        }
+
+        const normalizedUrl = normalizeDatasetUrl(bodyJson.url);
+        const overridesRecord = isRecord(bodyJson.candidate) ? bodyJson.candidate : {};
+        const candidateOverrides: Partial<DatasetRegistryCandidate> = {};
+        if (typeof overridesRecord.name === "string") {
+          candidateOverrides.name = overridesRecord.name;
+        }
+        if (typeof overridesRecord.shortName === "string" || overridesRecord.shortName === null) {
+          candidateOverrides.shortName = overridesRecord.shortName;
+        }
+        if (typeof overridesRecord.description === "string") {
+          candidateOverrides.description = overridesRecord.description;
+        }
+        const overrideKeywords = normalizeStringArray(overridesRecord.keywords);
+        if (overrideKeywords.length > 0) {
+          candidateOverrides.keywords = overrideKeywords;
+        }
+        if (typeof overridesRecord.providerSlug === "string") {
+          candidateOverrides.providerSlug = overridesRecord.providerSlug;
+        }
+        const overrideTopicSlugs = normalizeStringArray(overridesRecord.topicSlugs);
+        if (overrideTopicSlugs.length > 0) {
+          candidateOverrides.topicSlugs = overrideTopicSlugs;
+        }
+        if (typeof overridesRecord.registryEligible === "boolean") {
+          candidateOverrides.registryEligible = overridesRecord.registryEligible;
+        }
+
+        const [providersPayload, topicsPayload, cliModules] = await Promise.all([
+          loadDatasetProvidersPayload({
+            baseUrl: config.agentScienceBaseUrl,
+            query: undefined,
+            limit: DATASET_PROVIDERS_MAX_LIMIT,
+            area: undefined,
+            topic: undefined,
+          }),
+          loadDatasetTopicsPayload({
+            baseUrl: config.agentScienceBaseUrl,
+            query: undefined,
+            limit: DATASET_TOPICS_MAX_LIMIT,
+            area: undefined,
+            includePending: true,
+          }),
+          loadAgentScienceCliModules(),
+        ]);
+
+        const providers = isRecord(providersPayload) && Array.isArray(providersPayload.providers)
+          ? providersPayload.providers.flatMap((provider) => {
+              const normalized = providerFromUnknown(provider);
+              return normalized ? [normalized] : [];
+            })
+          : [];
+        const provider =
+          (candidateOverrides.providerSlug
+            ? providers.find((entry) => entry.slug === candidateOverrides.providerSlug)
+            : null) ?? findProviderForUrl(providers, normalizedUrl);
+        const identifiers =
+          provider?.datasetUrlTemplate
+            ? cliModules.standalonePolicy.extractProviderDatasetIdentifiers(
+                provider.datasetUrlTemplate,
+                normalizedUrl,
+                provider.domain,
+              )
+            : null;
+        const initialCandidate = buildCandidateFromUrl({
+          url: normalizedUrl,
+          provider,
+          identifiers,
+          overrides: candidateOverrides,
+        });
+
+        const firstCheck = await postAgentScienceJson({
+          baseUrl: config.agentScienceBaseUrl,
+          pathname: "/api/v1/registry/check",
+          body: { datasets: [initialCandidate] },
+        });
+        const hydrated = hydrateCandidateFromRegisteredMatch(
+          initialCandidate,
+          firstCheck.payload,
+        );
+        const candidate = hydrated.candidate;
+        const finalCheck = hydrated.hydrated
+          ? await postAgentScienceJson({
+              baseUrl: config.agentScienceBaseUrl,
+              pathname: "/api/v1/registry/check",
+              body: { datasets: [candidate] },
+            })
+          : firstCheck;
+
+        const knownTopicSlugs =
+          isRecord(topicsPayload) && Array.isArray(topicsPayload.topics)
+            ? new Set(
+                topicsPayload.topics.flatMap((topic) =>
+                  isRecord(topic) && typeof topic.slug === "string" ? [topic.slug] : [],
+                ),
+              )
+            : null;
+        const validation = await cliModules.validation.validateDatasetCandidate(candidate);
+        const validationLines = cliModules.validation.formatDatasetValidationLines(validation);
+        const standalonePolicy = cliModules.standalonePolicy.evaluateStandaloneRegistryPolicy({
+          candidate,
+          provider,
+          knownTopicSlugs,
+        });
+        const standalonePolicyLines =
+          cliModules.standalonePolicy.formatStandaloneRegistryPolicyLines(standalonePolicy);
+
+        return {
+          status: finalCheck.status,
+          payload: {
+            candidate,
+            check:
+              isRecord(finalCheck.payload) && Array.isArray(finalCheck.payload.datasets)
+                ? finalCheck.payload.datasets[0] ?? null
+                : null,
+            validation,
+            validationLines,
+            standalonePolicy,
+            standalonePolicyLines,
+            provider,
+            hydratedFrom: hydrated.hydrated
+              ? "registered-match"
+              : identifiers
+                ? "provider-url-template"
+                : "url",
+          },
+        };
+      },
+      catch: (cause) =>
+        new DatasetRegistryPostProxyError({
+          cause,
+          upstreamUrl: new URL("/api/v1/registry/check", config.agentScienceBaseUrl).toString(),
+        }),
+    }).pipe(
+      Effect.flatMap(({ status, payload }) =>
+        HttpServerResponse.json(payload, {
+          status,
+          headers: {
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }),
+      ),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Failed to inspect dataset registry candidate", {
+          cause,
+        }),
+      ),
+      Effect.catchTag("DatasetRegistryPostProxyError", (error) =>
+        HttpServerResponse.json(
+          {
+            error:
+              error.cause instanceof Error
+                ? error.cause.message
+                : "Dataset registry inspection unavailable.",
+          },
+          {
+            status: 502,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+          },
+        ),
+      ),
+    );
+  }),
+);
+
+export const datasetRegistryCheckRouteLayer = HttpRouter.add(
+  "POST",
+  DATASET_REGISTRY_CHECK_PROXY_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const config = yield* ServerConfig;
+    const upstreamUrl = new URL("/api/v1/registry/check", config.agentScienceBaseUrl);
+    const bodyJson = yield* request.json;
+
+    return yield* Effect.tryPromise({
+      try: () =>
+        postAgentScienceJson({
+          baseUrl: config.agentScienceBaseUrl,
+          pathname: "/api/v1/registry/check",
+          body: bodyJson,
+        }),
+      catch: (cause) =>
+        new DatasetRegistryPostProxyError({
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+    }).pipe(
+      Effect.flatMap(({ payload, status }) =>
+        HttpServerResponse.json(payload, {
+          status,
+          headers: {
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }),
+      ),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Failed to check dataset registry candidate with AgentScience", {
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+      ),
+      Effect.catchTag("DatasetRegistryPostProxyError", () =>
+        HttpServerResponse.json(
+          { error: "Dataset registry check unavailable." },
+          {
+            status: 502,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+          },
+        ),
+      ),
+    );
+  }),
+);
+
+export const datasetRegistryCreateRouteLayer = HttpRouter.add(
+  "POST",
+  DATASET_REGISTRY_PROXY_PATH,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const config = yield* ServerConfig;
+    const agentScienceAuth = yield* AgentScienceAuthService;
+    const upstreamUrl = new URL("/api/v1/registry", config.agentScienceBaseUrl);
+    const bodyJson = yield* request.json;
+    const authState = yield* agentScienceAuth.getState;
+    const token = yield* agentScienceAuth.getBearerToken;
+
+    if (authState.status !== "signed-in" || !authState.user || !token) {
+      return yield* HttpServerResponse.json(
+        { error: "Connect this device to AgentScience before adding datasets." },
+        {
+          status: 401,
+          headers: {
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+          },
+        },
+      );
+    }
+
+    return yield* Effect.tryPromise({
+      try: () =>
+        postAgentScienceJson({
+          baseUrl: config.agentScienceBaseUrl,
+          pathname: "/api/v1/registry",
+          body: bodyJson,
+          bearerToken: token,
+        }),
+      catch: (cause) =>
+        new DatasetRegistryPostProxyError({
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+    }).pipe(
+      Effect.flatMap(({ payload, status }) =>
+        HttpServerResponse.json(payload, {
+          status,
+          headers: {
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }),
+      ),
+      Effect.tapError((cause) =>
+        Effect.logWarning("Failed to create dataset registry entry with AgentScience", {
+          cause,
+          upstreamUrl: upstreamUrl.toString(),
+        }),
+      ),
+      Effect.catchTag("DatasetRegistryPostProxyError", () =>
+        HttpServerResponse.json(
+          { error: "Dataset registry write unavailable." },
+          {
+            status: 502,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+            },
+          },
         ),
       ),
     );
