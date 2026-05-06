@@ -20,7 +20,12 @@ import { normalizeModelSlug } from "@agentscience/shared/model";
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { resolveAppModelSelection } from "./modelSelection";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatImageAttachment } from "./types";
+import {
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type ChatFileAttachment,
+  type ChatImageAttachment,
+} from "./types";
 import {
   type TerminalContextDraft,
   ensureInlineTerminalContextPlaceholders,
@@ -98,6 +103,17 @@ export const PersistedComposerImageAttachment = Schema.Struct({
 });
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
 
+export const PersistedComposerFileAttachment = Schema.Struct({
+  type: Schema.Literal("file"),
+  id: Schema.String,
+  name: Schema.String,
+  mimeType: Schema.String,
+  sizeBytes: Schema.Number,
+  sha256: Schema.String,
+  storageName: Schema.String,
+});
+export type PersistedComposerFileAttachment = typeof PersistedComposerFileAttachment.Type;
+
 export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
   previewUrl: string;
   file: File;
@@ -117,6 +133,7 @@ type PersistedTerminalContextDraft = typeof PersistedTerminalContextDraft.Type;
 const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
   attachments: Schema.Array(PersistedComposerImageAttachment),
+  fileAttachments: Schema.optionalKey(Schema.Array(PersistedComposerFileAttachment)),
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
@@ -202,6 +219,7 @@ const PersistedComposerDraftStoreStorage = Schema.Struct({
 export interface ComposerThreadDraftState {
   prompt: string;
   images: ComposerImageAttachment[];
+  files: ChatFileAttachment[];
   nonPersistedImageIds: string[];
   persistedAttachments: PersistedComposerImageAttachment[];
   terminalContexts: TerminalContextDraft[];
@@ -303,6 +321,8 @@ interface ComposerDraftStoreState {
   ) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
+  addFiles: (threadId: ThreadId, files: ChatFileAttachment[]) => void;
+  removeFile: (threadId: ThreadId, fileId: string) => void;
   removeImage: (threadId: ThreadId, imageId: string) => void;
   insertTerminalContext: (
     threadId: ThreadId,
@@ -361,10 +381,12 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
 });
 
 const EMPTY_IMAGES: ComposerImageAttachment[] = [];
+const EMPTY_FILES: ChatFileAttachment[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
 const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
 Object.freeze(EMPTY_IMAGES);
+Object.freeze(EMPTY_FILES);
 Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
 const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderKind, ModelSelection>> =
@@ -373,6 +395,7 @@ const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderKind, ModelSelec
 const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   prompt: "",
   images: EMPTY_IMAGES,
+  files: EMPTY_FILES,
   nonPersistedImageIds: EMPTY_IDS,
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
@@ -388,6 +411,7 @@ function createEmptyThreadDraft(): ComposerThreadDraftState {
   return {
     prompt: "",
     images: [],
+    files: [],
     nonPersistedImageIds: [],
     persistedAttachments: [],
     terminalContexts: [],
@@ -461,6 +485,7 @@ function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
   return (
     draft.prompt.length === 0 &&
     draft.images.length === 0 &&
+    draft.files.length === 0 &&
     draft.persistedAttachments.length === 0 &&
     draft.terminalContexts.length === 0 &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
@@ -747,6 +772,38 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
   };
 }
 
+function normalizePersistedFileAttachment(value: unknown): ChatFileAttachment | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.type !== "file" ||
+    typeof candidate.id !== "string" ||
+    typeof candidate.name !== "string" ||
+    typeof candidate.mimeType !== "string" ||
+    typeof candidate.sizeBytes !== "number" ||
+    !Number.isFinite(candidate.sizeBytes) ||
+    typeof candidate.sha256 !== "string" ||
+    typeof candidate.storageName !== "string" ||
+    candidate.id.length === 0 ||
+    candidate.name.length === 0 ||
+    candidate.sha256.length === 0 ||
+    candidate.storageName.length === 0
+  ) {
+    return null;
+  }
+  return {
+    type: "file",
+    id: candidate.id,
+    name: candidate.name,
+    mimeType: candidate.mimeType,
+    sizeBytes: candidate.sizeBytes,
+    sha256: candidate.sha256,
+    storageName: candidate.storageName,
+  };
+}
+
 function normalizePersistedTerminalContextDraft(
   value: unknown,
 ): PersistedTerminalContextDraft | null {
@@ -920,6 +977,12 @@ function normalizePersistedDraftsByThreadId(
           return normalized ? [normalized] : [];
         })
       : [];
+    const fileAttachments = Array.isArray(draftCandidate.fileAttachments)
+      ? draftCandidate.fileAttachments.flatMap((entry) => {
+          const normalized = normalizePersistedFileAttachment(entry);
+          return normalized ? [normalized] : [];
+        })
+      : [];
     const terminalContexts = Array.isArray(draftCandidate.terminalContexts)
       ? draftCandidate.terminalContexts.flatMap((entry) => {
           const normalized = normalizePersistedTerminalContextDraft(entry);
@@ -1005,6 +1068,7 @@ function normalizePersistedDraftsByThreadId(
     if (
       promptCandidate.length === 0 &&
       attachments.length === 0 &&
+      fileAttachments.length === 0 &&
       terminalContexts.length === 0 &&
       !hasModelData &&
       !runtimeMode &&
@@ -1016,6 +1080,7 @@ function normalizePersistedDraftsByThreadId(
     nextDraftsByThreadId[threadId as ThreadId] = {
       prompt,
       attachments,
+      ...(fileAttachments.length > 0 ? { fileAttachments } : {}),
       ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(Object.keys(standardModelSelectionBeforeMaxByProvider).length > 0
@@ -1091,6 +1156,7 @@ function partializeComposerDraftStoreState(
     if (
       draft.prompt.length === 0 &&
       draft.persistedAttachments.length === 0 &&
+      draft.files.length === 0 &&
       draft.terminalContexts.length === 0 &&
       !hasModelData &&
       draft.runtimeMode === null &&
@@ -1102,6 +1168,7 @@ function partializeComposerDraftStoreState(
     const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
       prompt: draft.prompt,
       attachments: draft.persistedAttachments,
+      ...(draft.files.length > 0 ? { fileAttachments: draft.files } : {}),
       ...(draft.terminalContexts.length > 0
         ? {
             terminalContexts: draft.terminalContexts.map((context) => ({
@@ -1336,6 +1403,10 @@ function toHydratedThreadDraft(
   return {
     prompt: persistedDraft.prompt,
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
+    files: (persistedDraft.fileAttachments ?? []).flatMap((attachment) => {
+      const normalized = normalizePersistedFileAttachment(attachment);
+      return normalized ? [normalized] : [];
+    }),
     nonPersistedImageIds: [],
     persistedAttachments: [...persistedDraft.attachments],
     terminalContexts:
@@ -2149,6 +2220,50 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return { draftsByThreadId: nextDraftsByThreadId };
         });
       },
+      addFiles: (threadId, files) => {
+        if (threadId.length === 0 || files.length === 0) {
+          return;
+        }
+        set((state) => {
+          const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+          const existingIds = new Set(existing.files.map((file) => file.id));
+          const nextFiles = files.filter((file) => !existingIds.has(file.id));
+          if (nextFiles.length === 0) {
+            return state;
+          }
+          return {
+            draftsByThreadId: {
+              ...state.draftsByThreadId,
+              [threadId]: {
+                ...existing,
+                files: [...existing.files, ...nextFiles],
+              },
+            },
+          };
+        });
+      },
+      removeFile: (threadId, fileId) => {
+        if (threadId.length === 0 || fileId.length === 0) {
+          return;
+        }
+        set((state) => {
+          const current = state.draftsByThreadId[threadId];
+          if (!current) {
+            return state;
+          }
+          const nextDraft: ComposerThreadDraftState = {
+            ...current,
+            files: current.files.filter((file) => file.id !== fileId),
+          };
+          const nextDraftsByThreadId = { ...state.draftsByThreadId };
+          if (shouldRemoveDraft(nextDraft)) {
+            delete nextDraftsByThreadId[threadId];
+          } else {
+            nextDraftsByThreadId[threadId] = nextDraft;
+          }
+          return { draftsByThreadId: nextDraftsByThreadId };
+        });
+      },
       insertTerminalContext: (threadId, prompt, context, index) => {
         if (threadId.length === 0) {
           return false;
@@ -2333,6 +2448,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...current,
             prompt: "",
             images: [],
+            files: [],
             nonPersistedImageIds: [],
             persistedAttachments: [],
             terminalContexts: [],

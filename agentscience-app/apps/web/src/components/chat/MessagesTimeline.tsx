@@ -18,12 +18,14 @@ import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
 import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
+import { formatFileSize } from "../../lib/fileSize";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
+  FileIcon,
   GlobeIcon,
   HammerIcon,
   type LucideIcon,
@@ -365,7 +367,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {row.kind === "message" &&
         row.message.role === "user" &&
         (() => {
-          const userImages = row.message.attachments ?? [];
+          const userAttachments = row.message.attachments ?? [];
+          const userImages = userAttachments.filter(
+            (attachment): attachment is TimelineImageAttachment => attachment.type === "image",
+          );
+          const userFiles = userAttachments.filter(
+            (attachment): attachment is TimelineFileAttachment => attachment.type === "file",
+          );
           const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text);
           const terminalContexts = displayedUserMessage.contexts;
           const canRevertAgentWork = revertTurnCountByUserMessageId.has(row.message.id);
@@ -374,39 +382,57 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div className="group relative max-w-[80%] rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3">
                 {userImages.length > 0 && (
                   <div className="mb-2 grid max-w-[420px] grid-cols-2 gap-2">
-                    {userImages.map(
-                      (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
-                        <div
-                          key={image.id}
-                          className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
-                        >
-                          {image.previewUrl ? (
-                            <button
-                              type="button"
-                              className="h-full w-full cursor-zoom-in"
-                              aria-label={`Preview ${image.name}`}
-                              onClick={() => {
-                                const preview = buildExpandedImagePreview(userImages, image.id);
-                                if (!preview) return;
-                                onImageExpand(preview);
-                              }}
-                            >
-                              <img
-                                src={image.previewUrl}
-                                alt={image.name}
-                                className="block h-auto max-h-[220px] w-full object-cover"
-                                onLoad={onTimelineImageLoad}
-                                onError={onTimelineImageLoad}
-                              />
-                            </button>
-                          ) : (
-                            <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
-                              {image.name}
-                            </div>
-                          )}
+                    {userImages.map((image) => (
+                      <div
+                        key={image.id}
+                        className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
+                      >
+                        {image.previewUrl ? (
+                          <button
+                            type="button"
+                            className="h-full w-full cursor-zoom-in"
+                            aria-label={`Preview ${image.name}`}
+                            onClick={() => {
+                              const preview = buildExpandedImagePreview(userImages, image.id);
+                              if (!preview) return;
+                              onImageExpand(preview);
+                            }}
+                          >
+                            <img
+                              src={image.previewUrl}
+                              alt={image.name}
+                              className="block h-auto max-h-[220px] w-full object-cover"
+                              onLoad={onTimelineImageLoad}
+                              onError={onTimelineImageLoad}
+                            />
+                          </button>
+                        ) : (
+                          <div className="flex min-h-[72px] items-center justify-center px-2 py-3 text-center text-[11px] text-muted-foreground/70">
+                            {image.name}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {userFiles.length > 0 && (
+                  <div className="mb-2 flex max-w-[420px] flex-col gap-1.5">
+                    {userFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex min-w-0 items-center gap-2 rounded-md border border-border/80 bg-background/70 px-2.5 py-1.5 text-xs"
+                      >
+                        <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-foreground/85">
+                            {file.name}
+                          </div>
+                          <div className="truncate text-[10px] text-muted-foreground/65">
+                            {formatFileSize(file.sizeBytes)}
+                          </div>
                         </div>
-                      ),
-                    )}
+                      </div>
+                    ))}
                   </div>
                 )}
                 {(displayedUserMessage.visibleText.trim().length > 0 ||
@@ -617,6 +643,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
+type TimelineAttachment = NonNullable<TimelineMessage["attachments"]>[number];
+type TimelineImageAttachment = Extract<TimelineAttachment, { type: "image" }>;
+type TimelineFileAttachment = Extract<TimelineAttachment, { type: "file" }>;
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
 type TimelineRow = MessagesTimelineRow;
 
