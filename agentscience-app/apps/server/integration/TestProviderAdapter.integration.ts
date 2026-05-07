@@ -188,6 +188,7 @@ export interface TestProviderAdapterHarness {
   readonly queueTurnResponseForNextSession: (
     response: TestTurnResponse,
   ) => Effect.Effect<void, never>;
+  readonly failNextReadThreadCalls: (count: number, issue: string) => void;
   readonly getStartCount: () => number;
   readonly getRollbackCalls: (threadId: ThreadId) => ReadonlyArray<number>;
   readonly getInterruptCalls: (threadId: ThreadId) => ReadonlyArray<TurnId | undefined>;
@@ -233,6 +234,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     const sessions = new Map<ThreadId, SessionState>();
     const startedSessions: ProviderSessionStartInput[] = [];
     const queuedResponsesForNextSession: TestTurnResponse[] = [];
+    const queuedReadThreadFailures: string[] = [];
     const interruptCallsBySession = new Map<ThreadId, Array<TurnId | undefined>>();
     const approvalResponsesBySession = new Map<
       ThreadId,
@@ -446,6 +448,16 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       if (!state) {
         return missingSessionEffect(provider, threadId);
       }
+      const queuedFailure = queuedReadThreadFailures.shift();
+      if (queuedFailure !== undefined) {
+        return Effect.fail(
+          new ProviderAdapterValidationError({
+            provider,
+            operation: "readThread",
+            issue: queuedFailure,
+          }),
+        );
+      }
       return Effect.succeed(state.snapshot);
     };
 
@@ -544,6 +556,10 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
 
     const getStartCount = (): number => sessionCount;
 
+    const failNextReadThreadCalls = (count: number, issue: string): void => {
+      queuedReadThreadFailures.push(...Array.from({ length: count }, () => issue));
+    };
+
     const getInterruptCalls = (threadId: ThreadId): ReadonlyArray<TurnId | undefined> => {
       const calls = interruptCallsBySession.get(threadId);
       if (!calls) {
@@ -574,6 +590,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       provider,
       queueTurnResponse,
       queueTurnResponseForNextSession,
+      failNextReadThreadCalls,
       getStartCount,
       getRollbackCalls,
       getInterruptCalls,

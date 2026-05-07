@@ -334,6 +334,59 @@ function coalesceOrchestrationUiEvents(
 
 const REPLAY_RECOVERY_RETRY_DELAY_MS = 100;
 const MAX_NO_PROGRESS_REPLAY_RETRIES = 3;
+const ORCHESTRATION_TRACE_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
+  "thread.message-sent",
+  "thread.session-set",
+  "thread.turn-start-requested",
+  "thread.turn-interrupt-requested",
+]);
+
+function getEventThreadId(event: OrchestrationEvent): ThreadId | null {
+  const payload = event.payload as { threadId?: unknown };
+  return typeof payload.threadId === "string" ? (payload.threadId as ThreadId) : null;
+}
+
+function summarizeTraceEvents(events: ReadonlyArray<OrchestrationEvent>) {
+  return events
+    .filter((event) => ORCHESTRATION_TRACE_EVENT_TYPES.has(event.type))
+    .map((event) => ({
+      sequence: event.sequence,
+      type: event.type,
+      threadId: getEventThreadId(event),
+    }));
+}
+
+function summarizeTraceThreads(threadIds: ReadonlySet<ThreadId>) {
+  const threads = useStore.getState().threads;
+  return Array.from(threadIds).map((threadId) => {
+    const thread = threads.find((candidate) => candidate.id === threadId);
+    const lastMessage = thread?.messages.at(-1) ?? null;
+    return {
+      threadId,
+      found: thread !== undefined,
+      sessionStatus: thread?.session?.status ?? null,
+      orchestrationStatus: thread?.session?.orchestrationStatus ?? null,
+      activeTurnId: thread?.session?.activeTurnId ?? null,
+      latestTurnId: thread?.latestTurn?.turnId ?? null,
+      latestTurnState: thread?.latestTurn?.state ?? null,
+      latestTurnCompletedAt: thread?.latestTurn?.completedAt ?? null,
+      messageCount: thread?.messages.length ?? 0,
+      lastMessageRole: lastMessage?.role ?? null,
+      lastMessageStreaming: lastMessage?.streaming ?? null,
+    };
+  });
+}
+
+function traceOrchestrationUi(label: string, details: Record<string, unknown>): void {
+  if (import.meta.env.MODE === "test") {
+    return;
+  }
+  try {
+    console.info(`[orchestration-ui] ${label} ${JSON.stringify(details)}`);
+  } catch {
+    console.info(`[orchestration-ui] ${label}`);
+  }
+}
 
 function ServerStateBootstrap() {
   useEffect(() => startServerStateSync(getWsRpcClient().server), []);
@@ -472,6 +525,16 @@ function EventRouter() {
 
       const batchEffects = deriveOrchestrationBatchEffects(nextEvents);
       const uiEvents = coalesceOrchestrationUiEvents(nextEvents);
+      const traceEvents = summarizeTraceEvents(nextEvents);
+      const traceThreadIds = new Set(
+        traceEvents.flatMap((event) => (event.threadId ? [event.threadId] : [])),
+      );
+      if (traceEvents.length > 0) {
+        traceOrchestrationUi("apply:start", {
+          events: traceEvents,
+          recovery: recovery.getState(),
+        });
+      }
       const needsWorkspaceSnapshotRefresh = nextEvents.some(
         (event) => event.type === "workspace.root-changed",
       );
@@ -488,6 +551,13 @@ function EventRouter() {
       }
 
       applyOrchestrationEvents(uiEvents);
+      if (traceEvents.length > 0) {
+        traceOrchestrationUi("apply:done", {
+          events: traceEvents,
+          threads: summarizeTraceThreads(traceThreadIds),
+          recovery: recovery.getState(),
+        });
+      }
       if (needsProjectUiSync) {
         const projects = useStore.getState().projects;
         syncProjects(
@@ -555,6 +625,15 @@ function EventRouter() {
         const events = await api.orchestration.replayEvents(
           fromSequenceExclusive,
         );
+        const traceEvents = summarizeTraceEvents(events);
+        if (traceEvents.length > 0) {
+          traceOrchestrationUi("replay:fetched", {
+            reason,
+            fromSequenceExclusive,
+            count: events.length,
+            events: traceEvents,
+          });
+        }
         if (!disposed) {
           applyEventBatch(events);
         }
@@ -632,6 +711,14 @@ function EventRouter() {
         if (!disposed) {
           syncServerReadModel(snapshot);
           reconcileSnapshotDerivedState();
+          traceOrchestrationUi("snapshot:applied", {
+            reason,
+            snapshotSequence: snapshot.snapshotSequence,
+            threadCount: snapshot.threads.length,
+            runningThreadIds: snapshot.threads
+              .filter((thread) => thread.session?.status === "running")
+              .map((thread) => thread.id),
+          });
           if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
             void runReplayRecovery("sequence-gap");
           }

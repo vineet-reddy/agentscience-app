@@ -1,4 +1,4 @@
-import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { Cause, Effect, Layer, Option, Queue, Schema, Stream } from "effect";
 import {
   CommandId,
   EventId,
@@ -7,7 +7,6 @@ import {
   type GitManagerServiceError,
   AttachmentImportFilesError,
   OrchestrationDispatchCommandError,
-  type OrchestrationEvent,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
@@ -466,58 +465,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcStreamEffect(
           WS_METHODS.subscribeOrchestrationDomainEvents,
           Effect.gen(function* () {
-            const snapshot = yield* orchestrationEngine.getReadModel();
-            const fromSequenceExclusive = snapshot.snapshotSequence;
-            const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
-              orchestrationEngine.readEvents(fromSequenceExclusive),
-            ).pipe(
-              Effect.map((events) => Array.from(events)),
-              Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
-            );
-            const replayStream = Stream.fromIterable(replayEvents);
-            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents);
-            type SequenceState = {
-              readonly nextSequence: number;
-              readonly pendingBySequence: Map<number, OrchestrationEvent>;
-            };
-            const state = yield* Ref.make<SequenceState>({
-              nextSequence: fromSequenceExclusive + 1,
-              pendingBySequence: new Map<number, OrchestrationEvent>(),
-            });
-
-            return source.pipe(
-              Stream.mapEffect((event) =>
-                Ref.modify(
-                  state,
-                  ({
-                    nextSequence,
-                    pendingBySequence,
-                  }): [Array<OrchestrationEvent>, SequenceState] => {
-                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                      return [[], { nextSequence, pendingBySequence }];
-                    }
-
-                    const updatedPending = new Map(pendingBySequence);
-                    updatedPending.set(event.sequence, event);
-
-                    const emit: Array<OrchestrationEvent> = [];
-                    let expected = nextSequence;
-                    for (;;) {
-                      const expectedEvent = updatedPending.get(expected);
-                      if (!expectedEvent) {
-                        break;
-                      }
-                      emit.push(expectedEvent);
-                      updatedPending.delete(expected);
-                      expected += 1;
-                    }
-
-                    return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
-                  },
-                ),
-              ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
-            );
+            return orchestrationEngine.streamDomainEventsWithReplay;
           }),
           { "rpc.aggregate": "orchestration" },
         ),

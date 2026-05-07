@@ -117,6 +117,7 @@ describe("paper review helpers", () => {
         dispatch: () => Effect.die("not implemented"),
         readEvents: () => Stream.empty,
         streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
       }),
     );
 
@@ -185,6 +186,7 @@ describe("paper review helpers", () => {
         dispatch: () => Effect.die("not implemented"),
         readEvents: () => Stream.empty,
         streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
       }),
     );
 
@@ -268,6 +270,7 @@ describe("paper review helpers", () => {
           dispatch: () => Effect.die("not implemented"),
           readEvents: () => Stream.empty,
           streamDomainEvents: Stream.empty,
+          streamDomainEventsWithReplay: Stream.empty,
         }),
       );
 
@@ -351,6 +354,7 @@ describe("paper review helpers", () => {
         dispatch: () => Effect.die("not implemented"),
         readEvents: () => Stream.empty,
         streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
       }),
     );
 
@@ -434,6 +438,7 @@ describe("paper review helpers", () => {
         dispatch: () => Effect.die("not implemented"),
         readEvents: () => Stream.empty,
         streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
       }),
     );
 
@@ -534,6 +539,7 @@ describe("paper review helpers", () => {
         dispatch: () => Effect.die("not implemented"),
         readEvents: () => Stream.empty,
         streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
       }),
     );
 
@@ -637,6 +643,7 @@ describe("paper review helpers", () => {
           dispatch: () => Effect.die("not implemented"),
           readEvents: () => Stream.empty,
           streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
         }),
       );
 
@@ -738,6 +745,7 @@ describe("paper review helpers", () => {
           dispatch: () => Effect.die("not implemented"),
           readEvents: () => Stream.empty,
           streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
         }),
       );
 
@@ -842,6 +850,7 @@ describe("paper review helpers", () => {
           dispatch: () => Effect.die("not implemented"),
           readEvents: () => Stream.empty,
           streamDomainEvents: Stream.empty,
+        streamDomainEventsWithReplay: Stream.empty,
         }),
       );
 

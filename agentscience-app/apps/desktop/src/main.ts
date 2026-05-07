@@ -292,6 +292,21 @@ function writeDesktopLogHeader(message: string): void {
   desktopLogSink.write(`[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`);
 }
 
+function writeDesktopLogLine(scope: string, message: string): void {
+  if (!desktopLogSink) return;
+  desktopLogSink.write(`[${logTimestamp()}] [${logScope(scope)}] ${message}\n`);
+}
+
+function shouldCaptureRendererConsoleMessage(level: string, message: string): boolean {
+  return (
+    message.startsWith("[orchestration-ui]") ||
+    message.startsWith("[orchestration-recovery]") ||
+    message.includes("WebSocket RPC subscription disconnected") ||
+    level === "warning" ||
+    level === "error"
+  );
+}
+
 function writeBackendSessionBoundary(phase: "START" | "END", details: string): void {
   if (!backendLogSink) return;
   const normalizedDetails = sanitizeLogValue(details);
@@ -1841,6 +1856,20 @@ function createWindow(options?: { readonly loadAppImmediately?: boolean }): Brow
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
+  });
+  window.webContents.on("console-message", (event) => {
+    if (!app.isPackaged) {
+      return;
+    }
+    const { level, message, lineNumber, sourceId } = event;
+    if (!shouldCaptureRendererConsoleMessage(level, message)) {
+      return;
+    }
+    const source = sourceId ? ` source=${sanitizeLogValue(sourceId)}` : "";
+    writeDesktopLogLine(
+      "renderer",
+      `level=${level} line=${lineNumber}${source} message=${sanitizeLogValue(message)}`,
+    );
   });
   window.once("ready-to-show", () => {
     window.show();

@@ -479,6 +479,7 @@ const buildAppUnderTest = (options?: {
           readEvents: () => Stream.empty,
           dispatch: () => Effect.succeed({ sequence: 0 }),
           streamDomainEvents: Stream.empty,
+          streamDomainEventsWithReplay: Stream.empty,
           ...options?.layers?.orchestrationEngine,
         }),
       ),
@@ -2957,6 +2958,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 return Stream.make(makeEvent(2), makeEvent(3));
               },
               streamDomainEvents: Stream.make(makeEvent(3), makeEvent(4)),
+              streamDomainEventsWithReplay: Stream.make(makeEvent(2), makeEvent(3), makeEvent(4)),
             },
           },
         });
@@ -2971,7 +2973,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           ),
         );
 
-        assert.equal(replayCursor, 1);
+        assert.equal(replayCursor, null);
         assert.deepEqual(
           Array.from(events).map((event) => event.sequence),
           [2, 3, 4],

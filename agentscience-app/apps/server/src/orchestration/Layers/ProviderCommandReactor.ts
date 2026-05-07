@@ -126,6 +126,14 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
   return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
 }
 
+function isConversationNotMaterializedYetError(cause: Cause.Cause<ProviderServiceError>): boolean {
+  const message = Cause.pretty(cause).toLowerCase();
+  return (
+    message.includes("not materialized yet") ||
+    message.includes("includeturns is unavailable before first user message")
+  );
+}
+
 function stalePendingRequestDetail(
   requestKind: "approval" | "user-input",
   requestId: string,
@@ -564,7 +572,19 @@ const make = Effect.gen(function* () {
         const generatedTitle = yield* Effect.gen(function* () {
           const startedAt = Date.now();
           while (Date.now() - startedAt < Duration.toMillis(THREAD_TITLE_GENERATION_TIMEOUT)) {
-            const snapshot = yield* providerService.readConversation({ threadId: titleThreadId });
+            const snapshot = yield* providerService
+              .readConversation({ threadId: titleThreadId })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  isConversationNotMaterializedYetError(cause)
+                    ? Effect.succeed(null)
+                    : Effect.failCause(cause),
+                ),
+              );
+            if (snapshot === null) {
+              yield* Effect.sleep(THREAD_TITLE_GENERATION_POLL_INTERVAL);
+              continue;
+            }
             const latestTurn = snapshot.turns.at(-1);
             const generatedTitle = latestTurn
               ? extractGeneratedThreadTitleFromProviderItems(latestTurn.items)

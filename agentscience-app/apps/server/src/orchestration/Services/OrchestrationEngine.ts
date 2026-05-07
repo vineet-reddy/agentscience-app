@@ -61,6 +61,12 @@ export interface OrchestrationEngineShape {
    * This is a hot runtime stream (new events only), not a historical replay.
    */
   readonly streamDomainEvents: Stream.Stream<OrchestrationEvent>;
+
+  /**
+   * Stream the current replay tail plus live domain events without a
+   * replay/live subscription gap.
+   */
+  readonly streamDomainEventsWithReplay: Stream.Stream<OrchestrationEvent>;
 }
 
 /**

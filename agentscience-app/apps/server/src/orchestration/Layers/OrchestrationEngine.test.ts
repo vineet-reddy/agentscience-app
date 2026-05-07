@@ -527,6 +527,70 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it("streams replay-safe domain events after subscribing", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-project-replay-safe-create"),
+        projectId: asProjectId("project-replay-safe"),
+        title: "Replay Safe Project",
+        folderSlug: "project-replay-safe",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+
+    const eventTypes: string[] = [];
+    await system.run(
+      Effect.gen(function* () {
+        const eventQueue = yield* Queue.unbounded<OrchestrationEvent>();
+        yield* Effect.forkScoped(
+          Stream.take(engine.streamDomainEventsWithReplay, 2).pipe(
+            Stream.runForEach((event) =>
+              Queue.offer(eventQueue, event).pipe(Effect.asVoid),
+            ),
+          ),
+        );
+        yield* Effect.sleep("10 millis");
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("cmd-replay-safe-thread-create"),
+          threadId: ThreadId.makeUnsafe("thread-replay-safe"),
+          projectId: asProjectId("project-replay-safe"),
+          folderSlug: "thread-replay-safe",
+          title: "replay-safe",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        });
+        yield* engine.dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.makeUnsafe("cmd-replay-safe-thread-update"),
+          threadId: ThreadId.makeUnsafe("thread-replay-safe"),
+          title: "replay-safe-updated",
+        });
+        eventTypes.push((yield* Queue.take(eventQueue)).type);
+        eventTypes.push((yield* Queue.take(eventQueue)).type);
+      }).pipe(Effect.scoped),
+    );
+
+    expect(eventTypes).toEqual(["thread.created", "thread.meta-updated"]);
+    await system.dispose();
+  });
+
   it("records command ack duration using the first committed event type", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;

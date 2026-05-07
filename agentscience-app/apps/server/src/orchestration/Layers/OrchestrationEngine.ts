@@ -17,6 +17,7 @@ import {
   Option,
   PubSub,
   Queue,
+  Ref,
   Schema,
   Stream,
 } from "effect";
@@ -82,6 +83,18 @@ function shouldRefreshReadModelFromProjection(event: OrchestrationEvent): boolea
     case "thread.project-set":
     case "paper.moved":
     case "workspace.root-changed":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function shouldTraceDomainStreamEvent(event: OrchestrationEvent): boolean {
+  switch (event.type) {
+    case "thread.message-sent":
+    case "thread.session-set":
+    case "thread.turn-start-requested":
+    case "thread.turn-interrupt-requested":
       return true;
     default:
       return false;
@@ -335,6 +348,93 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     fromSequenceExclusive,
   ) => eventStore.readFromSequence(fromSequenceExclusive);
 
+  const orderAndDedupeEvents = (
+    source: Stream.Stream<OrchestrationEvent>,
+    fromSequenceExclusive: number,
+  ): Stream.Stream<OrchestrationEvent> =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        type SequenceState = {
+          readonly nextSequence: number;
+          readonly pendingBySequence: Map<number, OrchestrationEvent>;
+        };
+        const state = yield* Ref.make<SequenceState>({
+          nextSequence: fromSequenceExclusive + 1,
+          pendingBySequence: new Map<number, OrchestrationEvent>(),
+        });
+
+        return source.pipe(
+          Stream.mapEffect((event) =>
+            Ref.modify(
+              state,
+              ({
+                nextSequence,
+                pendingBySequence,
+              }): [Array<OrchestrationEvent>, SequenceState] => {
+                if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                  return [[], { nextSequence, pendingBySequence }];
+                }
+
+                const updatedPending = new Map(pendingBySequence);
+                updatedPending.set(event.sequence, event);
+
+                const emit: Array<OrchestrationEvent> = [];
+                let expected = nextSequence;
+                for (;;) {
+                  const expectedEvent = updatedPending.get(expected);
+                  if (!expectedEvent) {
+                    break;
+                  }
+                  emit.push(expectedEvent);
+                  updatedPending.delete(expected);
+                  expected += 1;
+                }
+
+                return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
+              },
+            ),
+          ),
+          Stream.flatMap((events) => Stream.fromIterable(events)),
+          Stream.tap((event) =>
+            shouldTraceDomainStreamEvent(event)
+              ? Effect.logInfo("orchestration domain stream emitted", {
+                  sequence: event.sequence,
+                  type: event.type,
+                  aggregateId: event.aggregateId,
+                })
+              : Effect.void,
+          ),
+        );
+      }),
+    );
+
+  const streamDomainEventsWithReplay = Stream.scoped(
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const subscription = yield* PubSub.subscribe(eventPubSub);
+        const snapshot = yield* getReadModel();
+        const fromSequenceExclusive = snapshot.snapshotSequence;
+        const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
+          eventStore.readFromSequence(fromSequenceExclusive),
+        ).pipe(
+          Effect.map((events) => Array.from(events)),
+          Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
+        );
+        yield* Effect.logInfo("orchestration domain stream subscribed", {
+          snapshotSequence: fromSequenceExclusive,
+          replayCount: replayEvents.length,
+          replayFirstSequence: replayEvents.at(0)?.sequence ?? null,
+          replayLastSequence: replayEvents.at(-1)?.sequence ?? null,
+        });
+        const source = Stream.merge(
+          Stream.fromIterable(replayEvents),
+          Stream.fromSubscription(subscription),
+        );
+        return orderAndDedupeEvents(source, fromSequenceExclusive);
+      }),
+    ),
+  );
+
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
     Effect.gen(function* () {
       const result = yield* Deferred.make<
@@ -359,6 +459,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     get streamDomainEvents(): OrchestrationEngineShape["streamDomainEvents"] {
       return Stream.fromPubSub(eventPubSub);
     },
+    streamDomainEventsWithReplay,
   } satisfies OrchestrationEngineShape;
 });
 

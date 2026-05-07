@@ -101,7 +101,26 @@ const HttpServerLive = Layer.unwrap(
         Effect.promise(() => import("@effect/platform-node/NodeHttpServer")),
         Effect.promise(() => import("node:http")),
       ]);
-      return NodeHttpServer.layer(NodeHttp.createServer, {
+      const createServer = ((...args: Parameters<typeof NodeHttp.createServer>) => {
+        const server = (
+          NodeHttp.createServer as (
+            ...serverArgs: Parameters<typeof NodeHttp.createServer>
+          ) => ReturnType<typeof NodeHttp.createServer>
+        )(...args);
+        server.on("connection", (socket) => {
+          socket.on("error", (error) => {
+            const code =
+              typeof error === "object" && error !== null && "code" in error
+                ? String(error.code)
+                : "";
+            if (code !== "ECONNRESET" && code !== "EPIPE") {
+              console.warn("[server] socket error", error);
+            }
+          });
+        });
+        return server;
+      }) as typeof NodeHttp.createServer;
+      return NodeHttpServer.layer(createServer, {
         host: config.host,
         port: config.port,
       });

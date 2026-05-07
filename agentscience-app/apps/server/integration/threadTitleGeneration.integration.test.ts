@@ -144,3 +144,102 @@ it.live("renames first-turn placeholder titles with generated sidebar titles", (
     );
   }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it.live("retries first-turn title reads while the title session materializes", () =>
+  Effect.gen(function* () {
+    const generatedTitle = "Design Reliable Supply Chain Forecasting";
+    const firstLineTitle = "i need help developing a strong ML algorithm for supply chains";
+    const threadId = ThreadId.makeUnsafe("thread-auto-title-materializing");
+    const projectId = ProjectId.makeUnsafe("project-auto-title-materializing");
+    const createdAt = new Date().toISOString();
+
+    const harness = yield* makeOrchestrationIntegrationHarness();
+
+    yield* Effect.acquireUseRelease(
+      Effect.succeed(harness),
+      (activeHarness) =>
+        Effect.gen(function* () {
+          yield* activeHarness.engine.dispatch({
+            type: "project.create",
+            commandId: CommandId.makeUnsafe(`cmd-project-auto-title-${randomUUID()}`),
+            projectId,
+            title: "Auto Title Project",
+            folderSlug: "auto-title-materializing-project",
+            createdAt,
+          });
+
+          yield* activeHarness.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.makeUnsafe(`cmd-thread-auto-title-${randomUUID()}`),
+            threadId,
+            projectId,
+            folderSlug: "auto-title-materializing-thread",
+            title: firstLineTitle,
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+          });
+
+          const titleResponse = {
+            events: [
+              {
+                type: "message.delta",
+                eventId: EventId.makeUnsafe(`evt-title-${randomUUID()}`),
+                provider: "codex" as const,
+                createdAt: new Date().toISOString(),
+                threadId: String(threadId),
+                delta: JSON.stringify({ title: generatedTitle }),
+              },
+            ],
+            snapshotItems: [
+              {
+                type: "message",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify({ title: generatedTitle }),
+                  },
+                ],
+              },
+            ],
+          };
+          yield* activeHarness.adapterHarness!.queueTurnResponseForNextSession(titleResponse);
+          yield* activeHarness.adapterHarness!.queueTurnResponseForNextSession(titleResponse);
+          activeHarness.adapterHarness!.failNextReadThreadCalls(
+            2,
+            "thread/read failed: thread 019e03ba-987b-79c3-a4bb-6aebc435ffc2 is not materialized yet; includeTurns is unavailable before first user message",
+          );
+
+          yield* activeHarness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe(`cmd-turn-auto-title-${randomUUID()}`),
+            threadId,
+            message: {
+              messageId: MessageId.makeUnsafe(`msg-auto-title-${randomUUID()}`),
+              role: "user",
+              text: firstLineTitle,
+              attachments: [],
+            },
+            titleSeed: firstLineTitle,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: new Date().toISOString(),
+          });
+
+          const renamedThread = yield* activeHarness.waitForThread(
+            String(threadId),
+            (thread) => thread.title === generatedTitle,
+          );
+          assert.equal(renamedThread.title, generatedTitle);
+        }),
+      (activeHarness) => activeHarness.dispose,
+    );
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
