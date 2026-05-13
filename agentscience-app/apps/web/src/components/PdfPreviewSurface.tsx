@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AnnotationEditorType,
   GlobalWorkerOptions,
   getDocument,
   type PDFDocumentLoadingTask,
@@ -36,6 +37,19 @@ const KEYBOARD_ZOOM_FACTOR = 1.15;
 
 type PdfViewerInstance = InstanceType<typeof PDFViewer>;
 type PdfLinkServiceInstance = InstanceType<typeof PDFLinkService>;
+
+function clearPdfViewerDocument(input: {
+  readonly pdfViewer: PdfViewerInstance | null;
+  readonly linkService: PdfLinkServiceInstance | null;
+}) {
+  try {
+    input.pdfViewer?.setDocument(null as never);
+  } catch (error) {
+    console.warn("Failed to release PDF preview viewer document.", error);
+  }
+
+  input.linkService?.setDocument(null as never);
+}
 
 function formatPdfRenderError(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -422,6 +436,7 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
       viewer: viewerElement,
       eventBus,
       linkService,
+      annotationEditorMode: AnnotationEditorType.DISABLE,
       removePageBorders: true,
     });
 
@@ -450,8 +465,7 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
       eventBus.off("pagesinit", handlePagesInit);
       eventBus.off("pagerendered", handlePageRendered);
       eventBus.off("scalechanging", handleScaleChanging);
-      pdfViewer.setDocument(null as never);
-      linkService.setDocument(null as never);
+      clearPdfViewerDocument({ pdfViewer, linkService });
       pdfViewerRef.current = null;
       linkServiceRef.current = null;
     };
@@ -465,8 +479,10 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
     setHasRenderedPages(false);
     setScaleLabel("");
 
-    pdfViewerRef.current?.setDocument(null as never);
-    linkServiceRef.current?.setDocument(null as never);
+    clearPdfViewerDocument({
+      pdfViewer: pdfViewerRef.current,
+      linkService: linkServiceRef.current,
+    });
     loadingTaskRef.current?.destroy();
     loadingTaskRef.current = null;
 
