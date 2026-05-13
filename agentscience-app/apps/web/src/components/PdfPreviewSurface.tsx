@@ -1,20 +1,55 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AnnotationEditorType,
   GlobalWorkerOptions,
   getDocument,
+  type PDFDocumentLoadingTask,
   type PDFDocumentProxy,
-  type RenderTask,
 } from "pdfjs-dist/legacy/build/pdf";
-import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
+import {
+  EventBus,
+  PDFLinkService,
+  PDFViewer,
+} from "pdfjs-dist/legacy/web/pdf_viewer";
+import {
+  CircleAlertIcon,
+  LoaderCircleIcon,
+  MinusIcon,
+  PlusIcon,
+  RotateCcwIcon,
+} from "lucide-react";
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.js?url";
 
 import { fetchPaperReviewBytes } from "~/lib/paperReview";
+import { cn } from "~/lib/utils";
 
+import "pdfjs-dist/legacy/web/pdf_viewer.css";
 import "./PdfPreviewSurface.css";
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
-const PAGE_STACK_GUTTER_PX = 32;
+const DEFAULT_SCALE_VALUE = "page-width";
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 5;
+const WHEEL_PIXELS_PER_ZOOM_STEP = 30;
+const SMOOTH_REDRAW_DELAY_MS = 400;
+const KEYBOARD_ZOOM_FACTOR = 1.15;
+
+type PdfViewerInstance = InstanceType<typeof PDFViewer>;
+type PdfLinkServiceInstance = InstanceType<typeof PDFLinkService>;
+
+function clearPdfViewerDocument(input: {
+  readonly pdfViewer: PdfViewerInstance | null;
+  readonly linkService: PdfLinkServiceInstance | null;
+}) {
+  try {
+    input.pdfViewer?.setDocument(null as never);
+  } catch (error) {
+    console.warn("Failed to release PDF preview viewer document.", error);
+  }
+
+  input.linkService?.setDocument(null as never);
+}
 
 function formatPdfRenderError(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -34,14 +69,246 @@ function formatPdfRenderError(error: unknown): string {
   return "The manuscript preview could not be rendered.";
 }
 
-function isCancelledPdfRenderError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    typeof error.name === "string" &&
-    (error.name === "RenderingCancelledException" || error.name === "AbortException")
-  );
+function formatScaleLabel(scale: number | null): string {
+  if (!Number.isFinite(scale) || scale === null || scale <= 0) {
+    return "";
+  }
+
+  return `${Math.round(scale * 100)}%`;
+}
+
+function clampScale(scale: number): number {
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+}
+
+function accumulateScaleFactor(input: {
+  readonly previousScale: number;
+  readonly factor: number;
+  readonly unusedFactor: number;
+}): { readonly factor: number; readonly unusedFactor: number } {
+  if (input.factor === 1) {
+    return { factor: 1, unusedFactor: input.unusedFactor };
+  }
+
+  let unusedFactor = input.unusedFactor;
+  if ((unusedFactor > 1 && input.factor < 1) || (unusedFactor < 1 && input.factor > 1)) {
+    unusedFactor = 1;
+  }
+
+  const factor =
+    Math.floor(input.previousScale * input.factor * unusedFactor * 100) /
+    (100 * input.previousScale);
+
+  return {
+    factor,
+    unusedFactor: input.factor / factor,
+  };
+}
+
+function accumulateWheelTicks(input: {
+  readonly ticks: number;
+  readonly unusedTicks: number;
+}): { readonly ticks: number; readonly unusedTicks: number } {
+  let unusedTicks = input.unusedTicks;
+  if ((unusedTicks > 0 && input.ticks < 0) || (unusedTicks < 0 && input.ticks > 0)) {
+    unusedTicks = 0;
+  }
+
+  unusedTicks += input.ticks;
+  const wholeTicks = Math.trunc(unusedTicks);
+  return {
+    ticks: wholeTicks,
+    unusedTicks: unusedTicks - wholeTicks,
+  };
+}
+
+function wheelEventToTicks(event: WheelEvent): number {
+  const delta = Math.hypot(event.deltaX, event.deltaY);
+  const angle = Math.atan2(event.deltaY, event.deltaX);
+  const signedDelta = -0.25 * Math.PI < angle && angle < 0.75 * Math.PI ? -delta : delta;
+
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    return Math.abs(signedDelta) >= 1 ? Math.sign(signedDelta) : signedDelta;
+  }
+
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return Math.sign(signedDelta);
+  }
+
+  return signedDelta / WHEEL_PIXELS_PER_ZOOM_STEP;
+}
+
+function isTrackpadPinchZoom(event: WheelEvent, isControlKeyDown: boolean): boolean {
+  if (!event.ctrlKey || isControlKeyDown || event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) {
+    return false;
+  }
+
+  const scaleFactor = Math.exp(-event.deltaY / 100);
+  return event.deltaX === 0 && event.deltaZ === 0 && Math.abs(scaleFactor - 1) < 0.15;
+}
+
+function shouldUseReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getIntersectionArea(first: DOMRect, second: DOMRect): number {
+  const left = Math.max(first.left, second.left);
+  const right = Math.min(first.right, second.right);
+  const top = Math.max(first.top, second.top);
+  const bottom = Math.min(first.bottom, second.bottom);
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
+function getSquaredDistanceToRect(input: {
+  readonly x: number;
+  readonly y: number;
+  readonly rect: DOMRect;
+}): number {
+  const dx = Math.max(input.rect.left - input.x, 0, input.x - input.rect.right);
+  const dy = Math.max(input.rect.top - input.y, 0, input.y - input.rect.bottom);
+  return dx * dx + dy * dy;
+}
+
+function getVisiblePageRects(input: {
+  readonly container: HTMLDivElement;
+  readonly viewerElement: HTMLDivElement | null;
+}): DOMRect[] {
+  const containerRect = input.container.getBoundingClientRect();
+  const pageRects: DOMRect[] = [];
+
+  const pages = input.viewerElement?.querySelectorAll<HTMLElement>(".page") ?? [];
+  for (const page of pages) {
+    const pageRect = page.getBoundingClientRect();
+    const area = getIntersectionArea(containerRect, pageRect);
+    if (area > 0) {
+      pageRects.push(pageRect);
+    }
+  }
+
+  return pageRects;
+}
+
+function getMostVisiblePageRect(input: {
+  readonly container: HTMLDivElement;
+  readonly viewerElement: HTMLDivElement | null;
+}): DOMRect | null {
+  const containerRect = input.container.getBoundingClientRect();
+  const pageRects = getVisiblePageRects(input);
+  let bestPageRect: DOMRect | null = null;
+  let bestPageArea = 0;
+
+  for (const pageRect of pageRects) {
+    const area = getIntersectionArea(containerRect, pageRect);
+    if (area > bestPageArea) {
+      bestPageArea = area;
+      bestPageRect = pageRect;
+    }
+  }
+
+  return bestPageRect;
+}
+
+function getVisiblePageCenterZoomOrigin(input: {
+  readonly container: HTMLDivElement;
+  readonly viewerElement: HTMLDivElement | null;
+}): { readonly x: number; readonly y: number } {
+  const containerRect = input.container.getBoundingClientRect();
+  const bestPageRect = getMostVisiblePageRect(input);
+
+  if (!bestPageRect) {
+    return {
+      x: containerRect.left + containerRect.width / 2,
+      y: containerRect.top + containerRect.height / 2,
+    };
+  }
+
+  return {
+    x: clamp(
+      bestPageRect.left + bestPageRect.width / 2,
+      containerRect.left,
+      containerRect.right,
+    ),
+    y: clamp(
+      bestPageRect.top + bestPageRect.height / 2,
+      containerRect.top,
+      containerRect.bottom,
+    ),
+  };
+}
+
+function getPointerZoomOrigin(input: {
+  readonly container: HTMLDivElement;
+  readonly viewerElement: HTMLDivElement | null;
+  readonly x: number;
+  readonly y: number;
+}): { readonly x: number; readonly y: number } {
+  const containerRect = input.container.getBoundingClientRect();
+  const fallback = getVisiblePageCenterZoomOrigin(input);
+
+  if (
+    !Number.isFinite(input.x) ||
+    !Number.isFinite(input.y) ||
+    input.x < containerRect.left ||
+    input.x > containerRect.right ||
+    input.y < containerRect.top ||
+    input.y > containerRect.bottom
+  ) {
+    return fallback;
+  }
+
+  const pageRects = getVisiblePageRects(input);
+  if (pageRects.length === 0) {
+    return {
+      x: clamp(input.x, containerRect.left, containerRect.right),
+      y: clamp(input.y, containerRect.top, containerRect.bottom),
+    };
+  }
+
+  const firstPageRect = pageRects[0];
+  if (!firstPageRect) {
+    return fallback;
+  }
+
+  let closestPageRect = firstPageRect;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (const pageRect of pageRects) {
+    if (
+      input.x >= pageRect.left &&
+      input.x <= pageRect.right &&
+      input.y >= pageRect.top &&
+      input.y <= pageRect.bottom
+    ) {
+      return { x: input.x, y: input.y };
+    }
+
+    const distance = getSquaredDistanceToRect({
+      x: input.x,
+      y: input.y,
+      rect: pageRect,
+    });
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestPageRect = pageRect;
+    }
+  }
+
+  return {
+    x: clamp(
+      input.x,
+      Math.max(containerRect.left, closestPageRect.left),
+      Math.min(containerRect.right, closestPageRect.right),
+    ),
+    y: clamp(
+      input.y,
+      Math.max(containerRect.top, closestPageRect.top),
+      Math.min(containerRect.bottom, closestPageRect.bottom),
+    ),
+  };
 }
 
 function PaperPreviewLoader() {
@@ -77,65 +344,175 @@ interface PdfPreviewSurfaceProps {
 }
 
 export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewerElementRef = useRef<HTMLDivElement | null>(null);
+  const pdfViewerRef = useRef<PdfViewerInstance | null>(null);
+  const linkServiceRef = useRef<PdfLinkServiceInstance | null>(null);
   const pdfDocumentRef = useRef<PDFDocumentProxy | null>(null);
+  const loadingTaskRef = useRef<PDFDocumentLoadingTask | null>(null);
+  const isControlKeyDownRef = useRef(false);
+  const wheelUnusedFactorRef = useRef(1);
+  const wheelUnusedTicksRef = useRef(0);
 
-  const [documentBytes, setDocumentBytes] = useState<Uint8Array | null>(null);
-  const [pageCount, setPageCount] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoadingDocument, setIsLoadingDocument] = useState(true);
   const [hasRenderedPages, setHasRenderedPages] = useState(false);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [scaleLabel, setScaleLabel] = useState("");
+
+  const zoomByFactor = useCallback((scaleFactor: number, origin?: { x: number; y: number }) => {
+    const container = containerRef.current;
+    const pdfViewer = pdfViewerRef.current;
+    if (!container || !pdfViewer || !pdfViewer.pdfDocument) {
+      return;
+    }
+
+    const previousScale = pdfViewer.currentScale;
+    if (!Number.isFinite(previousScale) || previousScale <= 0) {
+      return;
+    }
+
+    const nextScale = clampScale(previousScale * scaleFactor);
+    const effectiveScaleFactor = nextScale / previousScale;
+    if (Math.abs(effectiveScaleFactor - 1) < 0.001) {
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const center = origin ?? {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+    const drawingDelay = shouldUseReducedMotion() ? -1 : SMOOTH_REDRAW_DELAY_MS;
+
+    if (effectiveScaleFactor > 1) {
+      pdfViewer.increaseScale({ scaleFactor: effectiveScaleFactor, drawingDelay });
+    } else {
+      pdfViewer.decreaseScale({ scaleFactor: effectiveScaleFactor, drawingDelay });
+    }
+
+    const actualScale = pdfViewer.currentScale;
+    if (!Number.isFinite(actualScale) || actualScale <= 0) {
+      return;
+    }
+
+    const scaleDiff = actualScale / previousScale - 1;
+    if (scaleDiff !== 0) {
+      container.scrollLeft += (center.x - rect.left) * scaleDiff;
+      container.scrollTop += (center.y - rect.top) * scaleDiff;
+    }
+
+    setScaleLabel(formatScaleLabel(actualScale));
+  }, []);
+
+  const zoomByWheelTicks = useCallback((ticks: number, origin?: { x: number; y: number }) => {
+    if (ticks === 0) {
+      return;
+    }
+
+    zoomByFactor(Math.pow(KEYBOARD_ZOOM_FACTOR, ticks), origin);
+  }, [zoomByFactor]);
+
+  const resetZoom = useCallback(() => {
+    const pdfViewer = pdfViewerRef.current;
+    if (!pdfViewer || !pdfViewer.pdfDocument) {
+      return;
+    }
+
+    pdfViewer.currentScaleValue = DEFAULT_SCALE_VALUE;
+    setScaleLabel(formatScaleLabel(pdfViewer.currentScale));
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const viewerElement = viewerElementRef.current;
+    if (!container || !viewerElement) {
+      return;
+    }
+
+    const eventBus = new EventBus();
+    const linkService = new PDFLinkService({ eventBus });
+    const pdfViewer = new PDFViewer({
+      container,
+      viewer: viewerElement,
+      eventBus,
+      linkService,
+      annotationEditorMode: AnnotationEditorType.DISABLE,
+      removePageBorders: true,
+    });
+
+    linkService.setViewer(pdfViewer);
+    pdfViewerRef.current = pdfViewer;
+    linkServiceRef.current = linkService;
+
+    const handlePagesInit = () => {
+      pdfViewer.currentScaleValue = DEFAULT_SCALE_VALUE;
+      setScaleLabel(formatScaleLabel(pdfViewer.currentScale));
+    };
+    const handlePageRendered = (event: { cssTransform?: boolean }) => {
+      if (!event.cssTransform) {
+        setHasRenderedPages(true);
+      }
+    };
+    const handleScaleChanging = (event: { scale?: number }) => {
+      setScaleLabel(formatScaleLabel(event.scale ?? pdfViewer.currentScale));
+    };
+
+    eventBus.on("pagesinit", handlePagesInit);
+    eventBus.on("pagerendered", handlePageRendered);
+    eventBus.on("scalechanging", handleScaleChanging);
+
+    return () => {
+      eventBus.off("pagesinit", handlePagesInit);
+      eventBus.off("pagerendered", handlePageRendered);
+      eventBus.off("scalechanging", handleScaleChanging);
+      clearPdfViewerDocument({ pdfViewer, linkService });
+      pdfViewerRef.current = null;
+      linkServiceRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    setDocumentDataForNewUrl({
-      setDocumentBytes,
-      setPageCount,
-      setLoadError,
-      setIsLoadingDocument,
-      setHasRenderedPages,
+    setLoadError(null);
+    setIsLoadingDocument(true);
+    setHasRenderedPages(false);
+    setScaleLabel("");
+
+    clearPdfViewerDocument({
+      pdfViewer: pdfViewerRef.current,
+      linkService: linkServiceRef.current,
     });
+    loadingTaskRef.current?.destroy();
+    loadingTaskRef.current = null;
+
+    const activeDocument = pdfDocumentRef.current;
+    pdfDocumentRef.current = null;
+    if (activeDocument) {
+      void activeDocument.destroy();
+    }
 
     void fetchPaperReviewBytes(url)
       .then((data) => {
         if (cancelled) {
           return;
         }
-        setDocumentBytes(data);
+
+        const loadingTask = getDocument({ data });
+        loadingTaskRef.current = loadingTask;
+        return loadingTask.promise;
       })
-      .catch((error: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        setLoadError(formatPdfRenderError(error));
-        setIsLoadingDocument(false);
-      });
-
-    return () => {
-      cancelled = true;
-      pdfDocumentRef.current = null;
-    };
-  }, [url]);
-
-  useEffect(() => {
-    if (!documentBytes) {
-      return;
-    }
-
-    let cancelled = false;
-    const loadingTask = getDocument({ data: documentBytes });
-
-    void loadingTask.promise
       .then((pdfDocument) => {
-        if (cancelled) {
-          void pdfDocument.destroy();
+        if (!pdfDocument || cancelled) {
+          if (pdfDocument) {
+            void pdfDocument.destroy();
+          }
           return;
         }
+
         pdfDocumentRef.current = pdfDocument;
-        setPageCount(pdfDocument.numPages);
+        linkServiceRef.current?.setDocument(pdfDocument, null);
+        pdfViewerRef.current?.setDocument(pdfDocument);
         setLoadError(null);
         setIsLoadingDocument(false);
       })
@@ -149,169 +526,201 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
 
     return () => {
       cancelled = true;
+      const loadingTask = loadingTaskRef.current;
+      loadingTaskRef.current = null;
+      void loadingTask?.destroy();
       const activeDocument = pdfDocumentRef.current;
       pdfDocumentRef.current = null;
-      void loadingTask.destroy();
       if (activeDocument) {
         void activeDocument.destroy();
       }
     };
-  }, [documentBytes]);
+  }, [url]);
 
   useEffect(() => {
-    const container = scrollRef.current;
+    const container = containerRef.current;
     if (!container) {
       return;
     }
 
-    const updateWidth = () => {
-      const nextWidth = Math.max(0, Math.floor(container.clientWidth - PAGE_STACK_GUTTER_PX));
-      setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth));
-    };
-
-    updateWidth();
-
-    if (typeof ResizeObserver !== "function") {
-      window.addEventListener("resize", updateWidth);
-      return () => {
-        window.removeEventListener("resize", updateWidth);
-      };
-    }
-
-    const observer = new ResizeObserver(() => {
-      updateWidth();
-    });
-    observer.observe(container);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    const pdfDocument = pdfDocumentRef.current;
-    if (!pdfDocument || pageCount === 0 || containerWidth <= 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const renderTasks = new Set<RenderTask>();
-
-    const renderPages = async () => {
-      let renderedPageCount = 0;
-
-      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        if (cancelled) {
-          return;
-        }
-
-        const canvas = canvasRefs.current.get(pageNumber);
-        if (!canvas) {
-          continue;
-        }
-
-        const page = await pdfDocument.getPage(pageNumber);
-        if (cancelled) {
-          return;
-        }
-
-        const baseViewport = page.getViewport({ scale: 1 });
-        const pageScale = containerWidth > 0 ? containerWidth / baseViewport.width : 1;
-        const cssViewport = page.getViewport({ scale: pageScale });
-        const outputScale = window.devicePixelRatio || 1;
-        const renderViewport = page.getViewport({ scale: pageScale * outputScale });
-        const context = canvas.getContext("2d", { alpha: false });
-        if (!context) {
-          continue;
-        }
-
-        canvas.width = Math.ceil(renderViewport.width);
-        canvas.height = Math.ceil(renderViewport.height);
-        canvas.style.width = `${Math.ceil(cssViewport.width)}px`;
-        canvas.style.height = `${Math.ceil(cssViewport.height)}px`;
-
-        const renderTask = page.render({
-          canvasContext: context,
-          viewport: renderViewport,
-        });
-        renderTasks.add(renderTask);
-
-        try {
-          await renderTask.promise;
-          renderedPageCount += 1;
-          if (!cancelled && renderedPageCount === 1) {
-            setHasRenderedPages(true);
-          }
-        } finally {
-          renderTasks.delete(renderTask);
-        }
-      }
-    };
-
-    void renderPages().catch((error: unknown) => {
-      if (cancelled || isCancelledPdfRenderError(error)) {
+    const handleWheel = (event: WheelEvent) => {
+      const isPinchZoom = isTrackpadPinchZoom(event, isControlKeyDownRef.current);
+      if (!isPinchZoom && !event.ctrlKey && !event.metaKey) {
         return;
       }
-      setLoadError(formatPdfRenderError(error));
-    });
 
-    return () => {
-      cancelled = true;
-      for (const renderTask of renderTasks) {
-        renderTask.cancel();
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (isPinchZoom) {
+        const pdfViewer = pdfViewerRef.current;
+        const previousScale = pdfViewer?.currentScale ?? 0;
+        if (!Number.isFinite(previousScale) || previousScale <= 0) {
+          return;
+        }
+
+        const result = accumulateScaleFactor({
+          previousScale,
+          factor: Math.exp(-event.deltaY / 100),
+          unusedFactor: wheelUnusedFactorRef.current,
+        });
+        wheelUnusedFactorRef.current = result.unusedFactor;
+        zoomByFactor(
+          result.factor,
+          getPointerZoomOrigin({
+            container,
+            viewerElement: viewerElementRef.current,
+            x: event.clientX,
+            y: event.clientY,
+          }),
+        );
+        return;
+      }
+
+      const result = accumulateWheelTicks({
+        ticks: wheelEventToTicks(event),
+        unusedTicks: wheelUnusedTicksRef.current,
+      });
+      wheelUnusedTicksRef.current = result.unusedTicks;
+      zoomByWheelTicks(
+        result.ticks,
+        getPointerZoomOrigin({
+          container,
+          viewerElement: viewerElementRef.current,
+          x: event.clientX,
+          y: event.clientY,
+        }),
+      );
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Control") {
+        isControlKeyDownRef.current = true;
+      }
+
+      if (!event.metaKey && !event.ctrlKey) {
+        return;
+      }
+
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        zoomByWheelTicks(1);
+      } else if (event.key === "-" || event.key === "_") {
+        event.preventDefault();
+        zoomByWheelTicks(-1);
+      } else if (event.key === "0") {
+        event.preventDefault();
+        resetZoom();
       }
     };
-  }, [containerWidth, pageCount]);
 
-  const pages = useMemo(
-    () => Array.from({ length: pageCount }, (_value, index) => index + 1),
-    [pageCount],
-  );
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === "Control") {
+        isControlKeyDownRef.current = false;
+      }
+    };
+    const handleWindowBlur = () => {
+      isControlKeyDownRef.current = false;
+    };
 
-  const showLoader = isLoadingDocument || (!!documentBytes && !loadError && !hasRenderedPages);
+    container.addEventListener("wheel", handleWheel, { passive: false });
+    container.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, [resetZoom, zoomByFactor, zoomByWheelTicks]);
+
+  const showLoader = isLoadingDocument || (!loadError && !hasRenderedPages);
+  const controlsDisabled = !!loadError || isLoadingDocument;
 
   return (
     <div
       className="paper-preview-surface relative flex h-full min-h-0 flex-col overflow-hidden bg-muted/[0.18]"
       aria-label={`${title} preview`}
+      style={{ minHeight: 1 }}
     >
+      <PaperPreviewControls
+        disabled={controlsDisabled}
+        scaleLabel={scaleLabel}
+        onZoomIn={() => zoomByFactor(KEYBOARD_ZOOM_FACTOR)}
+        onZoomOut={() => zoomByFactor(1 / KEYBOARD_ZOOM_FACTOR)}
+        onReset={resetZoom}
+      />
+
       {showLoader ? <PaperPreviewLoader /> : null}
       {loadError ? <PaperPreviewError message={loadError} /> : null}
 
-      <div ref={scrollRef} className="paper-preview-scroll flex-1 min-h-0 overflow-auto">
-        <div className="paper-preview-stack">
-          {pages.map((pageNumber) => (
-            <div key={pageNumber} className="paper-preview-page">
-              <canvas
-                ref={(node) => {
-                  if (!node) {
-                    canvasRefs.current.delete(pageNumber);
-                    return;
-                  }
-                  canvasRefs.current.set(pageNumber, node);
-                }}
-                className="paper-preview-canvas"
-              />
-            </div>
-          ))}
-        </div>
+      <div
+        ref={containerRef}
+        className={cn(
+          "paper-preview-scroll absolute inset-0 overflow-auto",
+          loadError ? "invisible" : undefined,
+        )}
+        style={{ position: "absolute", inset: 0 }}
+        tabIndex={0}
+      >
+        <div ref={viewerElementRef} className="pdfViewer paper-preview-viewer" />
       </div>
     </div>
   );
 }
 
-function setDocumentDataForNewUrl(input: {
-  readonly setDocumentBytes: (value: Uint8Array | null) => void;
-  readonly setPageCount: (value: number) => void;
-  readonly setLoadError: (value: string | null) => void;
-  readonly setIsLoadingDocument: (value: boolean) => void;
-  readonly setHasRenderedPages: (value: boolean) => void;
+function PaperPreviewControls({
+  disabled,
+  scaleLabel,
+  onZoomIn,
+  onZoomOut,
+  onReset,
+}: {
+  readonly disabled: boolean;
+  readonly scaleLabel: string;
+  readonly onZoomIn: () => void;
+  readonly onZoomOut: () => void;
+  readonly onReset: () => void;
 }) {
-  input.setDocumentBytes(null);
-  input.setPageCount(0);
-  input.setLoadError(null);
-  input.setIsLoadingDocument(true);
-  input.setHasRenderedPages(false);
+  return (
+    <div className="paper-preview-controls" aria-label="Paper preview zoom controls">
+      <button
+        type="button"
+        className="paper-preview-control-button"
+        onClick={onZoomOut}
+        disabled={disabled}
+        aria-label="Zoom out"
+        title="Zoom out"
+      >
+        <MinusIcon className="size-3.5" aria-hidden />
+      </button>
+      <span className="paper-preview-scale-label" aria-live="polite">
+        {scaleLabel || "Fit"}
+      </span>
+      <button
+        type="button"
+        className="paper-preview-control-button"
+        onClick={onZoomIn}
+        disabled={disabled}
+        aria-label="Zoom in"
+        title="Zoom in"
+      >
+        <PlusIcon className="size-3.5" aria-hidden />
+      </button>
+      <button
+        type="button"
+        className="paper-preview-control-button"
+        onClick={onReset}
+        disabled={disabled}
+        aria-label="Fit to width"
+        title="Fit to width"
+      >
+        <RotateCcwIcon className="size-3.5" aria-hidden />
+      </button>
+    </div>
+  );
 }
 
 export default PdfPreviewSurface;
