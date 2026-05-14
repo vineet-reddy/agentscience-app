@@ -591,7 +591,12 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     id: activity.id,
     createdAt: activity.createdAt,
     label: activity.summary,
-    tone: activity.tone === "approval" ? "info" : activity.tone,
+    tone:
+      activity.kind === "reasoning.updated"
+        ? "thinking"
+        : activity.tone === "approval"
+          ? "info"
+          : activity.tone,
     activityKind: activity.kind,
   };
   const itemType = extractWorkLogItemType(payload);
@@ -620,7 +625,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (requestKind) {
     entry.requestKind = requestKind;
   }
-  const collapseKey = deriveToolLifecycleCollapseKey(entry);
+  const collapseKey =
+    activity.kind === "reasoning.updated" && typeof payload?.collapseKey === "string"
+      ? payload.collapseKey
+      : deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
     entry.collapseKey = collapseKey;
   }
@@ -646,6 +654,14 @@ function shouldCollapseToolLifecycleEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): boolean {
+  if (previous.activityKind === "reasoning.updated" || next.activityKind === "reasoning.updated") {
+    return (
+      previous.activityKind === "reasoning.updated" &&
+      next.activityKind === "reasoning.updated" &&
+      previous.collapseKey !== undefined &&
+      previous.collapseKey === next.collapseKey
+    );
+  }
   if (previous.activityKind !== "tool.updated" && previous.activityKind !== "tool.completed") {
     return false;
   }
@@ -663,7 +679,10 @@ function mergeDerivedWorkLogEntries(
   next: DerivedWorkLogEntry,
 ): DerivedWorkLogEntry {
   const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
-  const detail = next.detail ?? previous.detail;
+  const detail =
+    previous.activityKind === "reasoning.updated" && next.activityKind === "reasoning.updated"
+      ? mergeReasoningPreview(previous.detail, next.detail)
+      : (next.detail ?? previous.detail);
   const command = next.command ?? previous.command;
   const rawCommand = next.rawCommand ?? previous.rawCommand;
   const toolTitle = next.toolTitle ?? previous.toolTitle;
@@ -682,6 +701,25 @@ function mergeDerivedWorkLogEntries(
     ...(requestKind ? { requestKind } : {}),
     ...(collapseKey ? { collapseKey } : {}),
   };
+}
+
+function mergeReasoningPreview(
+  previous: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  const merged = [previous, next]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (merged.length === 0) {
+    return undefined;
+  }
+  const limit = 260;
+  if (merged.length <= limit) {
+    return merged;
+  }
+  return `...${merged.slice(-(limit - 3))}`;
 }
 
 function mergeChangedFiles(

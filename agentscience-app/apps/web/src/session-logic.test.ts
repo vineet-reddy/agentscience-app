@@ -726,6 +726,51 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["task-progress"]);
   });
 
+  it("shows compact reasoning updates without flooding token-level rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "reasoning-1",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "reasoning.updated",
+        summary: "Reasoning summary",
+        tone: "info",
+        payload: {
+          detail: "Checking candidate datasets",
+          collapseKey: "reasoning:turn-1:summary",
+        },
+        turnId: "turn-1",
+      }),
+      makeActivity({
+        id: "reasoning-2",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "reasoning.updated",
+        summary: "Reasoning summary",
+        tone: "info",
+        payload: {
+          detail: " before choosing the next query.",
+          collapseKey: "reasoning:turn-1:summary",
+        },
+        turnId: "turn-1",
+      }),
+      makeActivity({
+        id: "tool-complete",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        summary: "Search complete",
+        tone: "tool",
+        kind: "tool.completed",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-1"));
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "reasoning-2",
+      label: "Reasoning summary",
+      tone: "thinking",
+      detail: "Checking candidate datasets before choosing the next query.",
+    });
+  });
+
   it("filters by turn id when provided", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({ id: "turn-1", turnId: "turn-1", summary: "Tool call", kind: "tool.started" }),

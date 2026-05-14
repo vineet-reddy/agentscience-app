@@ -81,6 +81,14 @@ function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
 }
 
+function normalizeReasoningDelta(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return truncateDetail(normalized, 240);
+}
+
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
   const trimmed = planMarkdown?.trim();
   if (!trimmed) {
@@ -387,6 +395,45 @@ function runtimeEventToActivities(
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "content.delta": {
+      if (
+        event.payload.streamKind !== "reasoning_text" &&
+        event.payload.streamKind !== "reasoning_summary_text"
+      ) {
+        return [];
+      }
+      const detail = normalizeReasoningDelta(event.payload.delta);
+      if (!detail) {
+        return [];
+      }
+      const turnId = toTurnId(event.turnId);
+      const streamKey = [
+        "reasoning",
+        event.payload.streamKind,
+        event.itemId ?? event.turnId ?? event.eventId,
+        event.payload.summaryIndex ?? "main",
+      ].join(":");
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "reasoning.updated",
+          summary:
+            event.payload.streamKind === "reasoning_summary_text"
+              ? "Reasoning summary"
+              : "Reasoning update",
+          payload: {
+            detail,
+            streamKind: event.payload.streamKind,
+            collapseKey: streamKey,
+          },
+          turnId: turnId ?? null,
           ...maybeSequence,
         },
       ];
