@@ -83,7 +83,7 @@ function resetComposerDraftStore() {
 }
 
 function modelSelection(
-  provider: "codex",
+  provider: "codex" | "gemini",
   model: string,
   options?: ModelSelection["options"],
 ): ModelSelection {
@@ -1038,6 +1038,21 @@ describe("composerDraftStore sticky composer settings", () => {
       modelSelection("codex", "gpt-5.4"),
     );
     expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
+  });
+
+  it("stores Gemini sticky model selection independently from Codex", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setStickyModelSelection(modelSelection("codex", "gpt-5.4"));
+    store.setStickyModelSelection(modelSelection("gemini", "gemini-3.1-pro-preview"));
+
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.4"),
+    );
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.gemini).toEqual(
+      modelSelection("gemini", "gemini-3.1-pro-preview"),
+    );
+    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("gemini");
   });
 });
 

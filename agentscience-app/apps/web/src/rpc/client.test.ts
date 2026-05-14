@@ -136,6 +136,7 @@ describe("WsRpcAtomClient", () => {
           ...DEFAULT_SERVER_SETTINGS.providers.codex,
           homePath: "/tmp/codex-home",
         },
+        gemini: DEFAULT_SERVER_SETTINGS.providers.gemini,
       },
     };
     const requestPromise = runRpc((client) => client(WS_METHODS.serverGetSettings, {}));
@@ -182,6 +183,7 @@ describe("WsRpcAtomClient", () => {
           ...DEFAULT_SERVER_SETTINGS.providers.codex,
           homePath: "/tmp/codex-home",
         },
+        gemini: DEFAULT_SERVER_SETTINGS.providers.gemini,
       },
     };
     const registry = AtomRegistry.make();

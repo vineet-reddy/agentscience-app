@@ -1,4 +1,4 @@
-import type { ServerProvider, ServerProviderModel } from "@agentscience/contracts";
+import type { ProviderKind, ServerProvider, ServerProviderModel } from "@agentscience/contracts";
 import { describe, expect, it } from "vitest";
 
 import { getDefaultProviderModelOptions, getDefaultServerModel } from "./providerModels";
@@ -22,8 +22,8 @@ const model = (slug: string, extra?: Partial<ServerProviderModel>): ServerProvid
   ...extra,
 });
 
-const provider = (models: ServerProviderModel[]): ServerProvider => ({
-  provider: "codex",
+const provider = (models: ServerProviderModel[], kind: ProviderKind = "codex"): ServerProvider => ({
+  provider: kind,
   enabled: true,
   installed: true,
   version: null,
@@ -57,5 +57,33 @@ describe("provider model defaults", () => {
       reasoningEffort: "medium",
       fastMode: true,
     });
+  });
+
+  it("uses the first built-in model for Gemini instead of GPT ranking", () => {
+    expect(
+      getDefaultServerModel(
+        [
+          provider(
+            [
+              model("gemini-3.1-pro-preview"),
+              model("gemini-3-flash-preview"),
+              model("gemini-3.1-flash-lite"),
+            ],
+            "gemini",
+          ),
+        ],
+        "gemini",
+      ),
+    ).toBe("gemini-3.1-pro-preview");
+  });
+
+  it("does not attach Codex-only default options to Gemini selections", () => {
+    expect(
+      getDefaultProviderModelOptions(
+        [model("gemini-3.1-pro-preview")],
+        "gemini",
+        "gemini-3.1-pro-preview",
+      ),
+    ).toEqual({});
   });
 });

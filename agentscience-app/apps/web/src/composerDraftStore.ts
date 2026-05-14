@@ -516,7 +516,7 @@ function promotedComposerSettingsDraft(
 }
 
 function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return value === "codex" ? value : null;
+  return value === "codex" || value === "gemini" ? value : null;
 }
 
 function normalizeProviderModelOptions(
@@ -594,7 +594,7 @@ function normalizeModelSelection(
     provider,
     provider === "codex" ? legacy?.legacyCodex : undefined,
   );
-  const options = modelOptions?.codex;
+  const options = modelOptions?.[provider];
   return {
     provider,
     model,

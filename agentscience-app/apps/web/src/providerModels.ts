@@ -64,7 +64,7 @@ export function getDefaultServerModel(
 ): string {
   const models = getProviderModels(providers, provider);
   return (
-    getLatestBuiltInGptModel(models)?.slug ??
+    (provider === "codex" ? getLatestBuiltInGptModel(models)?.slug : undefined) ??
     models.find((model) => !model.isCustom)?.slug ??
     models[0]?.slug ??
     DEFAULT_MODEL_BY_PROVIDER[provider]
@@ -146,7 +146,7 @@ export function getDefaultProviderModelOptions(
 ): ProviderModelOptions[ProviderKind] | undefined {
   const caps = getProviderModelCapabilities(models, model, provider);
   if (provider !== "codex") {
-    return undefined;
+    return {};
   }
 
   const effort = getDefaultEffort(caps);

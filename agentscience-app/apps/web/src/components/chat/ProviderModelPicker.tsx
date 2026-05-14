@@ -1,4 +1,8 @@
-import { type ProviderKind, type ServerProvider } from "@agentscience/contracts";
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type ProviderKind,
+  type ServerProvider,
+} from "@agentscience/contracts";
 import { resolveSelectableModel } from "@agentscience/shared/model";
 import { memo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
@@ -7,21 +11,39 @@ import { Button, buttonVariants } from "../ui/button";
 import {
   Menu,
   MenuGroup,
+  MenuGroupLabel,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
   MenuTrigger,
 } from "../ui/menu";
-import { OpenAI } from "../Icons";
+import { Gemini, OpenAI, type Icon } from "../Icons";
 import { cn } from "~/lib/utils";
 
-const PRIMARY_CODEX_MODEL_SLUGS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"] as const;
+const PROVIDER_ICONS: Record<ProviderKind, Icon> = {
+  codex: OpenAI,
+  gemini: Gemini,
+};
 
-function visibleModelOptions(options: ReadonlyArray<{ slug: string; name: string }>) {
-  return PRIMARY_CODEX_MODEL_SLUGS.flatMap((slug) => {
-    const option = options.find((candidate) => candidate.slug === slug);
-    return option ? [option] : [];
-  });
+function isProviderEnabled(
+  providers: ReadonlyArray<ServerProvider> | undefined,
+  provider: ProviderKind,
+): boolean {
+  return providers?.find((candidate) => candidate.provider === provider)?.enabled ?? true;
+}
+
+function makeProviderModelValue(provider: ProviderKind, model: string): string {
+  return `${provider}:${model}`;
+}
+
+function parseProviderModelValue(value: string): { provider: ProviderKind; model: string } | null {
+  const separatorIndex = value.indexOf(":");
+  if (separatorIndex <= 0) return null;
+  const provider = value.slice(0, separatorIndex);
+  if (provider !== "codex" && provider !== "gemini") return null;
+  const model = value.slice(separatorIndex + 1);
+  if (!model) return null;
+  return { provider, model };
 }
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
@@ -39,7 +61,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const activeProvider = props.lockedProvider ?? props.provider;
-  const selectedProviderOptions = visibleModelOptions(props.modelOptionsByProvider[activeProvider]);
+  const ActiveProviderIcon = PROVIDER_ICONS[activeProvider];
+  const selectableProviders = (props.lockedProvider
+    ? [props.lockedProvider]
+    : (Object.keys(props.modelOptionsByProvider) as ProviderKind[])).filter(
+    (provider) =>
+      isProviderEnabled(props.providers, provider) &&
+      props.modelOptionsByProvider[provider].length > 0,
+  );
+  const selectedProviderOptions = props.modelOptionsByProvider[activeProvider] ?? [];
   const selectedModelLabel =
     selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
   const handleModelChange = (provider: ProviderKind, value: string) => {
@@ -53,6 +83,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     if (!resolvedModel) return;
     props.onProviderModelChange(provider, resolvedModel);
     setIsMenuOpen(false);
+  };
+  const handleProviderModelValueChange = (value: string) => {
+    const parsed = parseProviderModelValue(value);
+    if (!parsed) return;
+    handleModelChange(parsed.provider, parsed.model);
   };
 
   return (
@@ -87,7 +122,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             props.compact ? "max-w-36 sm:pl-1" : undefined,
           )}
         >
-          <OpenAI
+          <ActiveProviderIcon
             aria-hidden="true"
             className={cn(
               "size-4 shrink-0 text-muted-foreground/70",
@@ -101,18 +136,41 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       <MenuPopup align="start">
         <MenuGroup>
           <MenuRadioGroup
-            value={props.model}
-            onValueChange={(value) => handleModelChange(activeProvider, value)}
+            value={makeProviderModelValue(activeProvider, props.model)}
+            onValueChange={handleProviderModelValueChange}
           >
-            {selectedProviderOptions.map((modelOption) => (
-              <MenuRadioItem
-                key={`${activeProvider}:${modelOption.slug}`}
-                value={modelOption.slug}
-                onClick={() => setIsMenuOpen(false)}
-              >
-                {modelOption.name}
-              </MenuRadioItem>
-            ))}
+            {selectableProviders.flatMap((provider, providerIndex) => {
+              const models = props.modelOptionsByProvider[provider] ?? [];
+              const providerLabel = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+              const showProviderLabel = selectableProviders.length > 1;
+              return [
+                ...(showProviderLabel
+                  ? [
+                      <MenuGroupLabel key={`${provider}:label`} inset={false}>
+                        {providerLabel}
+                      </MenuGroupLabel>,
+                    ]
+                  : []),
+                ...models.map((modelOption) => (
+                  <MenuRadioItem
+                    key={`${provider}:${modelOption.slug}`}
+                    value={makeProviderModelValue(provider, modelOption.slug)}
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    {modelOption.name}
+                  </MenuRadioItem>
+                )),
+                ...(showProviderLabel && providerIndex < selectableProviders.length - 1
+                  ? [
+                      <div
+                        aria-hidden="true"
+                        className="mx-2 my-1 h-px bg-border"
+                        key={`${provider}:separator`}
+                      />,
+                    ]
+                  : []),
+              ];
+            })}
           </MenuRadioGroup>
         </MenuGroup>
       </MenuPopup>

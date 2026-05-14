@@ -12,6 +12,7 @@ import {
   type ProjectEntry,
   type ProjectId,
   type ProviderApprovalDecision,
+  PROVIDER_DISPLAY_NAMES,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ServerProvider,
@@ -1624,19 +1625,26 @@ export default function ChatView({
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
   }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
   const searchableModelOptions = useMemo(
-    () =>
-      (lockedProvider === null || lockedProvider === "codex"
-        ? modelOptionsByProvider.codex
-        : []
-      ).map(({ slug, name }) => ({
-        provider: "codex" as const,
-        providerLabel: "Codex",
-        slug,
-        name,
-        searchSlug: slug.toLowerCase(),
-        searchName: name.toLowerCase(),
-        searchProvider: "codex",
-      })),
+    () => {
+      const providers =
+        lockedProvider === null
+          ? (Object.keys(modelOptionsByProvider) as ProviderKind[])
+          : [lockedProvider];
+      return providers.flatMap((provider) =>
+        (modelOptionsByProvider[provider] ?? []).map(({ slug, name }) => {
+          const providerLabel = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
+          return {
+            provider,
+            providerLabel,
+            slug,
+            name,
+            searchSlug: slug.toLowerCase(),
+            searchName: name.toLowerCase(),
+            searchProvider: providerLabel.toLowerCase(),
+          };
+        }),
+      );
+    },
     [lockedProvider, modelOptionsByProvider],
   );
   const workspaceEntriesQuery = useQuery(

@@ -55,12 +55,18 @@ function getProviderStateFromCapabilities(
   const providerOptions = modelOptions?.[provider];
 
   // Resolve effort
-  const rawEffort = providerOptions?.reasoningEffort ?? null;
+  const rawEffort =
+    provider === "codex" && providerOptions && "reasoningEffort" in providerOptions
+      ? providerOptions.reasoningEffort
+      : null;
 
   const promptEffort = resolveEffort(caps, rawEffort) ?? null;
 
   // Normalize options for dispatch
-  const normalizedOptions = normalizeCodexModelOptionsWithCapabilities(caps, providerOptions);
+  const normalizedOptions =
+    provider === "codex"
+      ? normalizeCodexModelOptionsWithCapabilities(caps, providerOptions)
+      : providerOptions;
 
   const ultrathinkActive = false;
 
@@ -108,6 +114,11 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         onPromptChange={onPromptChange}
       />
     ),
+  },
+  gemini: {
+    getState: (input) => getProviderStateFromCapabilities(input),
+    renderTraitsMenuContent: () => null,
+    renderTraitsPicker: () => null,
   },
 };
 

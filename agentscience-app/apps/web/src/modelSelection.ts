@@ -17,6 +17,7 @@ const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 const PRIMARY_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]),
+  gemini: new Set(["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite"]),
 };
 
 export type ProviderCustomModelConfig = {
@@ -40,6 +41,13 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     description: "Save additional Codex model slugs for the picker and `/model` command.",
     placeholder: "your-codex-model-slug",
     example: "gpt-6.7-codex-ultra-preview",
+  },
+  gemini: {
+    provider: "gemini",
+    title: "Gemini",
+    description: "Save additional Gemini model slugs for the picker and `/model` command.",
+    placeholder: "your-gemini-model-slug",
+    example: "gemini-3.1-pro-preview",
   },
 };
 
@@ -117,6 +125,12 @@ export function getSelectableModelOptionsByProvider(
       providers,
       "codex",
       selectedProvider === "codex" ? selectedModel : undefined,
+    ),
+    gemini: getAppModelOptions(
+      settings,
+      providers,
+      "gemini",
+      selectedProvider === "gemini" ? selectedModel : undefined,
     ),
   };
 }

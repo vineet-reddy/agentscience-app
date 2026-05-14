@@ -177,7 +177,9 @@ function capThreadMessages(messages: ReadonlyArray<ChatMessage>): ChatMessage[] 
     : [...messages];
 }
 
-function normalizeModelSelection<T extends { provider: "codex"; model: string }>(selection: T): T {
+function normalizeModelSelection<T extends { provider: ProviderKind; model: string }>(
+  selection: T,
+): T {
   return {
     ...selection,
     model: resolveModelSlugForProvider(selection.provider, selection.model),
