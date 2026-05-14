@@ -29,6 +29,7 @@ import { makeEventNdjsonLogger } from "./provider/Layers/EventNdjsonLogger";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/ProviderSessionRuntime";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
+import { makeGeminiAdapterLive } from "./provider/Layers/GeminiAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
 import { makeProviderServiceLive } from "./provider/Layers/ProviderService";
 import { OrchestrationEngineLive } from "./orchestration/Layers/OrchestrationEngine";
@@ -210,8 +211,10 @@ const ProviderLayerLive = Layer.unwrap(
     const codexAdapterLayer = makeCodexAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
     );
+    const geminiAdapterLayer = makeGeminiAdapterLive();
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
+      Layer.provide(geminiAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     return makeProviderServiceLive(

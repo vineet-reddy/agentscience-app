@@ -130,8 +130,12 @@ it.live("renames first-turn placeholder titles with generated sidebar titles", (
             .adapterHarness!.getStartedSessions()
             .find((session) => String(session.threadId).startsWith("thread-title-"));
           assert.equal(titleSession?.modelSelection?.model, "gpt-5.4-mini");
-          assert.equal(titleSession?.modelSelection?.options?.reasoningEffort, "low");
-          assert.equal(titleSession?.modelSelection?.options?.fastMode, true);
+          assert.equal(titleSession?.modelSelection?.provider, "codex");
+          if (titleSession?.modelSelection?.provider !== "codex") {
+            throw new Error("Expected Codex model selection for title generation.");
+          }
+          assert.equal(titleSession.modelSelection.options?.reasoningEffort, "low");
+          assert.equal(titleSession.modelSelection.options?.fastMode, true);
           assert.equal(titleSession?.runtimeMode, "approval-required");
           assert.equal(
             activeHarness

@@ -13,7 +13,7 @@ import type { ChatAttachment, ModelSelection } from "@agentscience/contracts";
 import type { TextGenerationError } from "@agentscience/contracts";
 
 /** Providers that support git text generation (commit messages, PR content, branch names). */
-export type TextGenerationProvider = "codex";
+export type TextGenerationProvider = "codex" | "gemini";
 
 export interface CommitMessageGenerationInput {
   cwd: string;

@@ -7,14 +7,18 @@ import type { ProviderKind, ServerProvider } from "@agentscience/contracts";
 import { Effect, Equal, Layer, PubSub, Ref, Stream } from "effect";
 
 import { CodexProviderLive } from "./CodexProvider";
+import { GeminiProviderLive } from "./GeminiProvider";
 import type { CodexProviderShape } from "../Services/CodexProvider";
 import { CodexProvider } from "../Services/CodexProvider";
+import type { GeminiProviderShape } from "../Services/GeminiProvider";
+import { GeminiProvider } from "../Services/GeminiProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
 
 const loadProviders = (
   codexProvider: CodexProviderShape,
-): Effect.Effect<readonly [ServerProvider]> =>
-  Effect.all([codexProvider.getSnapshot], {
+  geminiProvider: GeminiProviderShape,
+): Effect.Effect<readonly [ServerProvider, ServerProvider]> =>
+  Effect.all([codexProvider.getSnapshot, geminiProvider.getSnapshot], {
     concurrency: "unbounded",
   });
 
@@ -27,19 +31,20 @@ export const ProviderRegistryLive = Layer.effect(
   ProviderRegistry,
   Effect.gen(function* () {
     const codexProvider = yield* CodexProvider;
+    const geminiProvider = yield* GeminiProvider;
     const changesPubSub = yield* Effect.acquireRelease(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
       PubSub.shutdown,
     );
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(
-      yield* loadProviders(codexProvider),
+      yield* loadProviders(codexProvider, geminiProvider),
     );
 
     const syncProviders = Effect.fn("syncProviders")(function* (options?: {
       readonly publish?: boolean;
     }) {
       const previousProviders = yield* Ref.get(providersRef);
-      const providers = yield* loadProviders(codexProvider);
+      const providers = yield* loadProviders(codexProvider, geminiProvider);
       yield* Ref.set(providersRef, providers);
 
       if (options?.publish !== false && haveProvidersChanged(previousProviders, providers)) {
@@ -52,14 +57,22 @@ export const ProviderRegistryLive = Layer.effect(
     yield* Stream.runForEach(codexProvider.streamChanges, () => syncProviders()).pipe(
       Effect.forkScoped,
     );
+    yield* Stream.runForEach(geminiProvider.streamChanges, () => syncProviders()).pipe(
+      Effect.forkScoped,
+    );
 
     const refresh = Effect.fn("refresh")(function* (provider?: ProviderKind) {
       switch (provider) {
         case "codex":
           yield* codexProvider.refresh;
           break;
+        case "gemini":
+          yield* geminiProvider.refresh;
+          break;
         default:
-          yield* codexProvider.refresh;
+          yield* Effect.all([codexProvider.refresh, geminiProvider.refresh], {
+            concurrency: "unbounded",
+          });
           break;
       }
       return yield* syncProviders();
@@ -80,4 +93,4 @@ export const ProviderRegistryLive = Layer.effect(
       },
     } satisfies ProviderRegistryShape;
   }),
-).pipe(Layer.provideMerge(CodexProviderLive));
+).pipe(Layer.provideMerge(CodexProviderLive), Layer.provideMerge(GeminiProviderLive));

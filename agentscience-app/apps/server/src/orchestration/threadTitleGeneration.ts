@@ -4,6 +4,7 @@ import { sanitizeThreadTitle } from "../git/Utils.ts";
 
 const THREAD_TITLE_GENERATION_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
   codex: "gpt-5.4-mini",
+  gemini: "gemini-3.1-flash-lite",
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -167,13 +168,20 @@ export function selectThreadTitleModelSelection(modelSelection: ModelSelection):
       ? modelSelection.model
       : THREAD_TITLE_GENERATION_MODEL_BY_PROVIDER[modelSelection.provider];
 
+  if (modelSelection.provider === "codex") {
+    return {
+      ...modelSelection,
+      model: titleModel,
+      options: {
+        ...modelSelection.options,
+        reasoningEffort: "low",
+        fastMode: true,
+      },
+    };
+  }
+
   return {
     ...modelSelection,
     model: titleModel,
-    options: {
-      ...modelSelection.options,
-      reasoningEffort: "low",
-      fastMode: true,
-    },
   };
 }

@@ -37,7 +37,7 @@ import { normalizeCodexModelOptionsWithCapabilities } from "@agentscience/shared
 const CODEX_GIT_TEXT_GENERATION_REASONING_EFFORT = "medium";
 const CODEX_GIT_TEXT_GENERATION_FAST_MODE = true;
 const CODEX_TIMEOUT_MS = 180_000;
-const makeCodexTextGeneration = Effect.gen(function* () {
+export const makeCodexTextGeneration = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
