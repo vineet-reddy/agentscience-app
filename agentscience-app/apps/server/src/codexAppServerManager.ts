@@ -45,6 +45,7 @@ import {
   type CodexAccountSnapshot,
 } from "./provider/codexAccount";
 import { buildCodexInitializeParams, killCodexChildProcess } from "./provider/codexAppServer";
+import { AGENTSCIENCE_PERMISSION_PROFILE } from "./provider/agentSciencePermissionPolicy";
 import { buildCodexSpawnEnv } from "./provider/codexCli";
 import { toPromptSafeFileLabel, toSafeAttachmentFileName } from "./attachmentNames";
 import {
@@ -442,7 +443,7 @@ export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   };
 }
 
-const AGENTSCIENCE_CODEX_PERMISSION_PROFILE = "agentscience-workspace";
+const AGENTSCIENCE_CODEX_PERMISSION_PROFILE = AGENTSCIENCE_PERMISSION_PROFILE;
 
 export function buildCodexWorkspacePermissionsConfig(cwd: string): {
   readonly sandbox_mode: "workspace-write";

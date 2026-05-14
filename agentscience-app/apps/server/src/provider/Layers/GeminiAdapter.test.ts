@@ -13,9 +13,10 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { GeminiAdapter } from "../Services/GeminiAdapter.ts";
 import {
   buildGeminiInstructionEnvelope,
-  isSafeAgentScienceInternalPermissionRequest,
+  geminiModeForRuntimeMode,
   makeGeminiAdapterLive,
 } from "./GeminiAdapter.ts";
+import { isSafeAgentScienceInternalPermissionRequest } from "../agentSciencePermissionPolicy.ts";
 
 const tempDir = mkdtempSync(
   join(tmpdir(), "agentscience-gemini-adapter-test-"),
@@ -160,6 +161,11 @@ describe("GeminiAdapterLive", () => {
     assert.match(instructions, /frontier-search protocol/);
   });
 
+  it("uses Gemini auto-edit mode for AgentScience Auto without entering yolo", () => {
+    assert.equal(geminiModeForRuntimeMode("approval-required"), "default");
+    assert.equal(geminiModeForRuntimeMode("full-access"), "autoEdit");
+  });
+
   it("recognizes read-only AgentScience commands as internally safe", () => {
     assert.equal(
       isSafeAgentScienceInternalPermissionRequest({
@@ -252,6 +258,66 @@ describe("GeminiAdapterLive", () => {
         toolCall: {
           kind: "read",
           title: "agentscience runtime status --json",
+        },
+      }),
+      false,
+    );
+  });
+
+  it("recognizes workspace-local helper script commands as safe", () => {
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "cat << 'EOF' > check_gbif.py import requests print('ok') EOF",
+        },
+      }),
+      true,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "python3 check_gbif.py",
+        },
+      }),
+      true,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "node scripts/check-data.mjs",
+        },
+      }),
+      true,
+    );
+  });
+
+  it("keeps unsafe workspace-local looking commands behind approval", () => {
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "cat << 'EOF' > ../check_gbif.py print('ok') EOF",
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "python3 -c \"import os; print(os.getcwd())\"",
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "rm check_gbif.py",
         },
       }),
       false,

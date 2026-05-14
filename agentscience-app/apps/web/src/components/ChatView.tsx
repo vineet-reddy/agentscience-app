@@ -3646,29 +3646,34 @@ export default function ChatView({
   const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
       const api = readNativeApi();
-      if (!api || !activeThreadId) return;
+      const targetThreadId = activeThreadId ?? threadId;
+      if (!api) {
+        setThreadError(targetThreadId, "AgentScience is still connecting. Try again in a moment.");
+        return;
+      }
 
       setRespondingRequestIds((existing) =>
         existing.includes(requestId) ? existing : [...existing, requestId],
       );
-      await api.orchestration
-        .dispatchCommand({
+      try {
+        await api.orchestration.dispatchCommand({
           type: "thread.approval.respond",
           commandId: newCommandId(),
-          threadId: activeThreadId,
+          threadId: targetThreadId,
           requestId,
           decision,
           createdAt: new Date().toISOString(),
-        })
-        .catch((err: unknown) => {
-          setThreadError(
-            activeThreadId,
-            err instanceof Error ? err.message : "Failed to submit approval decision.",
-          );
         });
-      setRespondingRequestIds((existing) => existing.filter((id) => id !== requestId));
+      } catch (err) {
+        setThreadError(
+          targetThreadId,
+          err instanceof Error ? err.message : "Failed to submit approval decision.",
+        );
+      } finally {
+        setRespondingRequestIds((existing) => existing.filter((id) => id !== requestId));
+      }
     },
-    [activeThreadId, setThreadError],
+    [activeThreadId, setThreadError, threadId],
   );
 
   const onRespondToUserInput = useCallback(

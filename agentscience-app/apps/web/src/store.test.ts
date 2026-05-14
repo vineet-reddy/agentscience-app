@@ -1,4 +1,5 @@
 import {
+  ApprovalRequestId,
   CheckpointRef,
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
@@ -1078,5 +1079,55 @@ describe("incremental orchestration updates", () => {
       state: "running",
     });
     expect(next.threads[0]?.latestTurn?.sourceProposedPlan).toBeUndefined();
+  });
+
+  it("records approval responses immediately so pending approval UI can clear", () => {
+    const requestId = ApprovalRequestId.makeUnsafe("approval-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const thread = makeThread({
+      latestTurn: {
+        turnId,
+        state: "running",
+        requestedAt: "2026-02-27T00:00:00.000Z",
+        startedAt: "2026-02-27T00:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+      activities: [
+        {
+          id: EventId.makeUnsafe("activity-approval-requested"),
+          tone: "approval",
+          kind: "approval.requested",
+          summary: "Command approval requested",
+          payload: {
+            requestId,
+            requestKind: "command",
+            requestType: "command_execution_approval",
+          },
+          turnId,
+          createdAt: "2026-02-27T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const next = applyOrchestrationEvent(
+      makeState(thread),
+      makeEvent("thread.approval-response-requested", {
+        threadId: thread.id,
+        requestId,
+        decision: "accept",
+        createdAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.activities.at(-1)).toMatchObject({
+      tone: "approval",
+      kind: "approval.resolved",
+      payload: {
+        requestId,
+        decision: "accept",
+      },
+      turnId,
+    });
   });
 });

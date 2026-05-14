@@ -46,6 +46,7 @@ import {
   buildGeminiLaunchSpec,
 } from "../geminiCli.ts";
 import { resolveEffectiveGeminiSettings } from "../geminiSettings.ts";
+import { isSafeAgentScienceInternalPermissionRequest } from "../agentSciencePermissionPolicy.ts";
 import { readProviderApiKey } from "../providerApiKeys.ts";
 import {
   GeminiAdapter,
@@ -132,10 +133,10 @@ function toMessage(cause: unknown, fallback: string): string {
   return fallback;
 }
 
-function modeForRuntimeMode(
+export function geminiModeForRuntimeMode(
   runtimeMode: ProviderSession["runtimeMode"],
 ): string {
-  return runtimeMode === "full-access" ? "yolo" : "default";
+  return runtimeMode === "full-access" ? "autoEdit" : "default";
 }
 
 export function buildGeminiInstructionEnvelope(input: ProviderSendTurnInput): string {
@@ -671,7 +672,7 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
           : asString(asRecord(newSession.models)?.currentModelId);
       yield* callAcp<JsonRecord>(session, "session/set_mode", {
         sessionId: providerSessionId,
-        modeId: modeForRuntimeMode(input.runtimeMode),
+        modeId: geminiModeForRuntimeMode(input.runtimeMode),
       }).pipe(Effect.catch(() => Effect.succeed({})));
       if (input.modelSelection?.provider === "gemini") {
         yield* callAcp<JsonRecord>(session, "session/set_model", {
@@ -728,7 +729,7 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
     const desiredMode =
       input.interactionMode === "plan"
         ? "plan"
-        : modeForRuntimeMode(session.runtimeMode);
+        : geminiModeForRuntimeMode(session.runtimeMode);
     yield* callAcp<JsonRecord>(session, "session/set_mode", {
       sessionId: session.sessionId,
       modeId: desiredMode,
@@ -1030,178 +1031,6 @@ function buildPermissionResponse(optionId: string | undefined): JsonRecord {
   return optionId
     ? { outcome: { outcome: "selected", optionId } }
     : { outcome: { outcome: "cancelled" } };
-}
-
-function normalizeShellCommand(value: string): string {
-  return value.trim().replace(/\s+/g, " ");
-}
-
-function parseShellCommandSequence(value: string): ReadonlyArray<readonly string[]> | undefined {
-  const commands: string[][] = [[]];
-  let token = "";
-  let quote: "'" | '"' | undefined;
-  let escaped = false;
-
-  const finishToken = () => {
-    if (token.length > 0) {
-      commands[commands.length - 1]?.push(token);
-      token = "";
-    }
-  };
-
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
-    if (!char) continue;
-
-    if (escaped) {
-      token += char;
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-
-    if (quote) {
-      if (char === quote) {
-        quote = undefined;
-        continue;
-      }
-      if (quote === '"' && (char === "$" || char === "`")) {
-        return undefined;
-      }
-      token += char;
-      continue;
-    }
-
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
-
-    if (/\s/.test(char)) {
-      finishToken();
-      continue;
-    }
-
-    if (char === "|" && value[index + 1] === "|") {
-      finishToken();
-      if ((commands.at(-1)?.length ?? 0) === 0) return undefined;
-      commands.push([]);
-      index += 1;
-      continue;
-    }
-
-    if (";&|<>`$(){}".includes(char)) {
-      return undefined;
-    }
-
-    token += char;
-  }
-
-  if (quote || escaped) return undefined;
-  finishToken();
-  if ((commands.at(-1)?.length ?? 0) === 0) return undefined;
-  return commands;
-}
-
-function isManagedAgentScienceExecutable(value: string): boolean {
-  return (
-    value === "agentscience" ||
-    value === "./.cache/agentscience/bin/agentscience" ||
-    value === ".cache/agentscience/bin/agentscience"
-  );
-}
-
-function consumeReadOnlyAgentScienceFlags(
-  args: readonly string[],
-  allowed: ReadonlySet<string>,
-): boolean {
-  let hasQuery = false;
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--query" && allowed.has("--query")) {
-      const value = args[index + 1];
-      if (!value) return false;
-      hasQuery = true;
-      index += 1;
-      continue;
-    }
-    if (arg === "--limit" && allowed.has("--limit")) {
-      const value = args[index + 1];
-      if (!value || !/^\d{1,4}$/.test(value)) return false;
-      index += 1;
-      continue;
-    }
-    if (arg === "--json" && allowed.has("--json")) {
-      continue;
-    }
-    return false;
-  }
-  return allowed.has("--query") ? hasQuery : true;
-}
-
-function isSafeAgentScienceInternalArgv(argv: readonly string[]): boolean {
-  if (!isManagedAgentScienceExecutable(argv[0] ?? "")) return false;
-
-  const [, group, command, ...args] = argv;
-  if (group === "runtime" && command === "status") {
-    return args.length === 1 && args[0] === "--json";
-  }
-  if (group === "registry" && command === "search") {
-    return consumeReadOnlyAgentScienceFlags(
-      args,
-      new Set(["--query", "--limit", "--json"]),
-    );
-  }
-  if (group === "papers" && command === "list") {
-    return consumeReadOnlyAgentScienceFlags(
-      args,
-      new Set(["--query", "--limit", "--json"]),
-    );
-  }
-  if (group === "papers" && command === "get") {
-    const [slug, ...remaining] = args;
-    return (
-      typeof slug === "string" &&
-      /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/.test(slug) &&
-      consumeReadOnlyAgentScienceFlags(remaining, new Set(["--json"]))
-    );
-  }
-  return false;
-}
-
-function stringValuesFromRecord(
-  record: JsonRecord | undefined,
-  keys: ReadonlyArray<string>,
-) {
-  return keys.flatMap((key) => {
-    const value = record?.[key];
-    return typeof value === "string" ? [value] : [];
-  });
-}
-
-export function isSafeAgentScienceInternalPermissionRequest(
-  request: JsonRecord,
-): boolean {
-  const toolCall = asRecord(request.toolCall);
-  if (toolCall?.kind !== "execute") {
-    return false;
-  }
-
-  const args = asRecord(toolCall.args);
-  const commandCandidates = [
-    ...stringValuesFromRecord(toolCall, ["title", "command", "cmd"]),
-    ...stringValuesFromRecord(args, ["command", "cmd"]),
-    ...stringValuesFromRecord(request, ["command", "cmd"]),
-  ].map(normalizeShellCommand);
-
-  return commandCandidates.some((command) => {
-    const parsed = parseShellCommandSequence(command);
-    return parsed?.every(isSafeAgentScienceInternalArgv) ?? false;
-  });
 }
 
 function safeAgentScienceInternalPermissionResponse(

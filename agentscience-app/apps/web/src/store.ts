@@ -4,6 +4,7 @@ import {
   type OrchestrationProposedPlan,
   type ProjectId,
   type ProviderKind,
+  EventId,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationSession,
@@ -496,6 +497,20 @@ function compareActivities(
   }
 
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function activityTurnIdForRequest(
+  thread: Thread,
+  requestId: string,
+): Thread["activities"][number]["turnId"] {
+  const matchedActivity = thread.activities.find((activity) => {
+    const payload =
+      activity.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    return payload?.requestId === requestId;
+  });
+  return matchedActivity?.turnId ?? thread.latestTurn?.turnId ?? null;
 }
 
 function buildLatestTurn(params: {
@@ -1480,9 +1495,63 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       });
     }
 
-    case "thread.approval-response-requested":
-    case "thread.user-input-response-requested":
-      return state;
+    case "thread.approval-response-requested": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const activity = {
+          id: EventId.makeUnsafe(`activity-${event.eventId}`),
+          tone: "approval" as const,
+          kind: "approval.resolved",
+          summary: "Approval resolved",
+          payload: {
+            requestId: event.payload.requestId,
+            decision: event.payload.decision,
+          },
+          turnId: activityTurnIdForRequest(thread, event.payload.requestId),
+          sequence: event.sequence,
+          createdAt: event.payload.createdAt,
+        };
+        const activities = [
+          ...thread.activities.filter((existing) => existing.id !== activity.id),
+          activity,
+        ]
+          .toSorted(compareActivities)
+          .slice(-MAX_THREAD_ACTIVITIES);
+        return {
+          ...thread,
+          activities,
+          updatedAt: event.occurredAt,
+        };
+      });
+    }
+
+    case "thread.user-input-response-requested": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const activity = {
+          id: EventId.makeUnsafe(`activity-${event.eventId}`),
+          tone: "info" as const,
+          kind: "user-input.resolved",
+          summary: "User input submitted",
+          payload: {
+            requestId: event.payload.requestId,
+            answers: event.payload.answers,
+          },
+          turnId: activityTurnIdForRequest(thread, event.payload.requestId),
+          sequence: event.sequence,
+          createdAt: event.payload.createdAt,
+        };
+        const activities = [
+          ...thread.activities.filter((existing) => existing.id !== activity.id),
+          activity,
+        ]
+          .toSorted(compareActivities)
+          .slice(-MAX_THREAD_ACTIVITIES);
+        return {
+          ...thread,
+          activities,
+          updatedAt: event.occurredAt,
+        };
+      });
+    }
   }
 
   return state;
