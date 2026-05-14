@@ -47,6 +47,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
+import { useSettings, useUpdateSettings } from "../hooks/useSettings";
 import { resolveOnboardingAccountSyncKey } from "../onboardingGate";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
@@ -77,6 +78,8 @@ function RootRouteView() {
   const serverConfig = useServerConfig();
   const serverProviders = useServerProviders();
   const agentScienceAccount = useAgentScienceAccount();
+  const settings = useSettings();
+  const { updateSettings } = useUpdateSettings();
   const pathname = useLocation({ select: (loc) => loc.pathname });
 
   if (!readNativeApi()) {
@@ -95,6 +98,15 @@ function RootRouteView() {
   }
 
   const codexProvider = serverProviders.find((provider) => provider.provider === "codex");
+  const geminiProvider = serverProviders.find((provider) => provider.provider === "gemini");
+  const codexConnected = codexProvider?.auth.status === "authenticated";
+  const geminiSelected = settings.textGenerationModelSelection.provider === "gemini";
+  const geminiUsable =
+    geminiProvider?.enabled !== false &&
+    geminiProvider?.installed !== false &&
+    geminiProvider?.status !== "error" &&
+    geminiProvider?.auth.status !== "unauthenticated";
+  const modelAccessConnected = codexConnected || (geminiSelected && geminiUsable);
   const agentScienceStatus = agentScienceAccount.state?.status ?? "signed-out";
   const isSettingsRoute = pathname.startsWith("/settings");
   const shouldShowAgentScienceConnectionPortal =
@@ -105,7 +117,7 @@ function RootRouteView() {
     !agentScienceAccount.isLoading &&
     agentScienceStatus === "signed-in" &&
     !isSettingsRoute &&
-    codexProvider?.auth.status !== "authenticated";
+    !modelAccessConnected;
 
   // Onboarding sits between model-access connect and the workspace: the user
   // is fully connected but hasn't yet told us which field / data they care
@@ -134,7 +146,7 @@ function RootRouteView() {
     !onboardingSeen &&
     !isSettingsRoute &&
     (!isElectron ||
-      (serverConfig !== null && codexProvider?.auth.status === "authenticated"));
+      (serverConfig !== null && modelAccessConnected));
 
   return (
     <ToastProvider>
@@ -147,7 +159,25 @@ function RootRouteView() {
         <WebSocketConnectionSurface>
           {shouldShowDesktopConnectionPortal ? (
             <DesktopConnectionPortal
-              provider={codexProvider}
+              codexProvider={codexProvider}
+              geminiProvider={geminiProvider}
+              onContinueGemini={() => {
+                updateSettings({
+                  textGenerationModelSelection: {
+                    provider: "gemini",
+                    model: "gemini-3.1-pro-preview",
+                  },
+                  providers: {
+                    ...settings.providers,
+                    gemini: {
+                      ...settings.providers.gemini,
+                      enabled: true,
+                      authMethod: "oauth-personal",
+                    },
+                  },
+                });
+                void ensureNativeApi().server.refreshProviders();
+              }}
               onOpenAdvanced={() => {
                 void navigate({ to: "/settings/general" });
               }}

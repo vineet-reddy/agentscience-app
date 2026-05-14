@@ -31,6 +31,7 @@ import { RotatingFileSink } from "@agentscience/shared/logging";
 import { parsePersistedServerObservabilitySettings } from "@agentscience/shared/serverSettings";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { resolveManagedCodexRuntime } from "./codexManagedRuntime";
+import { resolveManagedGeminiRuntime } from "./geminiManagedRuntime";
 import { buildManagedDesktopServerEnv } from "./managedDesktopTooling";
 import {
   resolveDefaultDesktopCodexHomePath,
@@ -1297,6 +1298,11 @@ function startBackend(): void {
     platform: process.platform,
     arch: process.arch,
   });
+  const managedGeminiRuntime = resolveManagedGeminiRuntime({
+    resourcesPath: process.resourcesPath,
+    repoRoot: ROOT_DIR,
+    nodePath: process.execPath,
+  });
   const managedDesktopServerEnv = buildManagedDesktopServerEnv({
     resourcesPath: process.resourcesPath,
     repoRoot: ROOT_DIR,
@@ -1314,6 +1320,12 @@ function startBackend(): void {
         ? {
             AGENTSCIENCE_MANAGED_CODEX_BINARY_PATH: managedCodexRuntime.binaryPath,
             AGENTSCIENCE_MANAGED_CODEX_PATH_DIR: managedCodexRuntime.pathDir,
+          }
+        : {}),
+      ...(managedGeminiRuntime
+        ? {
+            AGENTSCIENCE_MANAGED_GEMINI_CLI_PATH: managedGeminiRuntime.cliPath,
+            AGENTSCIENCE_MANAGED_GEMINI_NODE_PATH: managedGeminiRuntime.nodePath,
           }
         : {}),
       ...managedDesktopServerEnv,

@@ -5,6 +5,7 @@ import { GeminiModelSelection, TextGenerationError } from "@agentscience/contrac
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@agentscience/shared/git";
 
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { buildGeminiLaunchSpec } from "../../provider/geminiCli.ts";
 import { resolveEffectiveGeminiSettings } from "../../provider/geminiSettings.ts";
 import {
   type TextGenerationShape,
@@ -75,9 +76,9 @@ export const makeGeminiTextGeneration = Effect.gen(function* () {
         normalizeCliError("gemini", operation, cause, "Failed to resolve Gemini settings"),
       ),
     );
-    const command = ChildProcess.make(
-      settings.binaryPath,
-      [
+    const launchSpec = buildGeminiLaunchSpec({
+      binaryPath: settings.binaryPath,
+      args: [
         "--model",
         modelSelection.model,
         "--prompt",
@@ -85,9 +86,14 @@ export const makeGeminiTextGeneration = Effect.gen(function* () {
         "--output-format",
         "text",
       ],
+    });
+    const command = ChildProcess.make(
+      launchSpec.command,
+      [...launchSpec.args],
       {
         cwd,
-        shell: process.platform === "win32",
+        env: launchSpec.env,
+        shell: launchSpec.shell,
         stdin: {
           stream: Stream.encodeText(Stream.make(prompt)),
         },

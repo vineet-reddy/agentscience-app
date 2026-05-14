@@ -29,6 +29,7 @@ const PACKAGED_PINNED_DEPENDENCIES = {
   "@effect/platform-node-shared": "4.0.0-beta.43",
 } as const;
 const MANAGED_CODEX_RESOURCE_DIR = "codex-runtime";
+const MANAGED_GEMINI_RESOURCE_DIR = "gemini-runtime";
 const MANAGED_PAPER_TOOLCHAIN_RESOURCE_DIR = "paper-toolchain";
 const MANAGED_SCIENCE_RUNTIME_RESOURCE_DIR = "science-runtime";
 const DEV_MANAGED_RESOURCES_MANIFEST_FILE = ".manifest.json";
@@ -752,6 +753,15 @@ function resolveManagedCodexVersion(): string {
   return configuredVersion.trim().replace(/^[~^]/, "");
 }
 
+function resolveManagedGeminiVersion(): string {
+  const configuredVersion = desktopPackageJson.dependencies["@google/gemini-cli"];
+  if (typeof configuredVersion !== "string" || configuredVersion.trim().length === 0) {
+    throw new Error("apps/desktop/package.json is missing the @google/gemini-cli dependency.");
+  }
+
+  return configuredVersion.trim().replace(/^[~^]/, "");
+}
+
 function resolveManagedCodexTargets(
   platform: typeof BuildPlatform.Type,
   arch: typeof BuildArch.Type,
@@ -1164,6 +1174,11 @@ function createDevManagedResourcesRecipe(
           }),
         ),
       },
+      [MANAGED_GEMINI_RESOURCE_DIR]: {
+        packageName: "@google/gemini-cli",
+        packageVersion: resolveManagedGeminiVersion(),
+        entry: "gemini.js",
+      },
     },
   };
 }
@@ -1217,6 +1232,8 @@ function expectedDevManagedResourcePaths(
     );
     expectedPaths.push(join(binDir, "python3"), join(binDir, "uv"));
   }
+
+  expectedPaths.push(join(managedResourcesDir, MANAGED_GEMINI_RESOURCE_DIR, "gemini.js"));
 
   return expectedPaths;
 }
@@ -1390,6 +1407,20 @@ const pruneManagedCodexInstallArtifacts = Effect.fn("pruneManagedCodexInstallArt
     );
     yield* fs.remove(installedVendorDir, { recursive: true, force: true }).pipe(Effect.ignore);
   }
+});
+
+const pruneManagedGeminiInstallArtifacts = Effect.fn("pruneManagedGeminiInstallArtifacts")(function* (
+  stageAppDir: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  yield* fs
+    .remove(path.join(stageAppDir, "node_modules", "@google", "gemini-cli"), {
+      recursive: true,
+      force: true,
+    })
+    .pipe(Effect.ignore);
 });
 
 function resolveNodePtyPrebuildTargets(
@@ -1653,6 +1684,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.platform,
     options.arch,
   );
+  yield* bundleManagedGeminiRuntime(stageAppDir, stageManagedResourcesDir);
   yield* bundleManagedPaperToolchain(
     stageManagedResourcesDir,
     options.platform,
@@ -1668,6 +1700,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   yield* Effect.log("[desktop-artifact] Removing duplicated managed Codex install payloads...");
   yield* pruneManagedCodexInstallArtifacts(stageAppDir, options.platform, options.arch);
+  yield* Effect.log("[desktop-artifact] Removing duplicated managed Gemini install payload...");
+  yield* pruneManagedGeminiInstallArtifacts(stageAppDir);
   yield* Effect.log("[desktop-artifact] Trimming node-pty install payload...");
   yield* pruneNodePtyInstallArtifacts(stageAppDir, options.platform, options.arch);
 
@@ -1799,6 +1833,7 @@ const buildDevManagedDesktopResources = Effect.fn("buildDevManagedDesktopResourc
     options.arch,
     options.verbose,
   );
+  yield* bundleManagedGeminiRuntime(repoRoot, managedResourcesDir);
   writeDevManagedResourcesManifest({
     manifestPath,
     recipeHash,
@@ -1853,6 +1888,45 @@ const bundleManagedCodexRuntime = Effect.fn("bundleManagedCodexRuntime")(functio
 
     yield* fs.copy(sourceDir, path.join(runtimeRoot, target.targetTriple));
   }
+});
+
+const bundleManagedGeminiRuntime = Effect.fn("bundleManagedGeminiRuntime")(function* (
+  sourceAppDir: string,
+  stageManagedResourcesDir: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const runtimeRoot = path.join(stageManagedResourcesDir, MANAGED_GEMINI_RESOURCE_DIR);
+  const sourceCandidates = [
+    path.join(sourceAppDir, "node_modules", "@google", "gemini-cli", "bundle", "gemini.js"),
+    path.join(
+      sourceAppDir,
+      "apps",
+      "desktop",
+      "node_modules",
+      "@google",
+      "gemini-cli",
+      "bundle",
+      "gemini.js",
+    ),
+  ];
+  const sourceFile = yield* Effect.gen(function* () {
+    for (const candidate of sourceCandidates) {
+      if (yield* fs.exists(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  });
+
+  if (!sourceFile) {
+    return yield* new BuildScriptError({
+      message: `Missing Gemini CLI bundle. Checked: ${sourceCandidates.join(", ")}.`,
+    });
+  }
+
+  yield* fs.makeDirectory(runtimeRoot, { recursive: true });
+  yield* fs.copyFile(sourceFile, path.join(runtimeRoot, "gemini.js"));
 });
 
 const bundleManagedPaperToolchain = Effect.fn("bundleManagedPaperToolchain")(function* (

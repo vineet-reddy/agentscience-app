@@ -37,6 +37,7 @@ import {
 } from "../desktopUpdate.logic";
 import { AgentScienceAccountPanel } from "./AgentScienceAccountPanel";
 import { CodexAuthControls } from "./CodexAuthControls";
+import { GeminiAuthControls } from "./GeminiAuthControls";
 import { resolveAndPersistPreferredEditor } from "../../editorPreferences";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
@@ -113,9 +114,9 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
   {
     provider: "gemini",
     title: "Gemini",
-    binaryPlaceholder: "gemini",
+    binaryPlaceholder: "Default: bundled Gemini CLI",
     binaryDescription:
-      "Optional override. Leave blank to use the Gemini CLI available on PATH.",
+      "Optional override. Leave blank to use the Gemini CLI managed by AgentScience.",
   },
 ] as const;
 
@@ -141,16 +142,19 @@ const PRIVACY_DOC_URL =
   "https://github.com/vineet-reddy/agentscience-app/blob/main/agentscience-app/docs/PRIVACY.md";
 
 function getProviderSummary(provider: ServerProvider | undefined) {
+  const providerName = provider
+    ? (PROVIDER_DISPLAY_NAMES[provider.provider] ?? provider.provider)
+    : "provider";
   if (!provider) {
     return {
       headline: "Checking connection",
-      detail: "Waiting for AgentScience to confirm the Codex runtime and sign-in state.",
+      detail: "Waiting for AgentScience to confirm provider runtime and sign-in state.",
     };
   }
   if (!provider.enabled) {
     return {
       headline: "Disabled",
-      detail: provider.message ?? "Codex is turned off in AgentScience advanced settings.",
+      detail: provider.message ?? `${providerName} is turned off in AgentScience advanced settings.`,
     };
   }
   if (!provider.installed) {
@@ -158,7 +162,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
       headline: "Unavailable",
       detail:
         provider.message ??
-        "AgentScience could not start Codex. Open advanced settings if you need a custom runtime.",
+        `AgentScience could not start ${providerName}. Open advanced settings if you need a custom runtime.`,
     };
   }
   if (provider.auth.status === "authenticated") {
@@ -172,7 +176,7 @@ function getProviderSummary(provider: ServerProvider | undefined) {
       headline: "Not connected",
       detail:
         provider.message ??
-        "Sign in with ChatGPT or add an API key to connect Codex in AgentScience.",
+        `Sign in or configure credentials to connect ${providerName} in AgentScience.`,
     };
   }
   if (provider.status === "warning") {
@@ -1290,6 +1294,32 @@ export function GeneralSettingsPanel() {
               {providerCard.provider === "codex" ? (
                 <CodexAuthControls
                   provider={providerCard.liveProvider}
+                  onOpenAdvanced={() =>
+                    setOpenProviderDetails((existing) => ({
+                      ...existing,
+                      [providerCard.provider]: true,
+                    }))
+                  }
+                />
+              ) : providerCard.provider === "gemini" ? (
+                <GeminiAuthControls
+                  provider={providerCard.liveProvider}
+                  onContinue={() => {
+                    updateSettings({
+                      textGenerationModelSelection: {
+                        provider: "gemini",
+                        model: "gemini-3.1-pro-preview",
+                      },
+                      providers: {
+                        ...settings.providers,
+                        gemini: {
+                          ...settings.providers.gemini,
+                          enabled: true,
+                          authMethod: "oauth-personal",
+                        },
+                      },
+                    });
+                  }}
                   onOpenAdvanced={() =>
                     setOpenProviderDetails((existing) => ({
                       ...existing,

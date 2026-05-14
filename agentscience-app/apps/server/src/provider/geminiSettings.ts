@@ -1,5 +1,7 @@
 import type { GeminiSettings } from "@agentscience/contracts";
 
+import { resolveGeminiBinaryPath } from "./geminiCli";
+
 export interface EffectiveGeminiSettings {
   readonly enabled: boolean;
   readonly binaryPath: string;
@@ -8,10 +10,9 @@ export interface EffectiveGeminiSettings {
 }
 
 export function resolveEffectiveGeminiSettings(settings: GeminiSettings): EffectiveGeminiSettings {
-  const binaryPath = settings.binaryPath.trim() || "gemini";
   return {
     enabled: settings.enabled,
-    binaryPath,
+    binaryPath: resolveGeminiBinaryPath(settings),
     customModels: settings.customModels,
     authMethod: settings.authMethod,
   };

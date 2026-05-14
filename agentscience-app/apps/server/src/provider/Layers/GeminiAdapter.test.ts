@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 
 import { ThreadId } from "@agentscience/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { afterAll, it } from "@effect/vitest";
-import { Effect, Layer, Stream } from "effect";
+import { afterAll, describe, it } from "vitest";
+import { Effect, Layer } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -93,61 +93,62 @@ afterAll(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-const layer = it.layer(
-  makeGeminiAdapterLive().pipe(
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "gemini-adapter-test-" })),
-    Layer.provideMerge(
-      ServerSettingsService.layerTest({
-        providers: {
-          gemini: {
-            binaryPath: fakeGeminiPath,
-            authMethod: "oauth-personal",
-          },
+const liveLayer = makeGeminiAdapterLive().pipe(
+  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "gemini-adapter-test-" })),
+  Layer.provideMerge(
+    ServerSettingsService.layerTest({
+      providers: {
+        gemini: {
+          binaryPath: fakeGeminiPath,
+          authMethod: "oauth-personal",
         },
-      }),
-    ),
-    Layer.provideMerge(NodeServices.layer),
+      },
+    }),
   ),
+  Layer.provideMerge(NodeServices.layer),
 );
 
-layer("GeminiAdapterLive", (it) => {
-  it.effect("starts a Gemini ACP session and emits canonical turn events", () =>
-    Effect.gen(function* () {
-      const adapter = yield* GeminiAdapter;
-      const threadId = ThreadId.makeUnsafe("thread-gemini-adapter");
+describe("GeminiAdapterLive", () => {
+  it("starts a Gemini ACP session and captures assistant output", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* GeminiAdapter;
+        const threadId = ThreadId.makeUnsafe("thread-gemini-adapter");
 
-      const session = yield* adapter.startSession({
-        provider: "gemini",
-        threadId,
-        cwd: process.cwd(),
-        runtimeMode: "approval-required",
-        modelSelection: {
+        const session = yield* adapter.startSession({
           provider: "gemini",
-          model: "gemini-3.1-pro-preview",
-        },
-      });
+          threadId,
+          cwd: process.cwd(),
+          runtimeMode: "approval-required",
+          modelSelection: {
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+          },
+        });
 
-      const turn = yield* adapter.sendTurn({
-        threadId,
-        input: "hello",
-        modelSelection: {
-          provider: "gemini",
-          model: "gemini-3.1-pro-preview",
-        },
-      });
+        const turn = yield* adapter.sendTurn({
+          threadId,
+          input: "hello",
+          modelSelection: {
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+          },
+        });
 
-      const events = yield* adapter.streamEvents.pipe(Stream.take(4), Stream.runCollect);
-      const eventTypes = Array.from(events).map((event) => event.type);
+        const snapshot = yield* adapter.readThread(threadId);
+        yield* adapter.stopSession(threadId);
 
-      assert.equal(session.provider, "gemini");
-      assert.equal(session.model, "gemini-3.1-pro-preview");
-      assert.equal(turn.threadId, threadId);
-      assert.deepEqual(eventTypes, [
-        "session.started",
-        "turn.started",
-        "content.delta",
-        "turn.completed",
-      ]);
-    }),
-  );
+        assert.equal(session.provider, "gemini");
+        assert.equal(session.model, "gemini-3.1-pro-preview");
+        assert.equal(turn.threadId, threadId);
+        assert.deepEqual(snapshot.turns.at(-1)?.items, [
+          {
+            type: "assistant",
+            role: "assistant",
+            text: "Gemini response",
+          },
+        ]);
+      }).pipe(Effect.provide(liveLayer)),
+    );
+  });
 });

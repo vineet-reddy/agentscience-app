@@ -12,6 +12,7 @@ import {
   spawnAndCollect,
 } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
+import { buildGeminiLaunchSpec } from "../geminiCli";
 import { resolveEffectiveGeminiSettings } from "../geminiSettings";
 import { GeminiProvider } from "../Services/GeminiProvider";
 import { ServerSettingsService } from "../../serverSettings";
@@ -52,10 +53,15 @@ const runGeminiCommand = Effect.fn("runGeminiCommand")(function* (args: Readonly
   const geminiSettings = yield* settingsService.getSettings.pipe(
     Effect.map((settings) => resolveEffectiveGeminiSettings(settings.providers.gemini)),
   );
-  const command = ChildProcess.make(geminiSettings.binaryPath, [...args], {
-    shell: process.platform === "win32",
+  const launchSpec = buildGeminiLaunchSpec({
+    binaryPath: geminiSettings.binaryPath,
+    args,
   });
-  return yield* spawnAndCollect(geminiSettings.binaryPath, command);
+  const command = ChildProcess.make(launchSpec.command, [...launchSpec.args], {
+    env: launchSpec.env,
+    shell: launchSpec.shell,
+  });
+  return yield* spawnAndCollect(launchSpec.command, command);
 });
 
 export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(function* () {
@@ -100,7 +106,7 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
         status: "error",
         auth: { status: "unknown" },
         message: isCommandMissingCause(error)
-          ? "AgentScience could not find Gemini CLI. Install it or set a custom Gemini binary path."
+          ? "AgentScience could not find the bundled Gemini CLI. Reinstall AgentScience or set a custom Gemini binary path."
           : `Failed to execute Gemini CLI health check: ${
               error instanceof Error ? error.message : String(error)
             }.`,

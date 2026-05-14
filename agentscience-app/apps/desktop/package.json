@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@aptabase/electron": "^0.3.1",
+    "@google/gemini-cli": "0.42.0",
     "@openai/codex": "0.128.0",
     "effect": "catalog:",
     "electron": "40.6.0",

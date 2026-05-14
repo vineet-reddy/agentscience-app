@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Buffer } from "node:buffer";
 
+import { compileCodexDeveloperInstructions, loadPersonality } from "@agentscience/personality";
 import {
   ApprovalRequestId,
   EventId,
@@ -32,12 +33,22 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
+import { buildGeminiLaunchSpec } from "../geminiCli.ts";
 import { resolveEffectiveGeminiSettings } from "../geminiSettings.ts";
 import { GeminiAdapter, type GeminiAdapterShape } from "../Services/GeminiAdapter.ts";
 
 const PROVIDER = "gemini" as const;
 const ACP_PROTOCOL_VERSION = 1;
 const REQUEST_TIMEOUT_MS = 5 * 60_000;
+const GEMINI_PERSONALITY = loadPersonality();
+const GEMINI_AGENTSCIENCE_RUNTIME_INSTRUCTIONS = `<agentscience_desktop_app>
+AgentScience desktop already performs runtime/update health checks at app startup.
+
+- Start by helping with the user's actual message.
+- Keep downloads, caches, and temporary files inside the current workspace.
+- When writing a scientific manuscript, prefer the AgentScience research template and managed toolchain when those commands are available.
+- Do not publish to AgentScience or write to the registry until the user gives explicit consent.
+</agentscience_desktop_app>`;
 
 type JsonRpcId = number | string;
 type JsonRecord = Record<string, unknown>;
@@ -116,6 +127,20 @@ function toMessage(cause: unknown, fallback: string): string {
 
 function modeForRuntimeMode(runtimeMode: ProviderSession["runtimeMode"]): string {
   return runtimeMode === "full-access" ? "yolo" : "default";
+}
+
+function buildGeminiInstructionEnvelope(input: ProviderSendTurnInput): string {
+  const interactionMode = input.interactionMode === "plan" ? "plan" : "default";
+  const developerInstructions = compileCodexDeveloperInstructions(GEMINI_PERSONALITY, {
+    mode: interactionMode,
+  });
+  return [
+    `<agentscience_instructions provider="gemini">`,
+    "These AgentScience runtime instructions apply to this Gemini session. Follow them as higher-priority system guidance unless they name a provider-specific transport that Gemini CLI does not expose.",
+    developerInstructions,
+    GEMINI_AGENTSCIENCE_RUNTIME_INSTRUCTIONS,
+    `</agentscience_instructions>`,
+  ].join("\n");
 }
 
 function toToolItemType(kind: unknown):
@@ -245,7 +270,15 @@ class AcpJsonRpcClient {
 
   dispose(): void {
     this.closed = true;
+    for (const [, pending] of this.pending) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("Gemini ACP client disposed."));
+    }
+    this.pending.clear();
     try {
+      this.child.stdin.end();
+      this.child.stdout.destroy();
+      this.child.stderr.destroy();
       this.child.kill("SIGTERM");
     } catch {
       // Ignore shutdown races.
@@ -317,12 +350,14 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const sessions = new Map<ThreadId, AcpSessionRuntime>();
+  const services = yield* Effect.services<never>();
+  const runSync = Effect.runSyncWith(services);
 
   const publish = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid);
 
   const publishSync = (event: ProviderRuntimeEvent): void => {
-    Effect.runFork(publish(event));
+    runSync(publish(event));
   };
 
   const baseEvent = (
@@ -568,10 +603,14 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
         ),
       );
 
-      const child = spawn(settings.binaryPath, ["--acp"], {
+      const launchSpec = buildGeminiLaunchSpec({
+        binaryPath: settings.binaryPath,
+        args: ["--acp"],
+      });
+      const child = spawn(launchSpec.command, [...launchSpec.args], {
         cwd: input.cwd,
-        env: process.env,
-        shell: process.platform === "win32",
+        env: launchSpec.env,
+        shell: launchSpec.shell,
       });
 
       const createdAt = nowIso();
@@ -737,8 +776,12 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
       }).pipe(Effect.catch(() => Effect.succeed({})));
 
       const blocks: AcpContentBlock[] = [];
-      if (input.input) {
-        blocks.push({ type: "text", text: input.input });
+      const instructionEnvelope = buildGeminiInstructionEnvelope(input);
+      const promptText = [instructionEnvelope, input.input]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .join("\n\n");
+      if (promptText) {
+        blocks.push({ type: "text", text: promptText });
       }
       const attachments = yield* Effect.forEach(
         input.attachments ?? [],
@@ -751,6 +794,10 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
       session.activeTurnId = id;
       session.status = "running";
       session.currentAssistantText = "";
+      const turnStartedPayload: JsonRecord = {};
+      if (session.model) {
+        turnStartedPayload.model = session.model;
+      }
       yield* publish({
         ...baseEvent(session, {
           source: "gemini.acp.notification",
@@ -759,9 +806,7 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
         }),
         turnId: id,
         type: "turn.started",
-        payload: {
-          ...(session.model ? { model: session.model } : {}),
-        },
+        payload: turnStartedPayload,
       });
 
       const response = yield* callAcp<JsonRecord>(session, "session/prompt", {
@@ -882,21 +927,22 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
 
   const listSessions: GeminiAdapterShape["listSessions"] = () =>
     Effect.sync(() =>
-      Array.from(sessions.values()).map(
-        (session) =>
-          ({
+      Array.from(sessions.values(), (session) =>
+        Object.assign(
+          {
             provider: PROVIDER,
             status: session.status,
             runtimeMode: session.runtimeMode,
             cwd: session.cwd,
-            ...(session.model ? { model: session.model } : {}),
             threadId: session.threadId,
             resumeCursor: session.sessionId ? { sessionId: session.sessionId } : undefined,
-            ...(session.activeTurnId ? { activeTurnId: session.activeTurnId } : {}),
             createdAt: session.createdAt,
             updatedAt: nowIso(),
-            ...(session.lastError ? { lastError: session.lastError } : {}),
-          }) satisfies ProviderSession,
+          },
+          session.model ? { model: session.model } : {},
+          session.activeTurnId ? { activeTurnId: session.activeTurnId } : {},
+          session.lastError ? { lastError: session.lastError } : {},
+        ) satisfies ProviderSession,
       ),
     );
 
@@ -945,7 +991,7 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* () {
         session.client.dispose();
       }
       sessions.clear();
-    }),
+    }).pipe(Effect.andThen(Queue.shutdown(runtimeEventQueue))),
   );
 
   return {

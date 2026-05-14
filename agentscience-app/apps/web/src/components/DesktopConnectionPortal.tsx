@@ -4,15 +4,20 @@ import { BrandMark } from "./BrandMark";
 import { isMacPlatform } from "../lib/utils";
 import { useDesktopFullScreen } from "../hooks/useDesktopFullScreen";
 import { CodexAuthControls } from "./settings/CodexAuthControls";
+import { GeminiAuthControls } from "./settings/GeminiAuthControls";
 import { isElectron } from "../env";
 
 interface DesktopConnectionPortalProps {
-  readonly provider: ServerProvider | undefined;
+  readonly codexProvider: ServerProvider | undefined;
+  readonly geminiProvider: ServerProvider | undefined;
+  readonly onContinueGemini: () => void;
   readonly onOpenAdvanced: () => void;
 }
 
 export function DesktopConnectionPortal({
-  provider,
+  codexProvider,
+  geminiProvider,
+  onContinueGemini,
   onOpenAdvanced,
 }: DesktopConnectionPortalProps) {
   const isMacElectron = isElectron && isMacPlatform(navigator.platform);
@@ -43,13 +48,20 @@ export function DesktopConnectionPortal({
               Connect model access.
             </h1>
             <p className="text-[0.9375rem] leading-relaxed text-ink-light">
-              Use ChatGPT or an OpenAI API key so AgentScience can run research sessions on this
-              Mac.
+              Use ChatGPT, an OpenAI API key, or Gemini with your Google account so AgentScience
+              can run research sessions on this Mac.
             </p>
           </div>
 
+          <GeminiAuthControls
+            provider={geminiProvider}
+            appearance="portal"
+            onContinue={onContinueGemini}
+            onOpenAdvanced={onOpenAdvanced}
+          />
+
           <CodexAuthControls
-            provider={provider}
+            provider={codexProvider}
             appearance="portal"
             onOpenAdvanced={onOpenAdvanced}
           />
