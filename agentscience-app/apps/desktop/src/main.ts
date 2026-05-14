@@ -1684,76 +1684,6 @@ function resolveAppShellUrl(): string {
     : `${DESKTOP_SCHEME}://app/index.html`;
 }
 
-function resolveDesktopBootUrl(): string {
-  const bootHtml = `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${APP_DISPLAY_NAME}</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-        font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #f5f5f5;
-        color: #1a1a1a;
-      }
-      main {
-        width: min(32rem, calc(100vw - 3rem));
-        padding: 2rem;
-      }
-      h1 {
-        margin: 0;
-        font-family: "EB Garamond", Georgia, serif;
-        font-size: 2.5rem;
-        font-weight: 400;
-        line-height: 1.05;
-      }
-      p {
-        margin: 0.9rem 0 0;
-        max-width: 28rem;
-        font-size: 0.95rem;
-        line-height: 1.6;
-        color: #6e6e6e;
-      }
-      .rule {
-        margin-top: 1.5rem;
-        width: 5rem;
-        height: 1px;
-        background: #e5e5e5;
-      }
-      @media (prefers-color-scheme: dark) {
-        body {
-          background: #151515;
-          color: #f5f5f5;
-        }
-        p {
-          color: #b4b4b4;
-        }
-        .rule {
-          background: #303030;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>Starting AgentScience</h1>
-      <p>Preparing your workspace and local tools. This usually takes a few seconds.</p>
-      <div class="rule"></div>
-    </main>
-  </body>
-</html>`;
-  return `data:text/html;charset=utf-8,${encodeURIComponent(bootHtml)}`;
-}
-
 function resolveBackendReadyUrl(): string {
   return `http://127.0.0.1:${backendPort}${BACKEND_READY_PATH}`;
 }
@@ -1797,8 +1727,7 @@ function loadAppShell(window: BrowserWindow): void {
   }
 }
 
-function createWindow(options?: { readonly loadAppImmediately?: boolean }): BrowserWindow {
-  const loadAppImmediately = options?.loadAppImmediately ?? true;
+function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 880,
@@ -1887,11 +1816,7 @@ function createWindow(options?: { readonly loadAppImmediately?: boolean }): Brow
     window.show();
   });
 
-  if (loadAppImmediately) {
-    loadAppShell(window);
-  } else {
-    void window.loadURL(resolveDesktopBootUrl());
-  }
+  loadAppShell(window);
 
   window.on("closed", () => {
     if (mainWindow === window) {
@@ -1908,6 +1833,14 @@ function createWindow(options?: { readonly loadAppImmediately?: boolean }): Brow
 app.setPath("userData", resolveUserDataPath());
 
 configureAppIdentity();
+
+async function monitorBackendReady(): Promise<void> {
+  await waitForBackendReady();
+  writeDesktopLogHeader("bootstrap backend ready confirmed");
+  // Daily anonymous-usage ping. No-op when opted out, env var unset, or
+  // we already pinged for the current UTC day. See docs/PRIVACY.md.
+  tryTrackAppOpened({ now: new Date() });
+}
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
@@ -1926,17 +1859,11 @@ async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
-  mainWindow = createWindow({ loadAppImmediately: false });
+  mainWindow = createWindow();
   writeDesktopLogHeader("bootstrap main window created");
-  await waitForBackendReady();
-  writeDesktopLogHeader("bootstrap backend ready confirmed");
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    loadAppShell(mainWindow);
-    writeDesktopLogHeader("bootstrap app shell loaded");
-  }
-  // Daily anonymous-usage ping. No-op when opted out, env var unset, or
-  // we already pinged for the current UTC day. See docs/PRIVACY.md.
-  tryTrackAppOpened({ now: new Date() });
+  void monitorBackendReady().catch((error) => {
+    handleFatalStartupError("backendReady", error);
+  });
 }
 
 app.on("before-quit", () => {

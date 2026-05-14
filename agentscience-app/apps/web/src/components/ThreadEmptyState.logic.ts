@@ -5,7 +5,6 @@
  * isolation and stays readable.
  */
 import type { ThreadId } from "@agentscience/contracts";
-import type { FieldTag } from "../onboardingCatalog";
 import {
   pickSuggestedQuestions,
   type SuggestedQuestion,
@@ -17,7 +16,7 @@ import {
  */
 export const CASE_D_THREAD_COUNT_THRESHOLD = 5;
 
-export type EmptyStateCase = "A" | "B" | "C" | "D";
+export type EmptyStateCase = "B" | "C" | "D";
 
 export interface ThreadLikeSummary {
   id: ThreadId;
@@ -50,15 +49,6 @@ export interface ProjectSummary {
   hasContent: boolean;
 }
 
-export interface ConnectedDatasetSummary {
-  kind: "dataset" | "provider";
-  slug: string;
-  name: string;
-  description: string;
-  /** IBM Plex Mono count label, e.g. "2,428 samples" or "46k patients". */
-  countLabel: string | null;
-}
-
 export interface PickPrimaryListInput {
   thisThreadId: ThreadId;
   /** All threads the user has (we exclude the active thread from this list). */
@@ -67,31 +57,12 @@ export interface PickPrimaryListInput {
   drafts: ReadonlyArray<DraftLikeSummary>;
   /** All user projects. */
   projects: ReadonlyArray<ProjectSummary>;
-  /** User's field tags from onboarding. */
-  fields: ReadonlyArray<FieldTag>;
-  /** User's `data_interests` from onboarding. */
-  dataInterests: ReadonlyArray<string>;
-  /** Slugs currently connected in the workspace. */
-  connectedDataInterests: ReadonlyArray<string>;
   /**
    * Number of prior empty-state renders this session, used to rotate
    * suggestions so visit 2 != visit 1.
    */
   renderSalt: number;
-  /**
-   * True iff this is the user's very first thread and they just completed
-   * (not skipped) onboarding. Unlocks the Case A greeting.
-   */
-  isFirstThreadPostOnboarding: boolean;
-  /**
-   * True iff the user has already seen the Case A greeting once (then it
-   * should never show again).
-   */
-  welcomeGreetingConsumed: boolean;
-  /**
-   * True iff the user has manually connected a dataset beyond the
-   * onboarding defaults, a strong signal they're a returning user.
-   */
+  /** True iff the user has manually connected a dataset, a strong signal they're a returning user. */
   manualDatasetConnections: boolean;
 }
 
@@ -136,12 +107,7 @@ export function pickEmptyStatePresentation(
     threads,
     drafts,
     projects,
-    fields,
-    dataInterests,
-    connectedDataInterests,
     renderSalt,
-    isFirstThreadPostOnboarding,
-    welcomeGreetingConsumed,
     manualDatasetConnections,
   } = input;
 
@@ -171,9 +137,6 @@ export function pickEmptyStatePresentation(
     !hasOwnWork;
 
   const suggestions = pickSuggestedQuestions({
-    fields,
-    dataInterests,
-    connectedDataInterests,
     renderSalt,
   });
 
@@ -217,15 +180,6 @@ export function pickEmptyStatePresentation(
   }
 
   const suggestionItems = suggestions.map(toSuggestionItem);
-  if (isFirstThreadPostOnboarding && !welcomeGreetingConsumed && threadsStarted === 0) {
-    return {
-      emptyStateCase: "A",
-      items: suggestionItems.slice(0, 4),
-      secondaryItems: [],
-      suggestLinkOnly: false,
-      suggestions,
-    };
-  }
   return {
     emptyStateCase: "B",
     items: suggestionItems.slice(0, 4),
@@ -319,11 +273,6 @@ export function buildGreeting(
   emptyStateCase: EmptyStateCase,
 ): { title: string; subtitle: string | null } {
   switch (emptyStateCase) {
-    case "A":
-      return {
-        title: "Welcome to AgentScience.",
-        subtitle: "Here's what a question looks like.",
-      };
     case "B":
       return {
         title: "What will you investigate?",
@@ -341,23 +290,6 @@ export function buildGreeting(
         subtitle: null,
       };
   }
-}
-
-/**
- * Format an IBM Plex Mono count label for the connected-dataset list.
- * Accepts an integer; returns null if we shouldn't show anything.
- */
-export function formatConnectedDatasetCount(
-  value: number | null | undefined,
-  unit: string,
-): string | null {
-  if (value === null || value === undefined) return null;
-  if (!Number.isFinite(value) || value < 0) return null;
-  const formatted =
-    value >= 1000
-      ? new Intl.NumberFormat("en-US").format(value)
-      : String(value);
-  return `${formatted} ${unit}`;
 }
 
 /**

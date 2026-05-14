@@ -10,7 +10,6 @@
  * interactive items.
  */
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import type { ThreadId } from "@agentscience/contracts";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -28,19 +27,6 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { useComposerAutoSubmitStore } from "../composerAutoSubmitStore";
 import { useComposerFocusStore } from "../composerFocusStore";
 import { useAgentIntakeStore } from "../agentIntakeStore";
-import {
-  datasetEntryToMention,
-  datasetProviderToMention,
-  useComposerDatasetMentionStore,
-} from "../composerDatasetMentionStore";
-import { useOnboardingStore } from "../onboardingStore";
-import { OPEN_AUTO_CONNECT_DATASET_IDS } from "../onboardingCatalog";
-import {
-  fetchDatasetProviders,
-  fetchDatasetRegistry,
-  type DatasetEntry,
-  type DatasetProvider,
-} from "../lib/datasetRegistry";
 import { useStore } from "../store";
 import { cn } from "../lib/utils";
 import { AGENT_WORKFLOW_MODES, type PaperWorkflowMode } from "../paperWorkflowModes";
@@ -52,9 +38,7 @@ import type { ChatFileAttachment } from "../types";
 import {
   buildGreeting,
   CASE_D_MESSAGE,
-  formatConnectedDatasetCount,
   pickEmptyStatePresentation,
-  type ConnectedDatasetSummary,
   type DraftLikeSummary,
   type PickedItem,
   type ProjectSummary,
@@ -85,70 +69,6 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   );
   const setPaperWorkflowMode = useUiStateStore((store) => store.setPaperWorkflowMode);
   const addFiles = useComposerDraftStore((store) => store.addFiles);
-
-  const onboardingProfile = useOnboardingStore((store) => store.profile);
-  const welcomeGreetingConsumed = useOnboardingStore((store) => store.welcomeGreetingConsumed);
-  const onboardingCompletedAt = useOnboardingStore((store) => store.completedAt);
-  const onboardingSkipped = useOnboardingStore((store) => store.skipped);
-  const markWelcomeGreetingConsumed = useOnboardingStore(
-    (store) => store.markWelcomeGreetingConsumed,
-  );
-
-  const datasetsQuery = useQuery({
-    queryKey: ["thread-empty-state:datasets"],
-    queryFn: ({ signal }) => fetchDatasetRegistry({ signal, limit: 500 }),
-    staleTime: 60_000,
-    retry: false,
-  });
-  const providersQuery = useQuery({
-    queryKey: ["thread-empty-state:providers"],
-    queryFn: ({ signal }) => fetchDatasetProviders({ signal, limit: 200 }),
-    staleTime: 60_000,
-    retry: false,
-  });
-
-  const registerDatasetMention = useComposerDatasetMentionStore(
-    (store) => store.registerDatasetMention,
-  );
-
-  // Auto-connected datasets/providers from onboarding are registered as
-  // mentions on this thread so `@dataset:slug` / `@provider:slug` tokens
-  // resolve the moment the user composes a message. Without this, Zone 3
-  // row clicks would drop unrecognized mentions into the composer.
-  useEffect(() => {
-    if (!datasetsQuery.data && !providersQuery.data) return;
-    const datasets = datasetsQuery.data ?? [];
-    const providers = providersQuery.data ?? [];
-    const datasetsBySlug = new Map(
-      datasets.map((d) => [
-        d.name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, ""),
-        d,
-      ]),
-    );
-    const providersBySlug = new Map(providers.map((p) => [p.slug, p]));
-    for (const entry of onboardingProfile.autoConnectedDatasets) {
-      if (entry.kind === "dataset") {
-        const dataset = datasetsBySlug.get(entry.slug);
-        if (dataset) {
-          registerDatasetMention(threadId, datasetEntryToMention(dataset));
-        }
-      } else {
-        const provider = providersBySlug.get(entry.slug);
-        if (provider) {
-          registerDatasetMention(threadId, datasetProviderToMention(provider));
-        }
-      }
-    }
-  }, [
-    datasetsQuery.data,
-    providersQuery.data,
-    onboardingProfile.autoConnectedDatasets,
-    registerDatasetMention,
-    threadId,
-  ]);
 
   // Stable-per-mount rotation salt so visit 2 picks a different 4.
   const [renderSalt] = useState<number>(
@@ -211,17 +131,6 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     }));
   }, [projects, threads]);
 
-  const connectedDataInterests = useMemo<ReadonlyArray<string>>(() => {
-    return onboardingProfile.dataInterests.filter((id) => OPEN_AUTO_CONNECT_DATASET_IDS.has(id));
-  }, [onboardingProfile.dataInterests]);
-
-  const isFirstThreadPostOnboarding = useMemo(() => {
-    if (!onboardingCompletedAt) return false;
-    if (onboardingSkipped) return false;
-    const threadsWithMessages = threadSummaries.filter((thread) => thread.hasAssistantReply);
-    return threadsWithMessages.length === 0;
-  }, [onboardingCompletedAt, onboardingSkipped, threadSummaries]);
-
   const presentation = useMemo(
     () =>
       pickEmptyStatePresentation({
@@ -229,25 +138,15 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
         threads: threadSummaries,
         drafts: draftSummaries,
         projects: projectSummaries,
-        fields: onboardingProfile.field,
-        dataInterests: onboardingProfile.dataInterests,
-        connectedDataInterests,
         renderSalt,
-        isFirstThreadPostOnboarding,
-        welcomeGreetingConsumed,
         manualDatasetConnections: false,
       }),
     [
-      connectedDataInterests,
       draftSummaries,
-      isFirstThreadPostOnboarding,
-      onboardingProfile.dataInterests,
-      onboardingProfile.field,
       projectSummaries,
       renderSalt,
       threadId,
       threadSummaries,
-      welcomeGreetingConsumed,
     ],
   );
 
@@ -255,15 +154,6 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     () => buildGreeting(presentation.emptyStateCase),
     [presentation.emptyStateCase],
   );
-
-  // Case A can only fire once per account. Consume as soon as we actually
-  // paint it (no delay, no dwell time required). Runs in an effect so we
-  // never touch another store during render.
-  useEffect(() => {
-    if (presentation.emptyStateCase !== "A") return;
-    if (welcomeGreetingConsumed) return;
-    markWelcomeGreetingConsumed();
-  }, [presentation.emptyStateCase, welcomeGreetingConsumed, markWelcomeGreetingConsumed]);
 
   const handleItemClick = (item: PickedItem) => {
     if (item.kind === "suggestion" && item.promptText) {
@@ -283,17 +173,6 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
         void navigate({ to: "/$threadId", params: { threadId: thread.id } });
       }
     }
-  };
-
-  const handleDatasetClick = (dataset: ConnectedDatasetSummary) => {
-    const mention =
-      dataset.kind === "dataset" ? `@dataset:${dataset.slug}` : `@provider:${dataset.slug}`;
-    const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-    const currentPrompt = currentDraft?.prompt ?? "";
-    const separator = currentPrompt.length === 0 || /\s$/.test(currentPrompt) ? "" : " ";
-    const nextPrompt = `${currentPrompt}${separator}${mention} `;
-    setPrompt(threadId, nextPrompt);
-    requestComposerFocus({ threadId, seedPrompt: nextPrompt });
   };
 
   const handleModeSelect = (mode: PaperWorkflowMode | null) => {
@@ -472,12 +351,6 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
     );
   }
 
-  const connected = deriveConnectedDatasets({
-    autoConnected: onboardingProfile.autoConnectedDatasets,
-    providers: providersQuery.data ?? [],
-    datasets: datasetsQuery.data ?? [],
-  });
-
   return (
     <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-16 pt-12 sm:pt-16">
       <div className="w-full max-w-[680px]">
@@ -507,7 +380,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
           <section className="mt-10">
             <SectionLabel
               label="Or try something new"
-              subtext="Suggested questions based on your field."
+              subtext="Suggested questions you can run or reshape."
             />
             <ItemList items={presentation.secondaryItems} onItemClick={handleItemClick} />
           </section>
@@ -531,46 +404,6 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
           </div>
         ) : null}
 
-        {/* Zone 3: Connected data */}
-        {connected.length > 0 ? (
-          <section className="mt-12">
-            <SectionLabel
-              label="Or work from your data"
-              subtext={
-                onboardingSkipped
-                  ? "Open sources connected by default. Reference any of them with @ in the composer."
-                  : "These sources are connected. Reference any of them with @ in the composer."
-              }
-            />
-            <ul className="mt-4 border-t border-rule">
-              {connected.map((dataset) => (
-                <li key={`${dataset.kind}:${dataset.slug}`}>
-                  <button
-                    type="button"
-                    onClick={() => handleDatasetClick(dataset)}
-                    className="flex w-full items-baseline justify-between gap-6 border-b border-rule py-4 text-left transition-colors duration-150 ease-linear"
-                  >
-                    <div className="flex min-w-0 flex-1 items-baseline gap-3">
-                      <span className="text-[0.9375rem] font-medium text-ink transition-colors duration-150 ease-linear group-hover:text-brand">
-                        {dataset.name}
-                      </span>
-                      {dataset.description ? (
-                        <span className="truncate text-[0.8125rem] text-ink-light">
-                          {dataset.description}
-                        </span>
-                      ) : null}
-                    </div>
-                    {dataset.countLabel ? (
-                      <span className="shrink-0 font-mono text-[0.75rem] text-ink-faint">
-                        {dataset.countLabel}
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
       </div>
     </div>
   );
@@ -1201,17 +1034,12 @@ function PrimarySection({
   items,
   onItemClick,
 }: {
-  emptyStateCase: "A" | "B" | "C";
+  emptyStateCase: "B" | "C";
   items: ReadonlyArray<PickedItem>;
   onItemClick: (item: PickedItem) => void;
 }) {
   const { label, subtext } = useMemo(() => {
     switch (emptyStateCase) {
-      case "A":
-        return {
-          label: "A few places to start",
-          subtext: "Each is a complete question you can run as-is or reshape in the composer.",
-        };
       case "B":
         return {
           label: "A few places to start",
@@ -1276,81 +1104,4 @@ function ItemList({
       ))}
     </ul>
   );
-}
-
-function deriveConnectedDatasets(input: {
-  autoConnected: ReadonlyArray<{ kind: "dataset" | "provider"; slug: string }>;
-  providers: ReadonlyArray<DatasetProvider>;
-  datasets: ReadonlyArray<DatasetEntry>;
-}): ReadonlyArray<ConnectedDatasetSummary> {
-  if (input.autoConnected.length === 0) return [];
-  const providersBySlug = new Map(input.providers.map((p) => [p.slug, p]));
-  const datasetsBySlug = new Map(
-    input.datasets.map((d) => [
-      d.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, ""),
-      d,
-    ]),
-  );
-
-  const summaries: ConnectedDatasetSummary[] = [];
-  const seen = new Set<string>();
-  for (const entry of input.autoConnected) {
-    const key = `${entry.kind}:${entry.slug}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (entry.kind === "provider") {
-      const provider = providersBySlug.get(entry.slug);
-      if (provider) {
-        summaries.push({
-          kind: "provider",
-          slug: provider.slug,
-          name: provider.name,
-          description: shortenDescription(provider.description),
-          countLabel: formatConnectedDatasetCount(provider.datasetCount, labelForKind("datasets")),
-        });
-      } else {
-        summaries.push({
-          kind: "provider",
-          slug: entry.slug,
-          name: entry.slug,
-          description: "",
-          countLabel: null,
-        });
-      }
-      continue;
-    }
-    const dataset = datasetsBySlug.get(entry.slug);
-    if (dataset) {
-      summaries.push({
-        kind: "dataset",
-        slug: entry.slug,
-        name: dataset.name,
-        description: shortenDescription(dataset.description),
-        countLabel: null,
-      });
-    } else {
-      summaries.push({
-        kind: "dataset",
-        slug: entry.slug,
-        name: entry.slug,
-        description: "",
-        countLabel: null,
-      });
-    }
-  }
-  return summaries;
-}
-
-function labelForKind(unit: string): string {
-  return unit;
-}
-
-function shortenDescription(input: string | null): string {
-  const text = (input ?? "").trim();
-  if (text.length === 0) return "";
-  if (text.length <= 72) return text;
-  return `${text.slice(0, 69).trimEnd()}…`;
 }

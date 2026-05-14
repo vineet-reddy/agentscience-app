@@ -6,28 +6,21 @@
  * one or more known datasets. The right-rail source tag is what appears next
  * to the question in the empty state (IBM Plex Mono on the right edge).
  *
- * Rotation policy: filter by dataset connectivity first, then by field
- * overlap, then pick 4 with a bit of variation so a returning user doesn't
- * see the same 4 on every visit. See `pickSuggestedQuestions` for the
- * tie-breaking.
+ * Rotation policy: pick 4 with a bit of variation so a returning user doesn't
+ * see the same 4 on every visit.
  *
  * Refresh cadence: treat this file as content, not code. Drop stale
  * questions monthly; add new ones whenever the registry gains a provider.
  */
-import type { FieldTag } from "../onboardingCatalog";
-
 export type Difficulty = "intro" | "standard" | "deep";
+type FieldTag = string;
 
 export interface SuggestedQuestion {
   id: string;
   question: string;
   /** The short right-side tag shown in IBM Plex Mono. */
   sourceTag: string;
-  /**
-   * Data-interest ids from onboardingCatalog that should be in the user's
-   * `data_interests` for this question to surface. Empty means "generic" and
-   * always eligible.
-   */
+  /** Dataset/provider ids this question expects. Empty means always eligible. */
   requiredDataInterests: ReadonlyArray<string>;
   fields: ReadonlyArray<FieldTag>;
   difficulty: Difficulty;
@@ -667,16 +660,6 @@ export const CURATED_SUGGESTED_QUESTIONS: ReadonlyArray<SuggestedQuestion> = [
 ];
 
 export interface PickSuggestedQuestionsInput {
-  /** User's onboarding field selection (may be empty). */
-  fields: ReadonlyArray<FieldTag>;
-  /** User's onboarding data_interests (may be empty). */
-  dataInterests: ReadonlyArray<string>;
-  /**
-   * Slugs of datasets and providers the user has actually connected in their
-   * workspace (auto-connected at onboarding + anything they later added).
-   * Used as a harder filter than field overlap.
-   */
-  connectedDataInterests: ReadonlyArray<string>;
   /**
    * Number of times the empty state has already been rendered for this
    * session. Nudges rotation so a user who comes back doesn't see the same
@@ -691,13 +674,8 @@ export interface PickSuggestedQuestionsInput {
  * Layer 1 selection.
  *
  * Filtering order:
- *   1) Keep questions whose required datasets are all in the user's
- *      connected set (or questions with no required datasets).
- *   2) Prefer questions that overlap the user's field tags.
- *   3) If fewer than `count` survive, backfill from the broader pool,
- *      preferring field-matched questions before generic ones.
- *   4) If the user has no field at all, deliberately diversify across
- *      four different domains so the sampler feels wide-angle.
+ *   1) Prefer questions that do not require a specific connected dataset.
+ *   2) Diversify across domains so the sampler feels wide-angle.
  *
  * The rotation salt nudges tie-breaks so the same 4 don't appear on every
  * visit. This is deterministic per session, not random: different users who
@@ -708,16 +686,11 @@ export function pickSuggestedQuestions(
 ): ReadonlyArray<SuggestedQuestion> {
   const count = input.count ?? 4;
   const salt = input.renderSalt ?? 0;
-  const connectedSet = new Set(input.connectedDataInterests);
-  const fieldSet = new Set(input.fields);
 
   const eligibleByConnection = CURATED_SUGGESTED_QUESTIONS.filter((q) => {
     if (q.requiredDataInterests.length === 0) return true;
-    return q.requiredDataInterests.every((id) => connectedSet.has(id));
+    return false;
   });
-
-  const overlapsField = (q: SuggestedQuestion): boolean =>
-    q.fields.some((field) => fieldSet.has(field));
 
   const rotate = <T,>(arr: ReadonlyArray<T>): T[] => {
     if (arr.length === 0) return [];
@@ -725,31 +698,18 @@ export function pickSuggestedQuestions(
     return [...arr.slice(offset), ...arr.slice(0, offset)];
   };
 
-  if (fieldSet.size === 0) {
-    // No field tag → diverse sampler.
-    return diversifyByField(rotate(eligibleByConnection), count);
+  const diversified = diversifyByField(rotate(eligibleByConnection), count);
+  if (diversified.length >= count) {
+    return diversified;
   }
 
-  const fieldMatched = rotate(eligibleByConnection.filter(overlapsField));
-  if (fieldMatched.length >= count) {
-    return fieldMatched.slice(0, count);
-  }
-
-  const fallback = rotate(
-    eligibleByConnection.filter((q) => !overlapsField(q)),
-  );
-  const broad = [...fieldMatched, ...fallback];
-  if (broad.length >= count) {
-    return broad.slice(0, count);
-  }
-
-  // Exhausted the connected-filtered list. Dip into the entire pool.
+  // Exhausted the generic list. Dip into the entire pool.
   const remaining = rotate(
     CURATED_SUGGESTED_QUESTIONS.filter(
-      (q) => !broad.some((entry) => entry.id === q.id),
+      (q) => !diversified.some((entry) => entry.id === q.id),
     ),
   );
-  return [...broad, ...remaining].slice(0, count);
+  return [...diversified, ...remaining].slice(0, count);
 }
 
 function diversifyByField(

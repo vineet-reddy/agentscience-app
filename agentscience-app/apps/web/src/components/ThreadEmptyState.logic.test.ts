@@ -3,9 +3,9 @@ import { ThreadId } from "@agentscience/contracts";
 import {
   CASE_D_THREAD_COUNT_THRESHOLD,
   buildGreeting,
-  formatConnectedDatasetCount,
   pickEmptyStatePresentation,
   type DraftLikeSummary,
+  type PickPrimaryListInput,
   type ThreadLikeSummary,
 } from "./ThreadEmptyState.logic";
 
@@ -37,42 +37,24 @@ function baseDraft(id: string, hasContent = true): DraftLikeSummary {
   };
 }
 
+function baseInput(overrides: Partial<PickPrimaryListInput> = {}): PickPrimaryListInput {
+  return {
+    thisThreadId,
+    threads: [baseThread({ id: thisThreadId })],
+    drafts: [],
+    projects: [],
+    renderSalt: 0,
+    manualDatasetConnections: false,
+    ...overrides,
+  };
+}
+
 describe("pickEmptyStatePresentation", () => {
-  it("Case A: brand new user, onboarding complete, first thread, greeting unconsumed", () => {
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
-      threads: [baseThread({ id: thisThreadId })],
-      drafts: [],
-      projects: [],
-      fields: ["oncology"],
-      dataInterests: ["depmap"],
-      connectedDataInterests: ["depmap"],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: true,
-      welcomeGreetingConsumed: false,
-      manualDatasetConnections: false,
-    });
-    expect(result.emptyStateCase).toBe("A");
+  it("Case B: brand new users see the standard prompt", () => {
+    const result = pickEmptyStatePresentation(baseInput());
+    expect(result.emptyStateCase).toBe("B");
     expect(result.items.length).toBeGreaterThan(0);
     expect(result.items.length).toBeLessThanOrEqual(4);
-    expect(buildGreeting("A").title).toBe("Welcome to AgentScience.");
-  });
-
-  it("Case B: once greeting has been consumed, drop back to the standard prompt", () => {
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
-      threads: [baseThread({ id: thisThreadId })],
-      drafts: [],
-      projects: [],
-      fields: ["oncology"],
-      dataInterests: ["depmap"],
-      connectedDataInterests: ["depmap"],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: true,
-      welcomeGreetingConsumed: true,
-      manualDatasetConnections: false,
-    });
-    expect(result.emptyStateCase).toBe("B");
     expect(buildGreeting("B").title).toBe("What will you investigate?");
   });
 
@@ -82,19 +64,9 @@ describe("pickEmptyStatePresentation", () => {
       hasAssistantReply: true,
       updatedAt: "2026-04-23T13:00:00.000Z",
     });
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
+    const result = pickEmptyStatePresentation(baseInput({
       threads: [baseThread({ id: thisThreadId }), completedThread],
-      drafts: [],
-      projects: [],
-      fields: [],
-      dataInterests: [],
-      connectedDataInterests: [],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: false,
-      welcomeGreetingConsumed: true,
-      manualDatasetConnections: false,
-    });
+    }));
     expect(result.emptyStateCase).toBe("C");
     expect(result.items.some((item) => item.kind === "thread")).toBe(true);
     expect(result.secondaryItems.length).toBeGreaterThan(0);
@@ -107,37 +79,17 @@ describe("pickEmptyStatePresentation", () => {
       inFlight: true,
       updatedAt: "2026-04-23T13:00:00.000Z",
     });
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
+    const result = pickEmptyStatePresentation(baseInput({
       threads: [baseThread({ id: thisThreadId }), inFlightThread],
-      drafts: [],
-      projects: [],
-      fields: ["oncology"],
-      dataInterests: ["depmap"],
-      connectedDataInterests: ["depmap"],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: false,
-      welcomeGreetingConsumed: true,
-      manualDatasetConnections: false,
-    });
+    }));
     expect(result.emptyStateCase).toBe("C");
     expect(result.items.some((item) => item.kind === "thread")).toBe(true);
   });
 
   it("Case C: an unsent draft is enough to surface pick-up-where-you-left-off", () => {
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
-      threads: [baseThread({ id: thisThreadId })],
+    const result = pickEmptyStatePresentation(baseInput({
       drafts: [baseDraft("draft-1")],
-      projects: [],
-      fields: ["oncology"],
-      dataInterests: ["depmap"],
-      connectedDataInterests: ["depmap"],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: false,
-      welcomeGreetingConsumed: true,
-      manualDatasetConnections: false,
-    });
+    }));
     expect(result.emptyStateCase).toBe("C");
     expect(result.items.some((item) => item.kind === "draft")).toBe(true);
   });
@@ -148,8 +100,7 @@ describe("pickEmptyStatePresentation", () => {
       baseDraft("draft-2"),
       baseDraft("draft-3"),
     ];
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
+    const result = pickEmptyStatePresentation(baseInput({
       threads: [
         baseThread({
           id: ThreadId.makeUnsafe("t-done"),
@@ -157,15 +108,7 @@ describe("pickEmptyStatePresentation", () => {
         }),
       ],
       drafts,
-      projects: [],
-      fields: ["oncology"],
-      dataInterests: [],
-      connectedDataInterests: [],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: false,
-      welcomeGreetingConsumed: true,
-      manualDatasetConnections: false,
-    });
+    }));
     expect(result.emptyStateCase).toBe("C");
     expect(result.items.length).toBeLessThanOrEqual(4);
     expect(result.secondaryItems.length).toBe(0);
@@ -176,19 +119,9 @@ describe("pickEmptyStatePresentation", () => {
     const manyStarted = Array.from({ length: CASE_D_THREAD_COUNT_THRESHOLD }, (_, i) =>
       baseThread({ id: ThreadId.makeUnsafe(`t-${i}`) }),
     );
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
+    const result = pickEmptyStatePresentation(baseInput({
       threads: [baseThread({ id: thisThreadId }), ...manyStarted],
-      drafts: [],
-      projects: [],
-      fields: [],
-      dataInterests: [],
-      connectedDataInterests: [],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: false,
-      welcomeGreetingConsumed: true,
-      manualDatasetConnections: false,
-    });
+    }));
     expect(result.emptyStateCase).toBe("D");
     expect(result.items.length).toBe(0);
   });
@@ -197,54 +130,16 @@ describe("pickEmptyStatePresentation", () => {
     const manyStarted = Array.from({ length: CASE_D_THREAD_COUNT_THRESHOLD }, (_, i) =>
       baseThread({ id: ThreadId.makeUnsafe(`t-${i}`) }),
     );
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
+    const result = pickEmptyStatePresentation(baseInput({
       threads: [baseThread({ id: thisThreadId }), ...manyStarted],
-      drafts: [],
-      projects: [],
-      fields: [],
-      dataInterests: [],
-      connectedDataInterests: [],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: false,
-      welcomeGreetingConsumed: true,
       manualDatasetConnections: true, // Manually connected dataset → graduated.
-    });
+    }));
     expect(result.emptyStateCase).toBe("C");
   });
 
-  it("skipped-onboarding users still get a non-empty generic list", () => {
-    const result = pickEmptyStatePresentation({
-      thisThreadId,
-      threads: [baseThread({ id: thisThreadId })],
-      drafts: [],
-      projects: [],
-      fields: [],
-      dataInterests: [],
-      connectedDataInterests: [],
-      renderSalt: 0,
-      isFirstThreadPostOnboarding: false,
-      welcomeGreetingConsumed: false,
-      manualDatasetConnections: false,
-    });
+  it("empty-state users still get a non-empty generic list", () => {
+    const result = pickEmptyStatePresentation(baseInput());
     expect(result.emptyStateCase).toBe("B");
     expect(result.items.length).toBeGreaterThan(0);
-  });
-});
-
-describe("formatConnectedDatasetCount", () => {
-  it("formats with thousands separators", () => {
-    expect(formatConnectedDatasetCount(46000, "patients")).toBe("46,000 patients");
-    expect(formatConnectedDatasetCount(2428, "samples")).toBe("2,428 samples");
-  });
-
-  it("passes small numbers through verbatim", () => {
-    expect(formatConnectedDatasetCount(42, "datasets")).toBe("42 datasets");
-  });
-
-  it("returns null for invalid input", () => {
-    expect(formatConnectedDatasetCount(null, "x")).toBeNull();
-    expect(formatConnectedDatasetCount(undefined, "x")).toBeNull();
-    expect(formatConnectedDatasetCount(-1, "x")).toBeNull();
   });
 });
