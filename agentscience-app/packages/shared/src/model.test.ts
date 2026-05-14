@@ -33,6 +33,12 @@ describe("normalizeModelSlug", () => {
     expect(normalizeModelSlug("5.3")).toBe("gpt-5.3-codex");
   });
 
+  it("maps Gemini aliases to the current Gemini 3 family", () => {
+    expect(normalizeModelSlug("3.1", "gemini")).toBe("gemini-3.1-pro-preview");
+    expect(normalizeModelSlug("flash", "gemini")).toBe("gemini-3-flash-preview");
+    expect(normalizeModelSlug("flash-lite", "gemini")).toBe("gemini-3.1-flash-lite");
+  });
+
   it("returns null for empty or missing values", () => {
     expect(normalizeModelSlug("")).toBeNull();
     expect(normalizeModelSlug("   ")).toBeNull();
@@ -44,6 +50,7 @@ describe("normalizeModelSlug", () => {
 describe("resolveModelSlug", () => {
   it("returns defaults when the model is missing", () => {
     expect(resolveModelSlug(undefined, "codex")).toBe(DEFAULT_MODEL_BY_PROVIDER.codex);
+    expect(resolveModelSlug(undefined, "gemini")).toBe(DEFAULT_MODEL_BY_PROVIDER.gemini);
   });
 
   it("preserves normalized unknown models", () => {
@@ -56,6 +63,11 @@ describe("resolveSelectableModel", () => {
     const options = [{ slug: "gpt-5.3-codex", name: "GPT-5.3 Codex" }];
     expect(resolveSelectableModel("codex", "gpt-5.3-codex", options)).toBe("gpt-5.3-codex");
     expect(resolveSelectableModel("codex", "gpt-5.3 codex", options)).toBe("gpt-5.3-codex");
+  });
+
+  it("resolves Gemini aliases against Gemini options", () => {
+    const options = [{ slug: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview" }];
+    expect(resolveSelectableModel("gemini", "3.1-pro", options)).toBe("gemini-3.1-pro-preview");
   });
 });
 
@@ -126,6 +138,12 @@ describe("resolveContextWindow", () => {
 describe("resolveApiModelId", () => {
   it("returns the model as-is for Codex selections", () => {
     expect(resolveApiModelId({ provider: "codex", model: "gpt-5.4" })).toBe("gpt-5.4");
+  });
+
+  it("returns the model as-is for Gemini selections", () => {
+    expect(resolveApiModelId({ provider: "gemini", model: "gemini-3.1-pro-preview" })).toBe(
+      "gemini-3.1-pro-preview",
+    );
   });
 });
 

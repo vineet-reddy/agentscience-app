@@ -2,7 +2,11 @@ import { Effect } from "effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
-import { CodexModelOptions, DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER } from "./model";
+import {
+  CodexModelOptions,
+  DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
+  GeminiModelOptions,
+} from "./model";
 import { ModelSelection } from "./orchestration";
 
 // ── Client Settings (local-only) ───────────────────────────────
@@ -60,6 +64,22 @@ export const CodexSettings = Schema.Struct({
 });
 export type CodexSettings = typeof CodexSettings.Type;
 
+export const GeminiAuthMethod = Schema.Literals([
+  "oauth-personal",
+  "gemini-api-key",
+  "vertex-ai",
+  "gateway",
+]);
+export type GeminiAuthMethod = typeof GeminiAuthMethod.Type;
+
+export const GeminiSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  binaryPath: makeBinaryPathSetting("gemini"),
+  customModels: Schema.Array(Schema.String).pipe(Schema.withDecodingDefault(() => [])),
+  authMethod: GeminiAuthMethod.pipe(Schema.withDecodingDefault(() => "oauth-personal" as const)),
+});
+export type GeminiSettings = typeof GeminiSettings.Type;
+
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
   otlpMetricsUrl: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
@@ -92,6 +112,7 @@ export const ServerSettings = Schema.Struct({
   // Provider specific settings
   providers: Schema.Struct({
     codex: CodexSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+    gemini: GeminiSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(() => ({}))),
 });
@@ -133,6 +154,11 @@ const ModelSelectionPatch = Schema.Union([
     model: Schema.optionalKey(TrimmedNonEmptyString),
     options: Schema.optionalKey(CodexModelOptionsPatch),
   }),
+  Schema.Struct({
+    provider: Schema.optionalKey(Schema.Literal("gemini")),
+    model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(GeminiModelOptions),
+  }),
 ]);
 
 const CodexSettingsPatch = Schema.Struct({
@@ -140,6 +166,13 @@ const CodexSettingsPatch = Schema.Struct({
   binaryPath: Schema.optionalKey(Schema.String),
   homePath: Schema.optionalKey(Schema.String),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+const GeminiSettingsPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  binaryPath: Schema.optionalKey(Schema.String),
+  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
+  authMethod: Schema.optionalKey(GeminiAuthMethod),
 });
 
 export const ServerSettingsPatch = Schema.Struct({
@@ -156,6 +189,7 @@ export const ServerSettingsPatch = Schema.Struct({
   providers: Schema.optionalKey(
     Schema.Struct({
       codex: Schema.optionalKey(CodexSettingsPatch),
+      gemini: Schema.optionalKey(GeminiSettingsPatch),
     }),
   ),
 });

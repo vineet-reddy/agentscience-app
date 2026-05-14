@@ -1,5 +1,5 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
-import { CodexModelOptions } from "./model";
+import { CodexModelOptions, GeminiModelOptions } from "./model";
 import {
   ProjectModeSetCommand,
   ProjectRecomputeCommand,
@@ -36,7 +36,7 @@ export const ORCHESTRATION_WS_METHODS = {
   replayEvents: "orchestration.replayEvents",
 } as const;
 
-export const ProviderKind = Schema.Literals(["codex"]);
+export const ProviderKind = Schema.Literals(["codex", "gemini"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -61,7 +61,14 @@ export const CodexModelSelection = Schema.Struct({
 });
 export type CodexModelSelection = typeof CodexModelSelection.Type;
 
-export const ModelSelection = Schema.Union([CodexModelSelection]);
+export const GeminiModelSelection = Schema.Struct({
+  provider: Schema.Literal("gemini"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optionalKey(GeminiModelOptions),
+});
+export type GeminiModelSelection = typeof GeminiModelSelection.Type;
+
+export const ModelSelection = Schema.Union([CodexModelSelection, GeminiModelSelection]);
 export type ModelSelection = typeof ModelSelection.Type;
 
 export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);

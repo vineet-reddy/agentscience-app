@@ -12,8 +12,12 @@ export const CodexModelOptions = Schema.Struct({
 });
 export type CodexModelOptions = typeof CodexModelOptions.Type;
 
+export const GeminiModelOptions = Schema.Struct({});
+export type GeminiModelOptions = typeof GeminiModelOptions.Type;
+
 export const ProviderModelOptions = Schema.Struct({
   codex: Schema.optional(CodexModelOptions),
+  gemini: Schema.optional(GeminiModelOptions),
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
@@ -42,6 +46,7 @@ export type ModelCapabilities = typeof ModelCapabilities.Type;
 
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
   codex: "gpt-5.5",
+  gemini: "gemini-3.1-pro-preview",
 };
 
 export const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.codex;
@@ -49,6 +54,7 @@ export const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.codex;
 /** Per-provider text generation model defaults. */
 export const DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER: Record<ProviderKind, string> = {
   codex: "gpt-5.5",
+  gemini: "gemini-3.1-flash-lite",
 };
 
 export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string, string>> = {
@@ -60,10 +66,22 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "5.3-spark": "gpt-5.3-codex-spark",
     "gpt-5.3-spark": "gpt-5.3-codex-spark",
   },
+  gemini: {
+    "3.1": "gemini-3.1-pro-preview",
+    "3.1-pro": "gemini-3.1-pro-preview",
+    "3.1-pro-preview": "gemini-3.1-pro-preview",
+    "3-flash": "gemini-3-flash-preview",
+    "3-flash-preview": "gemini-3-flash-preview",
+    "3.1-flash-lite": "gemini-3.1-flash-lite",
+    "flash-lite": "gemini-3.1-flash-lite",
+    "flash": "gemini-3-flash-preview",
+    "pro": "gemini-3.1-pro-preview",
+  },
 };
 
 // ── Provider display names ────────────────────────────────────────────
 
 export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   codex: "Codex",
+  gemini: "Gemini",
 };

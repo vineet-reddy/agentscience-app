@@ -32,6 +32,22 @@ describe("ProviderSessionStartInput", () => {
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
   });
 
+  it("accepts Gemini payloads", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-gemini",
+      provider: "gemini",
+      cwd: "/tmp/workspace",
+      modelSelection: {
+        provider: "gemini",
+        model: "gemini-3.1-pro-preview",
+      },
+      runtimeMode: "approval-required",
+    });
+    expect(parsed.provider).toBe("gemini");
+    expect(parsed.modelSelection?.provider).toBe("gemini");
+    expect(parsed.modelSelection?.model).toBe("gemini-3.1-pro-preview");
+  });
+
   it("rejects payloads without runtime mode", () => {
     expect(() =>
       decodeProviderSessionStartInput({
@@ -63,5 +79,18 @@ describe("ProviderSendTurnInput", () => {
     }
     expect(parsed.modelSelection.options?.reasoningEffort).toBe("xhigh");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
+  });
+
+  it("accepts gemini modelSelection", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: "thread-1",
+      modelSelection: {
+        provider: "gemini",
+        model: "gemini-3-flash-preview",
+      },
+    });
+
+    expect(parsed.modelSelection?.provider).toBe("gemini");
+    expect(parsed.modelSelection?.model).toBe("gemini-3-flash-preview");
   });
 });
