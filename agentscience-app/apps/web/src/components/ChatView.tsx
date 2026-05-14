@@ -901,6 +901,7 @@ export default function ChatView({
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
+  const stopInFlightRef = useRef(false);
   const dragDepthRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
@@ -3635,12 +3636,18 @@ export default function ChatView({
   const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
-    await api.orchestration.dispatchCommand({
-      type: "thread.turn.interrupt",
-      commandId: newCommandId(),
-      threadId: activeThread.id,
-      createdAt: new Date().toISOString(),
-    });
+    if (stopInFlightRef.current) return;
+    stopInFlightRef.current = true;
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.session.stop",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        createdAt: new Date().toISOString(),
+      });
+    } finally {
+      stopInFlightRef.current = false;
+    }
   };
 
   const onRespondToApproval = useCallback(

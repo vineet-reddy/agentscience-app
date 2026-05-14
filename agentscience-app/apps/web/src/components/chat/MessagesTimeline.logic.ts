@@ -21,6 +21,12 @@ export type MessagesTimelineRow =
       groupedEntries: WorkLogEntry[];
     }
   | {
+      kind: "reasoning";
+      id: string;
+      createdAt: string;
+      groupedEntries: WorkLogEntry[];
+    }
+  | {
       kind: "message";
       id: string;
       createdAt: string;
@@ -59,6 +65,10 @@ export function normalizeCompactToolLabel(value: string): string {
   return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
 }
 
+function workRowKind(entry: WorkLogEntry): "work" | "reasoning" {
+  return entry.tone === "thinking" ? "reasoning" : "work";
+}
+
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   completionDividerBeforeEntryId: string | null;
@@ -78,15 +88,17 @@ export function deriveMessagesTimelineRows(input: {
 
     if (timelineEntry.kind === "work") {
       const groupedEntries = [timelineEntry.entry];
+      const rowKind = workRowKind(timelineEntry.entry);
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
         const nextEntry = input.timelineEntries[cursor];
         if (!nextEntry || nextEntry.kind !== "work") break;
+        if (workRowKind(nextEntry.entry) !== rowKind) break;
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
       }
       nextRows.push({
-        kind: "work",
+        kind: rowKind,
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         groupedEntries,
@@ -140,6 +152,8 @@ export function estimateMessagesTimelineRowHeight(
   switch (row.kind) {
     case "work":
       return estimateWorkRowHeight(row, input);
+    case "reasoning":
+      return estimateReasoningRowHeight(row, input);
     case "proposed-plan":
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
     case "working":
@@ -172,6 +186,20 @@ function estimateWorkRowHeight(
 
   // Card chrome, optional header, and one compact work-entry row per visible entry.
   return 28 + (showHeader ? 26 : 0) + visibleEntries * 32;
+}
+
+function estimateReasoningRowHeight(
+  row: Extract<MessagesTimelineRow, { kind: "reasoning" }>,
+  input: {
+    expandedWorkGroups?: Readonly<Record<string, boolean>>;
+  },
+): number {
+  const isExpanded = input.expandedWorkGroups?.[row.id] ?? false;
+  const hasOverflow = row.groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
+  const visibleEntries =
+    hasOverflow && !isExpanded ? MAX_VISIBLE_WORK_LOG_ENTRIES : row.groupedEntries.length;
+
+  return 58 + visibleEntries * 76;
 }
 
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {

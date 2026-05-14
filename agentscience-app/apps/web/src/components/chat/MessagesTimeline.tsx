@@ -322,6 +322,48 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       data-message-id={row.kind === "message" ? row.message.id : undefined}
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
+      {row.kind === "reasoning" &&
+        (() => {
+          const groupId = row.id;
+          const groupedEntries = row.groupedEntries;
+          const isExpanded = expandedWorkGroups[groupId] ?? false;
+          const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
+          const visibleEntries =
+            hasOverflow && !isExpanded
+              ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
+              : groupedEntries;
+          const hiddenCount = groupedEntries.length - visibleEntries.length;
+
+          return (
+            <div className="rounded-xl border border-ring/20 bg-ring/[0.035] px-3 py-2.5">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-ring/10 text-foreground/75">
+                    <BotIcon className="size-3" />
+                  </span>
+                  <p className="truncate text-[10px] font-medium uppercase tracking-[0.16em] text-foreground/70">
+                    Reasoning
+                  </p>
+                </div>
+                {hasOverflow && (
+                  <button
+                    type="button"
+                    className="shrink-0 text-[9px] uppercase tracking-[0.12em] text-muted-foreground/65 transition-colors duration-150 hover:text-foreground/75"
+                    onClick={() => onToggleWorkGroup(groupId)}
+                  >
+                    {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                {visibleEntries.map((workEntry) => (
+                  <ReasoningEntryRow key={`reasoning-row:${workEntry.id}`} workEntry={workEntry} />
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
       {row.kind === "work" &&
         (() => {
           const groupId = row.id;
@@ -646,7 +688,7 @@ type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
 type TimelineAttachment = NonNullable<TimelineMessage["attachments"]>[number];
 type TimelineImageAttachment = Extract<TimelineAttachment, { type: "image" }>;
 type TimelineFileAttachment = Extract<TimelineAttachment, { type: "file" }>;
-type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
+type TimelineWorkEntry = Extract<TimelineEntry, { kind: "work" }>["entry"];
 type TimelineRow = MessagesTimelineRow;
 
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
@@ -965,6 +1007,32 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
         </div>
       )}
+    </div>
+  );
+});
+
+const ReasoningEntryRow = memo(function ReasoningEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+}) {
+  const { workEntry } = props;
+  const preview = workEntryPreview(workEntry);
+  const body = preview ?? workEntry.label;
+
+  return (
+    <div className="rounded-lg border border-border/35 bg-background/55 px-2.5 py-2">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-foreground/65">
+          <BotIcon className="size-3" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium leading-4 text-foreground/80">{workEntry.label}</p>
+          {body !== workEntry.label ? (
+            <p className="mt-0.5 line-clamp-3 text-xs leading-5 text-muted-foreground/85" title={body}>
+              {body}
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 });

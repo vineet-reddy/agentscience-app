@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { computeMessageDurationStart, normalizeCompactToolLabel } from "./MessagesTimeline.logic";
+import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
+import {
+  computeMessageDurationStart,
+  deriveMessagesTimelineRows,
+  normalizeCompactToolLabel,
+} from "./MessagesTimeline.logic";
+
+const workEntry = (input: {
+  id: string;
+  tone: WorkLogEntry["tone"];
+  label?: string;
+}): TimelineEntry => ({
+  id: input.id,
+  kind: "work",
+  createdAt: `2026-01-01T00:00:0${input.id.slice(-1)}Z`,
+  entry: {
+    id: input.id,
+    createdAt: `2026-01-01T00:00:0${input.id.slice(-1)}Z`,
+    label: input.label ?? input.id,
+    tone: input.tone,
+  },
+});
 
 describe("computeMessageDurationStart", () => {
   it("returns message createdAt when there is no preceding user message", () => {
@@ -141,5 +162,29 @@ describe("normalizeCompactToolLabel", () => {
 
   it("removes trailing completion wording from other labels", () => {
     expect(normalizeCompactToolLabel("Read file completed")).toBe("Read file");
+  });
+});
+
+describe("deriveMessagesTimelineRows", () => {
+  it("keeps reasoning updates separate from command work logs", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        workEntry({ id: "reason-1", tone: "thinking", label: "Reasoning update" }),
+        workEntry({ id: "tool-2", tone: "tool", label: "Ran command" }),
+        workEntry({ id: "tool-3", tone: "tool", label: "Read file" }),
+        workEntry({ id: "reason-4", tone: "thinking", label: "Reasoning update" }),
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["reasoning", "work", "reasoning"]);
+    expect(rows[0]).toMatchObject({ kind: "reasoning", groupedEntries: [{ id: "reason-1" }] });
+    expect(rows[1]).toMatchObject({
+      kind: "work",
+      groupedEntries: [{ id: "tool-2" }, { id: "tool-3" }],
+    });
+    expect(rows[2]).toMatchObject({ kind: "reasoning", groupedEntries: [{ id: "reason-4" }] });
   });
 });

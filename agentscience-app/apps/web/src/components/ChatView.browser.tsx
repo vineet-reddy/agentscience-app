@@ -2355,6 +2355,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetText: "stop button cursor target",
         sessionStatus: "running",
       }),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
     });
 
     try {
@@ -2364,6 +2372,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
 
       expect(getComputedStyle(stopButton).cursor).toBe("pointer");
+      stopButton.click();
+
+      await vi.waitFor(
+        () => {
+          expect(
+            wsRequests.some(
+              (request) =>
+                request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+                (request as { type?: string }).type === "thread.session.stop",
+            ),
+          ).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }
