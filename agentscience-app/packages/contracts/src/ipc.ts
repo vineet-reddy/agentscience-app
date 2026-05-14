@@ -222,6 +222,7 @@ export interface NativeApi {
       input?: CodexAuthCancelLoginInput,
     ) => Promise<CodexAuthState>;
     logoutCodex: () => Promise<CodexAuthState>;
+    logoutGemini: () => Promise<ServerSettings>;
     applyAgentScienceRuntimeUpdates: () => Promise<ServerRuntimeAgentScience>;
     getAgentScienceAuthState: () => Promise<AgentScienceAuthState>;
     startAgentScienceLogin: () => Promise<AgentScienceAuthState>;

@@ -29,7 +29,13 @@ function isProviderEnabled(
   providers: ReadonlyArray<ServerProvider> | undefined,
   provider: ProviderKind,
 ): boolean {
-  return providers?.find((candidate) => candidate.provider === provider)?.enabled ?? true;
+  const snapshot = providers?.find((candidate) => candidate.provider === provider);
+  return (
+    snapshot?.enabled !== false &&
+    snapshot?.installed !== false &&
+    snapshot?.status !== "error" &&
+    snapshot?.auth.status === "authenticated"
+  );
 }
 
 function makeProviderModelValue(provider: ProviderKind, model: string): string {
@@ -143,14 +149,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               const models = props.modelOptionsByProvider[provider] ?? [];
               const providerLabel = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
               const showProviderLabel = selectableProviders.length > 1;
-              return [
-                ...(showProviderLabel
-                  ? [
-                      <MenuGroupLabel key={`${provider}:label`} inset={false}>
-                        {providerLabel}
-                      </MenuGroupLabel>,
-                    ]
-                  : []),
+              const items = [];
+              if (showProviderLabel) {
+                items.push(
+                  <MenuGroupLabel key={`${provider}:label`} inset={false}>
+                    {providerLabel}
+                  </MenuGroupLabel>,
+                );
+              }
+              items.push(
                 ...models.map((modelOption) => (
                   <MenuRadioItem
                     key={`${provider}:${modelOption.slug}`}
@@ -160,16 +167,17 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                     {modelOption.name}
                   </MenuRadioItem>
                 )),
-                ...(showProviderLabel && providerIndex < selectableProviders.length - 1
-                  ? [
-                      <div
-                        aria-hidden="true"
-                        className="mx-2 my-1 h-px bg-border"
-                        key={`${provider}:separator`}
-                      />,
-                    ]
-                  : []),
-              ];
+              );
+              if (showProviderLabel && providerIndex < selectableProviders.length - 1) {
+                items.push(
+                  <div
+                    aria-hidden="true"
+                    className="mx-2 my-1 h-px bg-border"
+                    key={`${provider}:separator`}
+                  />,
+                );
+              }
+              return items;
             })}
           </MenuRadioGroup>
         </MenuGroup>

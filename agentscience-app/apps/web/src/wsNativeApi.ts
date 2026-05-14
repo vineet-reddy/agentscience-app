@@ -114,6 +114,7 @@ export function createWsNativeApi(): NativeApi {
       loginGeminiWithGoogle: rpcClient.server.loginGeminiWithGoogle,
       cancelCodexChatgptLogin: (input) => rpcClient.server.cancelCodexChatgptLogin(input),
       logoutCodex: rpcClient.server.logoutCodex,
+      logoutGemini: rpcClient.server.logoutGemini,
       applyAgentScienceRuntimeUpdates: rpcClient.server.applyAgentScienceRuntimeUpdates,
       getAgentScienceAuthState: rpcClient.server.getAgentScienceAuthState,
       startAgentScienceLogin: rpcClient.server.startAgentScienceLogin,

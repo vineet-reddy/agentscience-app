@@ -1,89 +1,60 @@
-import type { ProviderKind, ServerProvider, ServerProviderModel } from "@agentscience/contracts";
 import { describe, expect, it } from "vitest";
+import type { ProviderKind, ServerProvider, ServerProviderModel } from "@agentscience/contracts";
 
-import { getDefaultProviderModelOptions, getDefaultServerModel } from "./providerModels";
+import {
+  getProviderModels,
+  hasProviderModelAccess,
+  resolveSelectableProvider,
+} from "./providerModels";
 
-const model = (slug: string, extra?: Partial<ServerProviderModel>): ServerProviderModel => ({
+const model = (slug: string): ServerProviderModel => ({
   slug,
   name: slug,
   isCustom: false,
-  capabilities: {
-    reasoningEffortLevels: [
-      { value: "xhigh", label: "Extra High" },
-      { value: "high", label: "High" },
-      { value: "medium", label: "Medium", isDefault: true },
-      { value: "low", label: "Low" },
-    ],
-    supportsFastMode: true,
-    supportsThinkingToggle: false,
-    contextWindowOptions: [],
-    promptInjectedEffortLevels: [],
-  },
-  ...extra,
+  capabilities: null,
 });
 
-const provider = (models: ServerProviderModel[], kind: ProviderKind = "codex"): ServerProvider => ({
-  provider: kind,
+const provider = (
+  providerKind: ProviderKind,
+  authStatus: ServerProvider["auth"]["status"],
+  models: ReadonlyArray<ServerProviderModel>,
+): ServerProvider => ({
+  provider: providerKind,
   enabled: true,
   installed: true,
   version: null,
   status: "ready",
-  auth: { status: "authenticated" },
-  checkedAt: "2026-04-23T12:00:00.000Z",
-  models,
+  auth: { status: authStatus },
+  checkedAt: "2026-05-14T12:00:00.000Z",
+  models: [...models],
 });
 
-describe("provider model defaults", () => {
-  it("uses the latest available GPT model instead of relying on list order", () => {
-    expect(
-      getDefaultServerModel(
-        [provider([model("gpt-5.2"), model("gpt-5.4"), model("gpt-5.5"), model("gpt-5.3-codex")])],
-        "codex",
-      ),
-    ).toBe("gpt-5.5");
+describe("providerModels", () => {
+  it("only exposes models for authenticated providers", () => {
+    const providers = [
+      provider("codex", "unauthenticated", [model("gpt-5.5")]),
+      provider("gemini", "authenticated", [model("gemini-3.1-pro-preview")]),
+    ];
+
+    expect(getProviderModels(providers, "codex")).toEqual([]);
+    expect(getProviderModels(providers, "gemini").map((entry) => entry.slug)).toEqual([
+      "gemini-3.1-pro-preview",
+    ]);
   });
 
-  it("prefers the flagship model over variants for the same GPT version", () => {
-    expect(
-      getDefaultServerModel(
-        [provider([model("gpt-5.4-mini"), model("gpt-5.4"), model("gpt-5.4-nano")])],
-        "codex",
-      ),
-    ).toBe("gpt-5.4");
+  it("falls back to an authenticated provider when the requested provider is not connected", () => {
+    const providers = [
+      provider("codex", "unauthenticated", [model("gpt-5.5")]),
+      provider("gemini", "authenticated", [model("gemini-3.1-pro-preview")]),
+    ];
+
+    expect(resolveSelectableProvider(providers, "codex")).toBe("gemini");
   });
 
-  it("defaults supported reasoning models to medium effort and fast mode", () => {
-    expect(getDefaultProviderModelOptions([model("gpt-5.5")], "codex", "gpt-5.5")).toEqual({
-      reasoningEffort: "medium",
-      fastMode: true,
-    });
-  });
+  it("treats warning or unknown-auth providers as unavailable for model picking", () => {
+    const gemini = provider("gemini", "unknown", [model("gemini-3.1-pro-preview")]);
 
-  it("uses the first built-in model for Gemini instead of GPT ranking", () => {
-    expect(
-      getDefaultServerModel(
-        [
-          provider(
-            [
-              model("gemini-3.1-pro-preview"),
-              model("gemini-3-flash-preview"),
-              model("gemini-3.1-flash-lite"),
-            ],
-            "gemini",
-          ),
-        ],
-        "gemini",
-      ),
-    ).toBe("gemini-3.1-pro-preview");
-  });
-
-  it("does not attach Codex-only default options to Gemini selections", () => {
-    expect(
-      getDefaultProviderModelOptions(
-        [model("gemini-3.1-pro-preview")],
-        "gemini",
-        "gemini-3.1-pro-preview",
-      ),
-    ).toEqual({});
+    expect(hasProviderModelAccess(gemini)).toBe(false);
+    expect(getProviderModels([gemini], "gemini")).toEqual([]);
   });
 });

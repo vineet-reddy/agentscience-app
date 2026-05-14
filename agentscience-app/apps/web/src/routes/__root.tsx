@@ -10,16 +10,17 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { AgentScienceConnectionPortal } from "../components/AgentScienceConnectionPortal";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
-import { DesktopConnectionPortal } from "../components/DesktopConnectionPortal";
-import { OnboardingPortal } from "../components/OnboardingPortal";
-import { useOnboardingStore } from "../onboardingStore";
+import {
+  DesktopConnectionPortal,
+  type DesktopConnectionTarget,
+} from "../components/DesktopConnectionPortal";
 import {
   SlowRpcAckToastCoordinator,
   WebSocketConnectionCoordinator,
@@ -47,8 +48,6 @@ import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
-import { useSettings } from "../hooks/useSettings";
-import { resolveOnboardingAccountSyncKey } from "../onboardingGate";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
@@ -62,6 +61,7 @@ import { deriveReplayRetryDecision } from "../orchestrationRecovery";
 import { getWsRpcClient } from "~/wsRpcClient";
 import { isElectron } from "../env";
 import { toastManager } from "../components/ui/toast";
+import { hasProviderModelAccess } from "../providerModels";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -78,8 +78,9 @@ function RootRouteView() {
   const serverConfig = useServerConfig();
   const serverProviders = useServerProviders();
   const agentScienceAccount = useAgentScienceAccount();
-  const settings = useSettings();
   const pathname = useLocation({ select: (loc) => loc.pathname });
+  const [desktopConnectionTarget, setDesktopConnectionTarget] =
+    useState<DesktopConnectionTarget | null>(null);
 
   if (!readNativeApi()) {
     return (
@@ -98,14 +99,14 @@ function RootRouteView() {
 
   const codexProvider = serverProviders.find((provider) => provider.provider === "codex");
   const geminiProvider = serverProviders.find((provider) => provider.provider === "gemini");
-  const codexConnected = codexProvider?.auth.status === "authenticated";
-  const geminiSelected = settings.textGenerationModelSelection.provider === "gemini";
-  const geminiUsable =
-    geminiProvider?.enabled !== false &&
-    geminiProvider?.installed !== false &&
-    geminiProvider?.status !== "error" &&
-    geminiProvider?.auth.status !== "unauthenticated";
-  const modelAccessConnected = codexConnected || (geminiSelected && geminiUsable);
+  const codexConnected = hasProviderModelAccess(codexProvider);
+  const geminiConnected = hasProviderModelAccess(geminiProvider);
+  const modelAccessConnected = codexConnected || geminiConnected;
+  const desktopConnectionTargetSatisfied =
+    desktopConnectionTarget === null ||
+    (desktopConnectionTarget === "codex" && codexConnected) ||
+    (desktopConnectionTarget === "gemini" && geminiConnected) ||
+    (desktopConnectionTarget === "both" && codexConnected && geminiConnected);
   const agentScienceStatus = agentScienceAccount.state?.status ?? "signed-out";
   const isSettingsRoute = pathname.startsWith("/settings");
   const shouldShowAgentScienceConnectionPortal =
@@ -116,36 +117,7 @@ function RootRouteView() {
     !agentScienceAccount.isLoading &&
     agentScienceStatus === "signed-in" &&
     !isSettingsRoute &&
-    !modelAccessConnected;
-
-  // Onboarding sits between model-access connect and the workspace: the user
-  // is fully connected but hasn't yet told us which field / data they care
-  // about. Gate on client-only state so skipping never re-triggers the screen.
-  const onboardingAccountKey = agentScienceStatus === "signed-in"
-    ? (agentScienceAccount.state?.user?.id ?? null)
-    : null;
-  const onboardingStoreAccountKey = useOnboardingStore((state) => state.accountKey);
-  const onboardingSeenRaw = useOnboardingStore((state) => state.completed || state.skipped);
-  const syncOnboardingAccount = useOnboardingStore((state) => state.syncAccount);
-  const onboardingSeen =
-    onboardingStoreAccountKey === onboardingAccountKey && onboardingSeenRaw;
-  const onboardingAccountSyncKey = resolveOnboardingAccountSyncKey({
-    accountState: agentScienceAccount.state,
-    accountIsLoading: agentScienceAccount.isLoading,
-  });
-  useEffect(() => {
-    if (onboardingAccountSyncKey === undefined) {
-      return;
-    }
-    syncOnboardingAccount(onboardingAccountSyncKey);
-  }, [onboardingAccountSyncKey, syncOnboardingAccount]);
-  const shouldShowOnboardingPortal =
-    !shouldShowAgentScienceConnectionPortal &&
-    !shouldShowDesktopConnectionPortal &&
-    !onboardingSeen &&
-    !isSettingsRoute &&
-    (!isElectron ||
-      (serverConfig !== null && modelAccessConnected));
+    (!modelAccessConnected || !desktopConnectionTargetSatisfied);
 
   return (
     <ToastProvider>
@@ -160,6 +132,8 @@ function RootRouteView() {
             <DesktopConnectionPortal
               codexProvider={codexProvider}
               geminiProvider={geminiProvider}
+              target={desktopConnectionTarget}
+              onTargetChange={setDesktopConnectionTarget}
               onOpenAdvanced={() => {
                 void navigate({ to: "/settings/general" });
               }}
@@ -171,12 +145,6 @@ function RootRouteView() {
               onStart={agentScienceAccount.startLogin}
               onCancel={agentScienceAccount.cancelLogin}
               onOpenBrowser={ensureNativeApi().shell.openExternal}
-            />
-          ) : shouldShowOnboardingPortal ? (
-            <OnboardingPortal
-              onComplete={() => {
-                void navigate({ to: "/", replace: true });
-              }}
             />
           ) : (
             <AppSidebarLayout>

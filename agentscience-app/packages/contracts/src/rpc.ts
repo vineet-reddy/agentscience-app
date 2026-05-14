@@ -125,6 +125,7 @@ export const WS_METHODS = {
   serverLoginGeminiWithGoogle: "server.loginGeminiWithGoogle",
   serverCancelCodexChatgptLogin: "server.cancelCodexChatgptLogin",
   serverLogoutCodex: "server.logoutCodex",
+  serverLogoutGemini: "server.logoutGemini",
   serverApplyAgentScienceRuntimeUpdates: "server.applyAgentScienceRuntimeUpdates",
   attachmentsImportFiles: "attachments.importFiles",
   serverGetAgentScienceAuthState: "server.getAgentScienceAuthState",
@@ -218,6 +219,12 @@ export const WsServerLogoutCodexRpc = Rpc.make(WS_METHODS.serverLogoutCodex, {
   payload: Schema.Struct({}),
   success: CodexAuthState,
   error: CodexAuthError,
+});
+
+export const WsServerLogoutGeminiRpc = Rpc.make(WS_METHODS.serverLogoutGemini, {
+  payload: Schema.Struct({}),
+  success: ServerSettings,
+  error: ServerSettingsError,
 });
 
 export const WsServerApplyAgentScienceRuntimeUpdatesRpc = Rpc.make(
@@ -465,6 +472,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerLoginGeminiWithGoogleRpc,
   WsServerCancelCodexChatgptLoginRpc,
   WsServerLogoutCodexRpc,
+  WsServerLogoutGeminiRpc,
   WsServerApplyAgentScienceRuntimeUpdatesRpc,
   WsServerGetAgentScienceAuthStateRpc,
   WsServerStartAgentScienceLoginRpc,

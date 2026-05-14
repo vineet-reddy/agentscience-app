@@ -48,6 +48,7 @@ import {
   useDesktopUpdateState,
 } from "../../lib/desktopUpdateReactQuery";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
+import { getProviderModels } from "../../providerModels";
 import { describeAgentScienceRuntimeStatus } from "../../lib/agentScienceRuntimeStatus";
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
@@ -894,13 +895,14 @@ export function GeneralSettingsPanel() {
     const statusKey = liveProvider?.status ?? (providerConfig.enabled ? "warning" : "disabled");
     const summary = getProviderSummary(liveProvider);
     const models: ReadonlyArray<ServerProviderModel> =
-      liveProvider?.models ??
-      providerConfig.customModels.map((slug) => ({
-        slug,
-        name: slug,
-        isCustom: true,
-        capabilities: null,
-      }));
+      liveProvider !== undefined
+        ? getProviderModels(serverProviders, providerSettings.provider)
+        : providerConfig.customModels.map((slug) => ({
+            slug,
+            name: slug,
+            isCustom: true,
+            capabilities: null,
+          }));
 
     return {
       provider: providerSettings.provider,

@@ -16,6 +16,7 @@ import {
   OrchestrationReplayEventsError,
   ThreadId,
   type TerminalEvent,
+  ServerSettingsError,
   WS_METHODS,
   WsRpcGroup,
 } from "@agentscience/contracts";
@@ -40,8 +41,10 @@ import {
 import { AgentScienceAuthService } from "./agentScienceAuth";
 import { CodexAuth } from "./provider/Services/CodexAuth";
 import { loginGeminiWithGoogle } from "./provider/geminiGoogleAuth";
+import { clearAgentScienceGeminiHome } from "./provider/geminiCli";
 import { clearGeminiGoogleAuthMarker } from "./provider/providerAuthMarkers";
 import {
+  removeProviderApiKey,
   validateGeminiApiKey,
   writeProviderApiKey,
 } from "./provider/providerApiKeys";
@@ -515,10 +518,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             yield* clearGeminiGoogleAuthMarker(config.stateDir);
             const current = yield* serverSettings.getSettings;
             const nextSettings = yield* serverSettings.updateSettings({
-              textGenerationModelSelection: {
-                provider: "gemini",
-                model: "gemini-3.1-pro-preview",
-              },
               providers: {
                 ...current.providers,
                 gemini: {
@@ -557,6 +556,40 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.serverLogoutCodex, codexAuth.logout, {
           "rpc.aggregate": "server",
         }),
+      [WS_METHODS.serverLogoutGemini]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverLogoutGemini,
+          Effect.gen(function* () {
+            yield* clearGeminiGoogleAuthMarker(config.stateDir);
+            yield* removeProviderApiKey(config.stateDir, "gemini");
+            yield* clearAgentScienceGeminiHome(config.stateDir).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ServerSettingsError({
+                    settingsPath: config.settingsPath,
+                    detail: "Failed to clear Gemini sign-in data.",
+                    cause,
+                  }),
+              ),
+            );
+            const current = yield* serverSettings.getSettings;
+            const nextSettings = yield* serverSettings.updateSettings({
+              providers: {
+                ...current.providers,
+                gemini: {
+                  ...current.providers.gemini,
+                  enabled: true,
+                  authMethod: "oauth-personal",
+                },
+              },
+            });
+            yield* providerRegistry.refresh();
+            return nextSettings;
+          }),
+          {
+            "rpc.aggregate": "server",
+          },
+        ),
       [WS_METHODS.serverGetAgentScienceAuthState]: (_input) =>
         observeRpcEffect(WS_METHODS.serverGetAgentScienceAuthState, agentScienceAuth.getState, {
           "rpc.aggregate": "server",

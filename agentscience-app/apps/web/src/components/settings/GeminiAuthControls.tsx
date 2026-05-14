@@ -36,7 +36,7 @@ function resolveCopy(provider: ServerProvider | undefined): string {
     return provider.message ?? "Gemini is not available.";
   }
   if (provider.auth.status === "authenticated") {
-    return "AgentScience will use Gemini automatically.";
+    return "Gemini models are available in AgentScience.";
   }
   return "Sign in with your Google account in the browser.";
 }
@@ -46,6 +46,7 @@ export function GeminiAuthControls({
   appearance = "settings",
 }: GeminiAuthControlsProps) {
   const [isContinuing, setIsContinuing] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const isPortal = appearance === "portal";
   const isAuthenticated = provider?.auth.status === "authenticated";
   const isAvailable =
@@ -61,7 +62,7 @@ export function GeminiAuthControls({
       toastManager.add({
         type: "success",
         title: "Gemini connected",
-        description: "AgentScience will use Gemini automatically.",
+        description: "Gemini models are available in AgentScience.",
       });
     } catch (error) {
       toastManager.add({
@@ -71,6 +72,27 @@ export function GeminiAuthControls({
       });
     } finally {
       setIsContinuing(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setIsDisconnecting(true);
+    try {
+      await ensureNativeApi().server.logoutGemini();
+      await ensureNativeApi().server.refreshProviders();
+      toastManager.add({
+        type: "success",
+        title: "Gemini disconnected",
+        description: "This device has been signed out of Gemini for AgentScience.",
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to disconnect Gemini",
+        description: error instanceof Error ? error.message : "An unknown error occurred.",
+      });
+    } finally {
+      setIsDisconnecting(false);
     }
   };
 
@@ -93,11 +115,18 @@ export function GeminiAuthControls({
           <Button
             type="button"
             size="sm"
-            disabled={!isAvailable || isContinuing || isAuthenticated}
-            onClick={() => void handleContinue()}
+            variant={isAuthenticated ? "outline" : "default"}
+            disabled={!isAvailable || isContinuing || isDisconnecting}
+            onClick={() => {
+              if (isAuthenticated) {
+                void handleDisconnect();
+                return;
+              }
+              void handleContinue();
+            }}
           >
-            {isContinuing ? <LoaderIcon className="size-3 animate-spin" /> : null}
-            {isAuthenticated ? "Connected" : "Continue with Gemini"}
+            {isContinuing || isDisconnecting ? <LoaderIcon className="size-3 animate-spin" /> : null}
+            {isAuthenticated ? "Disconnect" : "Continue with Gemini"}
           </Button>
         </div>
       </div>

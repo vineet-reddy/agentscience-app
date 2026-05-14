@@ -1,5 +1,8 @@
 import type { GeminiSettings } from "@agentscience/contracts";
 import path from "node:path";
+import { rm } from "node:fs/promises";
+
+import { Data, Effect } from "effect";
 
 import { resolveManagedAgentScienceCliPathDirs } from "../managedAgentScienceCli";
 
@@ -16,6 +19,10 @@ const GEMINI_AUTH_ENV_KEYS = [
   "GOOGLE_GENAI_USE_GCA",
   "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
 ] as const;
+
+class GeminiHomeClearError extends Data.TaggedError("GeminiHomeClearError")<{
+  readonly cause: unknown;
+}> {}
 
 function prependPath(pathValue: string | undefined, extraDirs: ReadonlyArray<string>): string {
   const separator = process.platform === "win32" ? ";" : ":";
@@ -91,6 +98,15 @@ export function buildGeminiLaunchSpec(input: {
 
 export function resolveAgentScienceGeminiHome(stateDir: string): string {
   return path.join(stateDir, GEMINI_HOME_DIR_NAME);
+}
+
+export function clearAgentScienceGeminiHome(stateDir: string) {
+  return Effect.tryPromise({
+    try: async () => {
+      await rm(resolveAgentScienceGeminiHome(stateDir), { recursive: true, force: true });
+    },
+    catch: (cause) => new GeminiHomeClearError({ cause }),
+  });
 }
 
 export function buildAgentScienceGeminiEnv(input: {

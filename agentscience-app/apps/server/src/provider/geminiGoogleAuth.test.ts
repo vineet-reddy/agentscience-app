@@ -86,7 +86,7 @@ afterAll(() => {
 });
 
 describe("loginGeminiWithGoogle", () => {
-  it("authenticates through Gemini ACP and selects Gemini in settings", async () => {
+  it("authenticates through Gemini ACP without changing the selected model provider", async () => {
     const layer = Layer.empty.pipe(
       Layer.provideMerge(
         ServerSettingsService.layerTest({
@@ -129,8 +129,10 @@ describe("loginGeminiWithGoogle", () => {
     assert.equal(authCalls[0]?.env?.GOOGLE_API_KEY, undefined);
     assert.equal(authCalls[0]?.env?.GOOGLE_APPLICATION_CREDENTIALS, undefined);
     assert.equal(authCalls[0]?.env?.GEMINI_FORCE_ENCRYPTED_FILE_STORAGE, "false");
-    assert.equal(result.settings.textGenerationModelSelection.provider, "gemini");
-    assert.equal(result.settings.textGenerationModelSelection.model, "gemini-3.1-pro-preview");
+    assert.deepEqual(
+      result.settings.textGenerationModelSelection,
+      DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+    );
     assert.equal(result.settings.providers.gemini.authMethod, "oauth-personal");
     assert.equal(result.settings.providers.gemini.enabled, true);
     assert.deepEqual(result.settings.providers.codex, DEFAULT_SERVER_SETTINGS.providers.codex);

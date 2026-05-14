@@ -99,10 +99,6 @@ export const loginGeminiWithGoogle = Effect.fn("loginGeminiWithGoogle")(function
   yield* removeProviderApiKey(config.stateDir, "gemini");
 
   return yield* serverSettings.updateSettings({
-    textGenerationModelSelection: {
-      provider: "gemini",
-      model: "gemini-3.1-pro-preview",
-    },
     providers: {
       ...current.providers,
       gemini: {

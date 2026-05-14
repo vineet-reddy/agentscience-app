@@ -21,6 +21,7 @@ interface CodexAuthControlsProps {
   readonly provider: ServerProvider | undefined;
   readonly appearance?: CodexAuthControlsAppearance;
   readonly onOpenAdvanced?: () => void;
+  readonly showApiKeyOption?: boolean;
 }
 
 type ApiKeyProvider = "openai" | "gemini" | "unknown";
@@ -94,7 +95,7 @@ function resolveConnectionCopy(input: {
   }
 
   if (input.isAuthenticated) {
-    return "AgentScience will use this connection automatically.";
+    return "ChatGPT models are available in AgentScience.";
   }
 
   if (input.provider?.enabled === false) {
@@ -116,6 +117,7 @@ export function CodexAuthControls({
   provider,
   appearance = "settings",
   onOpenAdvanced,
+  showApiKeyOption = true,
 }: CodexAuthControlsProps) {
   const {
     state,
@@ -222,8 +224,8 @@ export function CodexAuthControls({
         title: "Connected",
         description:
           detectedProvider === "openai"
-            ? "AgentScience is now using your OpenAI API key."
-            : "AgentScience is now using your Gemini API key.",
+            ? "ChatGPT models are available in AgentScience."
+            : "Gemini models are available in AgentScience.",
       });
     } catch (error) {
       setApiKeyError(error instanceof Error ? error.message : "Unable to save this API key.");
@@ -394,7 +396,7 @@ export function CodexAuthControls({
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {isPortal
               ? "AgentScience is ready to use."
-              : "AgentScience will use this connection automatically."}
+              : "ChatGPT models are available in AgentScience."}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -435,31 +437,33 @@ export function CodexAuthControls({
         </div>
       </div>
 
-      <div className={isPortal ? "space-y-4 py-5" : "space-y-4 py-5"}>
-        <div className={isPortal ? "grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start" : "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"}>
-          <div className="max-w-[38rem]">
-            <p className="text-sm font-medium text-foreground">Use an API key</p>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              Paste an OpenAI or Gemini API key. AgentScience will recognize it.
-            </p>
+      {showApiKeyOption ? (
+        <div className={isPortal ? "space-y-4 py-5" : "space-y-4 py-5"}>
+          <div className={isPortal ? "grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start" : "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"}>
+            <div className="max-w-[38rem]">
+              <p className="text-sm font-medium text-foreground">Use an API key</p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                Paste an OpenAI or Gemini API key. AgentScience will recognize it.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={activeAction !== null || !isInstalled || !isEnabled}
+                onClick={() => {
+                  setShowApiKeyForm((current) => !current);
+                  setApiKeyError(null);
+                }}
+              >
+                Use API key
+              </Button>
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={activeAction !== null || !isInstalled || !isEnabled}
-              onClick={() => {
-                setShowApiKeyForm((current) => !current);
-                setApiKeyError(null);
-              }}
-            >
-              Use API key
-            </Button>
-          </div>
+          {renderApiKeyForm(false)}
         </div>
-        {renderApiKeyForm(false)}
-      </div>
+      ) : null}
     </div>
   );
 

@@ -21,7 +21,11 @@ export function getProviderModels(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
 ): ReadonlyArray<ServerProviderModel> {
-  return providers.find((candidate) => candidate.provider === provider)?.models ?? [];
+  const snapshot = getProviderSnapshot(providers, provider);
+  if (!hasProviderModelAccess(snapshot)) {
+    return [];
+  }
+  return snapshot.models;
 }
 
 export function getProviderSnapshot(
@@ -38,15 +42,26 @@ export function isProviderEnabled(
   return getProviderSnapshot(providers, provider)?.enabled ?? true;
 }
 
+export function hasProviderModelAccess(
+  provider: ServerProvider | undefined,
+): provider is ServerProvider {
+  return (
+    provider?.enabled !== false &&
+    provider?.installed !== false &&
+    provider?.status !== "error" &&
+    provider?.auth.status === "authenticated"
+  );
+}
+
 export function resolveSelectableProvider(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind | null | undefined,
 ): ProviderKind {
   const requested = provider ?? "codex";
-  if (isProviderEnabled(providers, requested)) {
+  if (hasProviderModelAccess(getProviderSnapshot(providers, requested))) {
     return requested;
   }
-  return providers.find((candidate) => candidate.enabled)?.provider ?? requested;
+  return providers.find((candidate) => hasProviderModelAccess(candidate))?.provider ?? requested;
 }
 
 export function getProviderModelCapabilities(
