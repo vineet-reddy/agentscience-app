@@ -4,9 +4,11 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { GeminiModelSelection, TextGenerationError } from "@agentscience/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@agentscience/shared/git";
 
+import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { buildGeminiLaunchSpec } from "../../provider/geminiCli.ts";
+import { buildAgentScienceGeminiEnv, buildGeminiLaunchSpec } from "../../provider/geminiCli.ts";
 import { resolveEffectiveGeminiSettings } from "../../provider/geminiSettings.ts";
+import { readProviderApiKey } from "../../provider/providerApiKeys.ts";
 import {
   type TextGenerationShape,
   TextGeneration,
@@ -37,6 +39,7 @@ function extractJsonCandidate(output: string): string {
 export const makeGeminiTextGeneration = Effect.gen(function* () {
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const serverSettings = yield* ServerSettingsService;
+  const serverConfig = yield* ServerConfig;
 
   const readStreamAsString = <E>(
     operation: string,
@@ -76,6 +79,14 @@ export const makeGeminiTextGeneration = Effect.gen(function* () {
         normalizeCliError("gemini", operation, cause, "Failed to resolve Gemini settings"),
       ),
     );
+    const geminiApiKey =
+      settings.authMethod === "gemini-api-key"
+        ? yield* readProviderApiKey(serverConfig.stateDir, "gemini").pipe(
+            Effect.mapError((cause) =>
+              normalizeCliError("gemini", operation, cause, "Failed to read Gemini API key"),
+            ),
+          )
+        : undefined;
     const launchSpec = buildGeminiLaunchSpec({
       binaryPath: settings.binaryPath,
       args: [
@@ -86,6 +97,10 @@ export const makeGeminiTextGeneration = Effect.gen(function* () {
         "--output-format",
         "text",
       ],
+      processEnv: buildAgentScienceGeminiEnv({
+        stateDir: serverConfig.stateDir,
+        apiKey: geminiApiKey,
+      }),
     });
     const command = ChildProcess.make(
       launchSpec.command,

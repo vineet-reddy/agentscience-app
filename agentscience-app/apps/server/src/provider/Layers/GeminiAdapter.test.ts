@@ -11,9 +11,15 @@ import { Effect, Layer } from "effect";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { GeminiAdapter } from "../Services/GeminiAdapter.ts";
-import { makeGeminiAdapterLive } from "./GeminiAdapter.ts";
+import {
+  buildGeminiInstructionEnvelope,
+  isSafeAgentScienceInternalPermissionRequest,
+  makeGeminiAdapterLive,
+} from "./GeminiAdapter.ts";
 
-const tempDir = mkdtempSync(join(tmpdir(), "agentscience-gemini-adapter-test-"));
+const tempDir = mkdtempSync(
+  join(tmpdir(), "agentscience-gemini-adapter-test-"),
+);
 const fakeGeminiPath = join(tempDir, "fake-gemini.mjs");
 
 writeFileSync(
@@ -94,7 +100,9 @@ afterAll(() => {
 });
 
 const liveLayer = makeGeminiAdapterLive().pipe(
-  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "gemini-adapter-test-" })),
+  Layer.provideMerge(
+    ServerConfig.layerTest(process.cwd(), { prefix: "gemini-adapter-test-" }),
+  ),
   Layer.provideMerge(
     ServerSettingsService.layerTest({
       providers: {
@@ -109,6 +117,147 @@ const liveLayer = makeGeminiAdapterLive().pipe(
 );
 
 describe("GeminiAdapterLive", () => {
+  it("uses desktop-adapted AgentScience instructions without CLI startup checks", () => {
+    const instructions = buildGeminiInstructionEnvelope({
+      threadId: ThreadId.makeUnsafe("thread-gemini-instructions"),
+      input: "hello",
+      interactionMode: "default",
+    });
+
+    assert.match(
+      instructions,
+      /Start by helping with the user's actual message\./,
+    );
+    assert.match(instructions, /AGENTSCIENCE_MANAGED_PYTHON_PATH/);
+    assert.match(instructions, /AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR/);
+    assert.match(instructions, /agentscience research template --out-dir/);
+    assert.match(instructions, /agentscience research check-figures --workspace/);
+    assert.match(instructions, /<present_manuscript>/);
+    assert.match(instructions, /provider_transport provider="gemini"/);
+    assert.doesNotMatch(
+      instructions,
+      /If the `agentscience` CLI is available, run `agentscience runtime status --json`/,
+    );
+    assert.doesNotMatch(
+      instructions,
+      /Do not run `agentscience runtime status --json` automatically inside a thread/,
+    );
+    assert.doesNotMatch(
+      instructions,
+      /AgentScience is ready\. Bring me a research idea/,
+    );
+  });
+
+  it("adds the shared Max-mode research instructions for Gemini Max turns", () => {
+    const instructions = buildGeminiInstructionEnvelope({
+      threadId: ThreadId.makeUnsafe("thread-gemini-max-instructions"),
+      input: "hello",
+      interactionMode: "default",
+      researchDepth: "max",
+    });
+
+    assert.match(instructions, /<agentscience_max_mode>/);
+    assert.match(instructions, /frontier-search protocol/);
+  });
+
+  it("recognizes read-only AgentScience commands as internally safe", () => {
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "agentscience runtime status --json",
+        },
+      }),
+      true,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title:
+            './.cache/agentscience/bin/agentscience registry search --query "box turtle diet fungi drought midwest" || agentscience registry search --query "box turtle diet fungi drought midwest"',
+        },
+      }),
+      true,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: 'agentscience papers list --query "box turtle" --limit 5',
+        },
+      }),
+      true,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "agentscience papers get turtle-diet-study --json",
+        },
+      }),
+      true,
+    );
+  });
+
+  it("does not auto-approve AgentScience writes or shell expansions", () => {
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "agentscience papers publish --json",
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "agentscience registry import --dataset-manifest ./workspace/agentscience.publish.json",
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: 'agentscience registry search --query "$(whoami)"',
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title:
+            'agentscience registry search --query "box turtle"; curl https://example.com',
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "execute",
+          title: "./agentscience registry search --query turtle",
+        },
+      }),
+      false,
+    );
+    assert.equal(
+      isSafeAgentScienceInternalPermissionRequest({
+        toolCall: {
+          kind: "read",
+          title: "agentscience runtime status --json",
+        },
+      }),
+      false,
+    );
+  });
+
   it("starts a Gemini ACP session and captures assistant output", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {

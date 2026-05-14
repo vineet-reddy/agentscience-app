@@ -707,6 +707,34 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.messages).toHaveLength(1);
   });
 
+  it("preserves Gemini session providers from server events", () => {
+    const thread = makeThread({
+      modelSelection: {
+        provider: "gemini",
+        model: DEFAULT_MODEL_BY_PROVIDER.gemini,
+      },
+    });
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "running",
+          providerName: "gemini",
+          runtimeMode: "full-access",
+          activeTurnId: TurnId.makeUnsafe("turn-gemini"),
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+      }),
+    );
+
+    expect(next.threads[0]?.session?.provider).toBe("gemini");
+  });
+
   it("does not regress latestTurn when an older turn diff completes late", () => {
     const state = makeState(
       makeThread({

@@ -10,14 +10,12 @@ import { isElectron } from "../env";
 interface DesktopConnectionPortalProps {
   readonly codexProvider: ServerProvider | undefined;
   readonly geminiProvider: ServerProvider | undefined;
-  readonly onContinueGemini: () => void;
   readonly onOpenAdvanced: () => void;
 }
 
 export function DesktopConnectionPortal({
   codexProvider,
   geminiProvider,
-  onContinueGemini,
   onOpenAdvanced,
 }: DesktopConnectionPortalProps) {
   const isMacElectron = isElectron && isMacPlatform(navigator.platform);
@@ -53,12 +51,7 @@ export function DesktopConnectionPortal({
             </p>
           </div>
 
-          <GeminiAuthControls
-            provider={geminiProvider}
-            appearance="portal"
-            onContinue={onContinueGemini}
-            onOpenAdvanced={onOpenAdvanced}
-          />
+          <GeminiAuthControls provider={geminiProvider} appearance="portal" />
 
           <CodexAuthControls
             provider={codexProvider}

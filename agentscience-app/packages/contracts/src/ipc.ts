@@ -28,6 +28,7 @@ import type {
   CodexAuthApiKeyLoginInput,
   CodexAuthCancelLoginInput,
   CodexAuthState,
+  GeminiAuthApiKeyLoginInput,
   ServerConfig,
   AttachmentImportFilesInput,
   AttachmentImportFilesResult,
@@ -215,6 +216,8 @@ export interface NativeApi {
     getCodexAuthState: () => Promise<CodexAuthState>;
     startCodexChatgptLogin: () => Promise<CodexAuthState>;
     loginCodexWithApiKey: (input: CodexAuthApiKeyLoginInput) => Promise<CodexAuthState>;
+    loginGeminiWithApiKey: (input: GeminiAuthApiKeyLoginInput) => Promise<ServerSettings>;
+    loginGeminiWithGoogle: () => Promise<ServerSettings>;
     cancelCodexChatgptLogin: (
       input?: CodexAuthCancelLoginInput,
     ) => Promise<CodexAuthState>;

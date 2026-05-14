@@ -93,6 +93,11 @@ export const CodexAuthApiKeyLoginInput = Schema.Struct({
 });
 export type CodexAuthApiKeyLoginInput = typeof CodexAuthApiKeyLoginInput.Type;
 
+export const GeminiAuthApiKeyLoginInput = Schema.Struct({
+  apiKey: TrimmedNonEmptyString,
+});
+export type GeminiAuthApiKeyLoginInput = typeof GeminiAuthApiKeyLoginInput.Type;
+
 export const CodexAuthCancelLoginInput = Schema.Struct({
   loginId: Schema.optional(TrimmedNonEmptyString),
 });

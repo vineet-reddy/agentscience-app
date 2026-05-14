@@ -286,20 +286,21 @@ describe("buildCodexAppServerEnv", () => {
 });
 
 describe("buildCodexModeDeveloperInstructions", () => {
-  it("tells desktop turns not to rerun the startup runtime check or repeat the intro", () => {
+  it("uses desktop-adapted AgentScience instructions without CLI startup checks", () => {
     for (const mode of ["default", "plan"] as const) {
       const instructions = buildCodexModeDeveloperInstructions(mode);
       expect(instructions).toContain("outbound network access is available");
       expect(instructions).toContain("AGENTSCIENCE_MANAGED_PYTHON_PATH");
       expect(instructions).toContain("AGENTSCIENCE_PAPER_TOOLCHAIN_BIN_DIR");
-      expect(instructions).toContain(
-        "AgentScience desktop already performs the runtime/update health check at app startup.",
+      expect(instructions).toContain("Start by helping with the user's actual message.");
+      expect(instructions).not.toContain(
+        "If the `agentscience` CLI is available, run `agentscience runtime status --json`",
       );
-      expect(instructions).toContain(
+      expect(instructions).not.toContain(
         "Do not run `agentscience runtime status --json` automatically inside a thread",
       );
-      expect(instructions).toContain(
-        'Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread.',
+      expect(instructions).not.toContain(
+        "AgentScience is ready. Bring me a research idea",
       );
       expect(instructions).toContain("agentscience.publish.json");
       expect(instructions).toContain("publishManifest");
@@ -880,7 +881,7 @@ describe("sendTurn", () => {
     );
   });
 
-  it("injects desktop runtime-check overrides into collaboration instructions", async () => {
+  it("injects desktop-adapted collaboration instructions", async () => {
     const { manager, sendRequest } = createSendTurnHarness();
 
     await manager.sendTurn({
@@ -894,10 +895,13 @@ describe("sendTurn", () => {
     };
 
     expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain(
-      "Do not run `agentscience runtime status --json` automatically inside a thread",
+      "Start by helping with the user's actual message.",
     );
-    expect(requestParams.collaborationMode?.settings?.developer_instructions).toContain(
-      'Do not emit the generic "AgentScience is ready" onboarding introduction at the start of every desktop thread.',
+    expect(requestParams.collaborationMode?.settings?.developer_instructions).not.toContain(
+      "If the `agentscience` CLI is available, run `agentscience runtime status --json`",
+    );
+    expect(requestParams.collaborationMode?.settings?.developer_instructions).not.toContain(
+      "AgentScience is ready. Bring me a research idea",
     );
   });
 

@@ -114,9 +114,9 @@ const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
   {
     provider: "gemini",
     title: "Gemini",
-    binaryPlaceholder: "Default: bundled Gemini CLI",
+    binaryPlaceholder: "Default: bundled Gemini runtime",
     binaryDescription:
-      "Optional override. Leave blank to use the Gemini CLI managed by AgentScience.",
+      "Optional override. Leave blank to use the Gemini runtime managed by AgentScience.",
   },
 ] as const;
 
@@ -621,8 +621,6 @@ export function GeneralSettingsPanel() {
     gemini: Boolean(
       settings.providers.gemini.binaryPath !==
         DEFAULT_UNIFIED_SETTINGS.providers.gemini.binaryPath ||
-        settings.providers.gemini.authMethod !==
-          DEFAULT_UNIFIED_SETTINGS.providers.gemini.authMethod ||
         settings.providers.gemini.customModels.length > 0,
     ),
   });
@@ -1302,31 +1300,7 @@ export function GeneralSettingsPanel() {
                   }
                 />
               ) : providerCard.provider === "gemini" ? (
-                <GeminiAuthControls
-                  provider={providerCard.liveProvider}
-                  onContinue={() => {
-                    updateSettings({
-                      textGenerationModelSelection: {
-                        provider: "gemini",
-                        model: "gemini-3.1-pro-preview",
-                      },
-                      providers: {
-                        ...settings.providers,
-                        gemini: {
-                          ...settings.providers.gemini,
-                          enabled: true,
-                          authMethod: "oauth-personal",
-                        },
-                      },
-                    });
-                  }}
-                  onOpenAdvanced={() =>
-                    setOpenProviderDetails((existing) => ({
-                      ...existing,
-                      [providerCard.provider]: true,
-                    }))
-                  }
-                />
+                <GeminiAuthControls provider={providerCard.liveProvider} />
               ) : null}
 
               <Collapsible
@@ -1434,68 +1408,6 @@ export function GeneralSettingsPanel() {
                             </span>
                           ) : null}
                         </label>
-                      </div>
-                    ) : null}
-
-                    {providerCard.provider === "gemini" ? (
-                      <div className="border-t border-border/60 px-4 py-3 sm:px-5">
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
-                            <div className="text-xs font-medium text-foreground">
-                              Gemini authentication
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Google account login uses Gemini CLI's browser authentication flow.
-                            </div>
-                          </div>
-                          <Select
-                            value={settings.providers.gemini.authMethod}
-                            onValueChange={(value) => {
-                              if (
-                                value === "oauth-personal" ||
-                                value === "gemini-api-key" ||
-                                value === "vertex-ai" ||
-                                value === "gateway"
-                              ) {
-                                updateSettings({
-                                  providers: {
-                                    ...settings.providers,
-                                    gemini: {
-                                      ...settings.providers.gemini,
-                                      authMethod: value,
-                                    },
-                                  },
-                                });
-                              }
-                            }}
-                          >
-                            <SelectTrigger className="w-full sm:w-48" aria-label="Gemini authentication">
-                              <SelectValue>
-                                {settings.providers.gemini.authMethod === "oauth-personal"
-                                  ? "Google account"
-                                  : settings.providers.gemini.authMethod === "gemini-api-key"
-                                    ? "Gemini API key"
-                                    : settings.providers.gemini.authMethod === "vertex-ai"
-                                      ? "Vertex AI"
-                                      : "AI API Gateway"}
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectPopup align="end" alignItemWithTrigger={false}>
-                              <SelectItem hideIndicator value="oauth-personal">
-                                Google account
-                              </SelectItem>
-                              <SelectItem hideIndicator value="gemini-api-key">
-                                Gemini API key
-                              </SelectItem>
-                              <SelectItem hideIndicator value="vertex-ai">
-                                Vertex AI
-                              </SelectItem>
-                              <SelectItem hideIndicator value="gateway">
-                                AI API Gateway
-                              </SelectItem>
-                            </SelectPopup>
-                          </Select>
-                        </div>
                       </div>
                     ) : null}
 

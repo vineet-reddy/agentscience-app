@@ -105,6 +105,12 @@ export interface WsRpcClient {
     readonly loginCodexWithApiKey: RpcUnaryMethod<
       typeof WS_METHODS.serverLoginCodexWithApiKey
     >;
+    readonly loginGeminiWithApiKey: RpcUnaryMethod<
+      typeof WS_METHODS.serverLoginGeminiWithApiKey
+    >;
+    readonly loginGeminiWithGoogle: RpcUnaryNoArgMethod<
+      typeof WS_METHODS.serverLoginGeminiWithGoogle
+    >;
     readonly cancelCodexChatgptLogin: (
       input?: RpcInput<typeof WS_METHODS.serverCancelCodexChatgptLogin>,
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverCancelCodexChatgptLogin>>;
@@ -249,6 +255,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[WS_METHODS.serverStartCodexChatgptLogin]({})),
       loginCodexWithApiKey: (input) =>
         transport.request((client) => client[WS_METHODS.serverLoginCodexWithApiKey](input)),
+      loginGeminiWithApiKey: (input) =>
+        transport.request((client) => client[WS_METHODS.serverLoginGeminiWithApiKey](input)),
+      loginGeminiWithGoogle: () =>
+        transport.request((client) => client[WS_METHODS.serverLoginGeminiWithGoogle]({})),
       cancelCodexChatgptLogin: (input) =>
         transport.request((client) =>
           client[WS_METHODS.serverCancelCodexChatgptLogin](input ?? {}),

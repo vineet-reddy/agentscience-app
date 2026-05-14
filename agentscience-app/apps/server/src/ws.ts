@@ -39,6 +39,12 @@ import {
 } from "./observability/RpcInstrumentation";
 import { AgentScienceAuthService } from "./agentScienceAuth";
 import { CodexAuth } from "./provider/Services/CodexAuth";
+import { loginGeminiWithGoogle } from "./provider/geminiGoogleAuth";
+import { clearGeminiGoogleAuthMarker } from "./provider/providerAuthMarkers";
+import {
+  validateGeminiApiKey,
+  writeProviderApiKey,
+} from "./provider/providerApiKeys";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -499,6 +505,46 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.serverLoginCodexWithApiKey, codexAuth.loginWithApiKey(input), {
           "rpc.aggregate": "server",
         }),
+      [WS_METHODS.serverLoginGeminiWithApiKey]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.serverLoginGeminiWithApiKey,
+          Effect.gen(function* () {
+            const apiKey = input.apiKey.trim();
+            yield* validateGeminiApiKey(apiKey, config.stateDir);
+            yield* writeProviderApiKey(config.stateDir, "gemini", apiKey);
+            yield* clearGeminiGoogleAuthMarker(config.stateDir);
+            const current = yield* serverSettings.getSettings;
+            const nextSettings = yield* serverSettings.updateSettings({
+              textGenerationModelSelection: {
+                provider: "gemini",
+                model: "gemini-3.1-pro-preview",
+              },
+              providers: {
+                ...current.providers,
+                gemini: {
+                  ...current.providers.gemini,
+                  enabled: true,
+                  authMethod: "gemini-api-key",
+                },
+              },
+            });
+            yield* providerRegistry.refresh();
+            return nextSettings;
+          }),
+          {
+            "rpc.aggregate": "server",
+          },
+        ),
+      [WS_METHODS.serverLoginGeminiWithGoogle]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.serverLoginGeminiWithGoogle,
+          loginGeminiWithGoogle().pipe(
+            Effect.tap(() => providerRegistry.refresh()),
+          ),
+          {
+            "rpc.aggregate": "server",
+          },
+        ),
       [WS_METHODS.serverCancelCodexChatgptLogin]: (input) =>
         observeRpcEffect(
           WS_METHODS.serverCancelCodexChatgptLogin,

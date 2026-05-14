@@ -12,9 +12,12 @@ import {
   spawnAndCollect,
 } from "../providerSnapshot";
 import { makeManagedServerProvider } from "../makeManagedServerProvider";
-import { buildGeminiLaunchSpec } from "../geminiCli";
+import { buildAgentScienceGeminiEnv, buildGeminiLaunchSpec } from "../geminiCli";
 import { resolveEffectiveGeminiSettings } from "../geminiSettings";
+import { hasGeminiGoogleAuthMarker } from "../providerAuthMarkers";
+import { readProviderApiKey } from "../providerApiKeys";
 import { GeminiProvider } from "../Services/GeminiProvider";
+import { ServerConfig } from "../../config";
 import { ServerSettingsService } from "../../serverSettings";
 
 const PROVIDER = "gemini" as const;
@@ -50,12 +53,21 @@ const BUILT_IN_MODELS: ReadonlyArray<ServerProviderModel> = [
 
 const runGeminiCommand = Effect.fn("runGeminiCommand")(function* (args: ReadonlyArray<string>) {
   const settingsService = yield* ServerSettingsService;
+  const serverConfig = yield* ServerConfig;
   const geminiSettings = yield* settingsService.getSettings.pipe(
     Effect.map((settings) => resolveEffectiveGeminiSettings(settings.providers.gemini)),
   );
+  const geminiApiKey =
+    geminiSettings.authMethod === "gemini-api-key"
+      ? yield* readProviderApiKey(serverConfig.stateDir, PROVIDER)
+      : undefined;
   const launchSpec = buildGeminiLaunchSpec({
     binaryPath: geminiSettings.binaryPath,
     args,
+    processEnv: buildAgentScienceGeminiEnv({
+      stateDir: serverConfig.stateDir,
+      apiKey: geminiApiKey,
+    }),
   });
   const command = ChildProcess.make(launchSpec.command, [...launchSpec.args], {
     env: launchSpec.env,
@@ -66,11 +78,20 @@ const runGeminiCommand = Effect.fn("runGeminiCommand")(function* (args: Readonly
 
 export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(function* () {
   const settingsService = yield* ServerSettingsService;
+  const serverConfig = yield* ServerConfig;
   const geminiSettings = yield* settingsService.getSettings.pipe(
     Effect.map((settings) => resolveEffectiveGeminiSettings(settings.providers.gemini)),
   );
   const checkedAt = new Date().toISOString();
   const models = providerModelsFromSettings(BUILT_IN_MODELS, PROVIDER, geminiSettings.customModels);
+  const geminiApiKey =
+    geminiSettings.authMethod === "gemini-api-key"
+      ? yield* readProviderApiKey(serverConfig.stateDir, PROVIDER)
+      : undefined;
+  const hasGoogleAuth =
+    geminiSettings.authMethod === "oauth-personal"
+      ? yield* hasGeminiGoogleAuthMarker(serverConfig.stateDir)
+      : false;
 
   if (!geminiSettings.enabled) {
     return buildServerProvider({
@@ -106,8 +127,8 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
         status: "error",
         auth: { status: "unknown" },
         message: isCommandMissingCause(error)
-          ? "AgentScience could not find the bundled Gemini CLI. Reinstall AgentScience or set a custom Gemini binary path."
-          : `Failed to execute Gemini CLI health check: ${
+          ? "AgentScience could not start Gemini. Reinstall AgentScience or open advanced setup."
+          : `Failed to check Gemini: ${
               error instanceof Error ? error.message : String(error)
             }.`,
       },
@@ -125,7 +146,7 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
         version: null,
         status: "error",
         auth: { status: "unknown" },
-        message: "Gemini CLI is installed but failed to run. Timed out while running command.",
+        message: "Gemini did not respond in time.",
       },
     });
   }
@@ -145,8 +166,8 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
         status: "error",
         auth: { status: "unknown" },
         message: detail
-          ? `Gemini CLI is installed but failed to run. ${detail}`
-          : "Gemini CLI is installed but failed to run.",
+          ? `Gemini failed to start. ${detail}`
+          : "Gemini failed to start.",
       },
     });
   }
@@ -161,7 +182,12 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
       version: parsedVersion,
       status: "ready",
       auth: {
-        status: "unknown",
+        status:
+          geminiSettings.authMethod === "gemini-api-key" && geminiApiKey
+            ? "authenticated"
+            : geminiSettings.authMethod === "oauth-personal" && hasGoogleAuth
+              ? "authenticated"
+              : "unknown",
         type: geminiSettings.authMethod,
         label:
           geminiSettings.authMethod === "oauth-personal"
@@ -173,7 +199,11 @@ export const checkGeminiProviderStatus = Effect.fn("checkGeminiProviderStatus")(
                 : "AI API Gateway",
       },
       message:
-        "Gemini CLI is installed. Authentication is verified when AgentScience starts a Gemini session.",
+        geminiSettings.authMethod === "gemini-api-key" && geminiApiKey
+          ? "Gemini is ready to use."
+          : geminiSettings.authMethod === "oauth-personal" && hasGoogleAuth
+            ? "Gemini is ready to use."
+            : "Gemini is installed. Sign in to use it in AgentScience.",
     },
   });
 });
@@ -183,9 +213,11 @@ export const GeminiProviderLive = Layer.effect(
   Effect.gen(function* () {
     const serverSettings = yield* ServerSettingsService;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const serverConfig = yield* ServerConfig;
     const checkProvider = checkGeminiProviderStatus().pipe(
       Effect.provideService(ServerSettingsService, serverSettings),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provideService(ServerConfig, serverConfig),
     );
 
     return yield* makeManagedServerProvider<GeminiSettings>({

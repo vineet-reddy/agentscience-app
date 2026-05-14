@@ -47,7 +47,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
-import { useSettings, useUpdateSettings } from "../hooks/useSettings";
+import { useSettings } from "../hooks/useSettings";
 import { resolveOnboardingAccountSyncKey } from "../onboardingGate";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
@@ -79,7 +79,6 @@ function RootRouteView() {
   const serverProviders = useServerProviders();
   const agentScienceAccount = useAgentScienceAccount();
   const settings = useSettings();
-  const { updateSettings } = useUpdateSettings();
   const pathname = useLocation({ select: (loc) => loc.pathname });
 
   if (!readNativeApi()) {
@@ -161,23 +160,6 @@ function RootRouteView() {
             <DesktopConnectionPortal
               codexProvider={codexProvider}
               geminiProvider={geminiProvider}
-              onContinueGemini={() => {
-                updateSettings({
-                  textGenerationModelSelection: {
-                    provider: "gemini",
-                    model: "gemini-3.1-pro-preview",
-                  },
-                  providers: {
-                    ...settings.providers,
-                    gemini: {
-                      ...settings.providers.gemini,
-                      enabled: true,
-                      authMethod: "oauth-personal",
-                    },
-                  },
-                });
-                void ensureNativeApi().server.refreshProviders();
-              }}
               onOpenAdvanced={() => {
                 void navigate({ to: "/settings/general" });
               }}

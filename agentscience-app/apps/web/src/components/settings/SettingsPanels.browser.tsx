@@ -66,6 +66,24 @@ function createCodexProvider(overrides?: Partial<ServerConfig["providers"][numbe
   };
 }
 
+function createGeminiProvider(overrides?: Partial<ServerConfig["providers"][number]>) {
+  return {
+    provider: "gemini" as const,
+    enabled: true,
+    installed: true,
+    version: "0.42.0",
+    status: "ready" as const,
+    auth: {
+      status: "unknown" as const,
+      type: "oauth-personal",
+      label: "Google account",
+    },
+    checkedAt: "2026-04-14T12:00:00.000Z",
+    models: [],
+    ...overrides,
+  };
+}
+
 async function renderGeneralSettingsPanel() {
   const { GeneralSettingsPanel } = await import("./SettingsPanels");
   return render(
@@ -221,7 +239,7 @@ describe("GeneralSettingsPanel observability", () => {
 
     await renderGeneralSettingsPanel();
 
-    await expect.element(page.getByText("Connection")).toBeInTheDocument();
+    await expect.element(page.getByRole("heading", { name: "Connection" })).toBeInTheDocument();
     await page.getByRole("button", { name: "Continue with ChatGPT" }).click();
 
     expect(startCodexChatgptLogin).toHaveBeenCalledOnce();
@@ -258,10 +276,103 @@ describe("GeneralSettingsPanel observability", () => {
     await renderGeneralSettingsPanel();
 
     await page.getByRole("button", { name: "Use API key" }).click();
-    await page.getByPlaceholder("sk-...").fill("sk-test-key");
+    await page.getByPlaceholder("sk-... or AIza...").fill("sk-test-key");
     await page.getByRole("button", { name: "Save API key" }).click();
 
     expect(loginCodexWithApiKey).toHaveBeenCalledWith({ apiKey: "sk-test-key" });
+  });
+
+  it("submits a detected Gemini API key from the shared API key form", async () => {
+    const getCodexAuthState = vi.fn<NativeApi["server"]["getCodexAuthState"]>().mockResolvedValue({
+      status: "idle",
+      updatedAt: "2026-04-14T12:00:00.000Z",
+      defaultHomePath: "/repo/project/.agentscience/codex",
+    });
+    const loginGeminiWithApiKey = vi
+      .fn<NativeApi["server"]["loginGeminiWithApiKey"]>()
+      .mockResolvedValue({
+        ...DEFAULT_SERVER_SETTINGS,
+        textGenerationModelSelection: {
+          provider: "gemini",
+          model: "gemini-3.1-pro-preview",
+        },
+        providers: {
+          ...DEFAULT_SERVER_SETTINGS.providers,
+          gemini: {
+            ...DEFAULT_SERVER_SETTINGS.providers.gemini,
+            authMethod: "gemini-api-key",
+          },
+        },
+      });
+
+    window.nativeApi = {
+      server: {
+        getCodexAuthState,
+        loginGeminiWithApiKey,
+        refreshProviders: vi.fn().mockResolvedValue({ providers: [] }),
+      },
+    } as unknown as NativeApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [createCodexProvider(), createGeminiProvider()],
+    });
+
+    await renderGeneralSettingsPanel();
+
+    await page.getByRole("button", { name: "Use API key" }).click();
+    await page.getByPlaceholder("sk-... or AIza...").fill("AIza-test-key");
+    await expect.element(page.getByText("Detected Gemini.", { exact: false })).toBeInTheDocument();
+    await page.getByRole("button", { name: "Save API key" }).click();
+
+    expect(loginGeminiWithApiKey).toHaveBeenCalledWith({ apiKey: "AIza-test-key" });
+  });
+
+  it("starts Gemini Google sign-in from Gemini settings", async () => {
+    const getCodexAuthState = vi.fn<NativeApi["server"]["getCodexAuthState"]>().mockResolvedValue({
+      status: "idle",
+      updatedAt: "2026-04-14T12:00:00.000Z",
+      defaultHomePath: "/repo/project/.agentscience/codex",
+    });
+    const loginGeminiWithGoogle = vi
+      .fn<NativeApi["server"]["loginGeminiWithGoogle"]>()
+      .mockResolvedValue({
+        ...DEFAULT_SERVER_SETTINGS,
+        textGenerationModelSelection: {
+          provider: "gemini",
+          model: "gemini-3.1-pro-preview",
+        },
+        providers: {
+          ...DEFAULT_SERVER_SETTINGS.providers,
+          gemini: {
+            ...DEFAULT_SERVER_SETTINGS.providers.gemini,
+            authMethod: "oauth-personal",
+          },
+        },
+      });
+    const refreshProviders = vi.fn<NativeApi["server"]["refreshProviders"]>().mockResolvedValue({
+      providers: [createGeminiProvider({ auth: { status: "authenticated", label: "Google account" } })],
+    });
+
+    window.nativeApi = {
+      server: {
+        getCodexAuthState,
+        loginGeminiWithGoogle,
+        refreshProviders,
+      },
+    } as unknown as NativeApi;
+
+    setServerConfigSnapshot({
+      ...createBaseServerConfig(),
+      providers: [createCodexProvider(), createGeminiProvider()],
+    });
+
+    await renderGeneralSettingsPanel();
+
+    await page.getByRole("button", { name: "Continue with Gemini" }).click();
+
+    expect(loginGeminiWithGoogle).toHaveBeenCalledOnce();
+    expect(refreshProviders).toHaveBeenCalledOnce();
   });
 
   it("keeps internal Codex profile jargon out of the default settings surface", async () => {

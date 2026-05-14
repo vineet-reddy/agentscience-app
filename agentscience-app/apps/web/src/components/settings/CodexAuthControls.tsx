@@ -23,6 +23,15 @@ interface CodexAuthControlsProps {
   readonly onOpenAdvanced?: () => void;
 }
 
+type ApiKeyProvider = "openai" | "gemini" | "unknown";
+
+export function detectApiKeyProvider(value: string): ApiKeyProvider {
+  const key = value.trim();
+  if (/^sk-[A-Za-z0-9_-]+$/.test(key)) return "openai";
+  if (/^AIza[0-9A-Za-z_-]+$/.test(key)) return "gemini";
+  return "unknown";
+}
+
 function toFriendlyChatgptErrorMessage(message: string | null | undefined): string | null {
   const normalizedMessage = message?.trim();
   if (!normalizedMessage) {
@@ -100,7 +109,7 @@ function resolveConnectionCopy(input: {
     return toFriendlyChatgptErrorMessage(input.authErrorMessage) ?? "Please try again.";
   }
 
-  return "Continue with ChatGPT or use an OpenAI API key.";
+  return "Continue with ChatGPT or paste an API key.";
 }
 
 export function CodexAuthControls({
@@ -143,6 +152,7 @@ export function CodexAuthControls({
     provider,
     authErrorMessage,
   });
+  const detectedApiKeyProvider = detectApiKeyProvider(apiKey);
 
   const handleOpenExternal = async (
     url: string,
@@ -186,23 +196,37 @@ export function CodexAuthControls({
   const handleSubmitApiKey = async () => {
     const normalizedApiKey = apiKey.trim();
     if (!normalizedApiKey) {
-      setApiKeyError("Enter an OpenAI API key.");
+      setApiKeyError("Enter an API key.");
+      return;
+    }
+
+    const detectedProvider = detectApiKeyProvider(normalizedApiKey);
+    if (detectedProvider === "unknown") {
+      setApiKeyError("Paste an OpenAI key that starts with sk- or a Gemini key that starts with AIza.");
       return;
     }
 
     setApiKeyError(null);
     setActiveAction("apiKey");
     try {
-      await loginWithApiKey({ apiKey: normalizedApiKey });
+      if (detectedProvider === "openai") {
+        await loginWithApiKey({ apiKey: normalizedApiKey });
+      } else {
+        await ensureNativeApi().server.loginGeminiWithApiKey({ apiKey: normalizedApiKey });
+        await ensureNativeApi().server.refreshProviders();
+      }
       setApiKey("");
       setShowApiKeyForm(false);
       toastManager.add({
         type: "success",
         title: "Connected",
-        description: "AgentScience is now using your OpenAI API key.",
+        description:
+          detectedProvider === "openai"
+            ? "AgentScience is now using your OpenAI API key."
+            : "AgentScience is now using your Gemini API key.",
       });
     } catch (error) {
-      setApiKeyError(error instanceof Error ? error.message : "Unable to connect Codex.");
+      setApiKeyError(error instanceof Error ? error.message : "Unable to save this API key.");
     } finally {
       setActiveAction(null);
     }
@@ -263,7 +287,7 @@ export function CodexAuthControls({
       <div className={withTopBorder ? "border-t border-rule pt-4" : ""}>
         <div className="max-w-[460px] space-y-3">
           <label className="block">
-            <span className="text-xs font-medium text-foreground">OpenAI API key</span>
+            <span className="text-xs font-medium text-foreground">API key</span>
             <Input
               className="mt-1.5"
               type="password"
@@ -276,14 +300,18 @@ export function CodexAuthControls({
                   setApiKeyError(null);
                 }
               }}
-              placeholder="sk-..."
+              placeholder="sk-... or AIza..."
             />
           </label>
           {apiKeyError ? (
             <p className="text-xs text-destructive">{apiKeyError}</p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              This key will only be used inside AgentScience.
+              {detectedApiKeyProvider === "openai"
+                ? "Detected OpenAI. This key will only be used inside AgentScience."
+                : detectedApiKeyProvider === "gemini"
+                  ? "Detected Gemini. This key will only be used inside AgentScience."
+                  : "Paste an OpenAI or Gemini API key. AgentScience will recognize the provider."}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -412,7 +440,7 @@ export function CodexAuthControls({
           <div className="max-w-[38rem]">
             <p className="text-sm font-medium text-foreground">Use an API key</p>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              Use your OpenAI API key instead.
+              Paste an OpenAI or Gemini API key. AgentScience will recognize it.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">

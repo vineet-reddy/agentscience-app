@@ -32,7 +32,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
         disabled={isResponding}
         onClick={() => void onRespondToApproval(requestId, "decline")}
       >
-        Decline
+        Deny once
       </Button>
       <Button
         size="sm"

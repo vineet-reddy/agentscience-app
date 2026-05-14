@@ -11,43 +11,43 @@ type GeminiAuthControlsAppearance = "settings" | "portal";
 interface GeminiAuthControlsProps {
   readonly provider: ServerProvider | undefined;
   readonly appearance?: GeminiAuthControlsAppearance;
-  readonly onContinue?: () => void;
-  readonly onOpenAdvanced?: () => void;
 }
 
 function resolveHeadline(provider: ServerProvider | undefined): string {
-  if (!provider) return "Checking Gemini CLI.";
+  if (!provider) return "Checking Gemini.";
   if (provider.enabled === false) return "Gemini is turned off.";
-  if (provider.installed === false) return "AgentScience could not find Gemini CLI.";
+  if (provider.installed === false) return "AgentScience could not start Gemini.";
   if (provider.status === "error") return "Gemini is unavailable.";
-  return provider.auth.label ? `Continue with ${provider.auth.label}.` : "Continue with Gemini.";
+  if (provider.auth.status === "authenticated") {
+    return provider.auth.label ? `Connected with ${provider.auth.label}.` : "Gemini is connected.";
+  }
+  return "Continue with Gemini.";
 }
 
 function resolveCopy(provider: ServerProvider | undefined): string {
-  if (!provider) return "Waiting for AgentScience to confirm the Gemini runtime.";
+  if (!provider) return "Waiting for AgentScience to check Gemini.";
   if (provider.enabled === false) {
     return "Open advanced setup if you need to turn Gemini back on.";
   }
   if (provider.installed === false) {
-    return "Reinstall AgentScience or point it at a custom Gemini binary.";
+    return "Reinstall AgentScience or open advanced setup.";
   }
   if (provider.status === "error") {
-    return provider.message ?? "Gemini failed its startup checks.";
+    return provider.message ?? "Gemini is not available.";
   }
   if (provider.auth.status === "authenticated") {
-    return "AgentScience will use this Gemini connection automatically.";
+    return "AgentScience will use Gemini automatically.";
   }
-  return "Gemini CLI handles Google sign-in in the browser when the first Gemini session starts.";
+  return "Sign in with your Google account in the browser.";
 }
 
 export function GeminiAuthControls({
   provider,
   appearance = "settings",
-  onContinue,
-  onOpenAdvanced,
 }: GeminiAuthControlsProps) {
   const [isContinuing, setIsContinuing] = useState(false);
   const isPortal = appearance === "portal";
+  const isAuthenticated = provider?.auth.status === "authenticated";
   const isAvailable =
     provider?.enabled !== false &&
     provider?.installed !== false &&
@@ -56,17 +56,17 @@ export function GeminiAuthControls({
   const handleContinue = async () => {
     setIsContinuing(true);
     try {
-      onContinue?.();
+      await ensureNativeApi().server.loginGeminiWithGoogle();
       await ensureNativeApi().server.refreshProviders();
       toastManager.add({
         type: "success",
-        title: "Gemini selected",
-        description: "Google sign-in will complete through Gemini CLI when needed.",
+        title: "Gemini connected",
+        description: "AgentScience will use Gemini automatically.",
       });
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Unable to select Gemini",
+        title: "Unable to connect Gemini",
         description: error instanceof Error ? error.message : "An unknown error occurred.",
       });
     } finally {
@@ -93,23 +93,12 @@ export function GeminiAuthControls({
           <Button
             type="button"
             size="sm"
-            disabled={!isAvailable || isContinuing}
+            disabled={!isAvailable || isContinuing || isAuthenticated}
             onClick={() => void handleContinue()}
           >
             {isContinuing ? <LoaderIcon className="size-3 animate-spin" /> : null}
-            Continue with Gemini
+            {isAuthenticated ? "Connected" : "Continue with Gemini"}
           </Button>
-          {onOpenAdvanced ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={isContinuing}
-              onClick={onOpenAdvanced}
-            >
-              Advanced
-            </Button>
-          ) : null}
         </div>
       </div>
     </div>

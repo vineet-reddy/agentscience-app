@@ -4681,134 +4681,124 @@ export default function ChatView({
                       />
                     </div>
                   ) : null}
-                  <div
-                    className={cn(
-                      "relative px-3 pb-2 sm:px-4",
-                      hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
-                    )}
-                  >
-                    {composerMenuOpen && !isComposerApprovalState && (
-                      <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
-                        <ComposerCommandMenu
-                          items={composerMenuItems}
-                          resolvedTheme={resolvedTheme}
-                          isLoading={isComposerMenuLoading}
-                          triggerKind={composerTriggerKind}
-                          activeItemId={activeComposerMenuItem?.id ?? null}
-                          onHighlightedItemChange={onComposerMenuItemHighlighted}
-                          onSelect={onSelectComposerItem}
-                        />
-                      </div>
-                    )}
-
-                    {!isComposerApprovalState &&
-                      pendingUserInputs.length === 0 &&
-                      (composerImages.length > 0 || composerFiles.length > 0) && (
-                        <div className="mb-3 flex flex-wrap gap-2">
-                          {composerImages.map((image) => (
-                            <div
-                              key={image.id}
-                              className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
-                            >
-                              {image.previewUrl ? (
-                                <button
-                                  type="button"
-                                  className="h-full w-full cursor-zoom-in"
-                                  aria-label={`Preview ${image.name}`}
-                                  onClick={() => {
-                                    const preview = buildExpandedImagePreview(
-                                      composerImages,
-                                      image.id,
-                                    );
-                                    if (!preview) return;
-                                    setExpandedImage(preview);
-                                  }}
-                                >
-                                  <img
-                                    src={image.previewUrl}
-                                    alt={image.name}
-                                    className="h-full w-full object-cover"
-                                  />
-                                </button>
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-muted-foreground/70">
-                                  {image.name}
-                                </div>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
-                                onClick={() => removeComposerImage(image.id)}
-                                aria-label={`Remove ${image.name}`}
-                              >
-                                <XIcon />
-                              </Button>
-                            </div>
-                          ))}
-                          {composerFiles.map((file) => (
-                            <div
-                              key={file.id}
-                              className="flex min-w-0 max-w-full items-center gap-2 rounded-md border border-border/80 bg-background px-2.5 py-1.5 text-xs"
-                            >
-                              <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-                              <div className="min-w-0">
-                                <div className="truncate font-medium text-foreground/85">
-                                  {file.name}
-                                </div>
-                                <div className="truncate text-[10px] text-muted-foreground/65">
-                                  {formatFileSize(file.sizeBytes)}
-                                </div>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                className="ml-1 shrink-0 text-muted-foreground/65"
-                                onClick={() => removeComposerFile(file.id)}
-                                aria-label={`Remove ${file.name}`}
-                              >
-                                <XIcon />
-                              </Button>
-                            </div>
-                          ))}
+                  {!isComposerApprovalState ? (
+                    <div
+                      className={cn(
+                        "relative px-3 pb-2 sm:px-4",
+                        hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                      )}
+                    >
+                      {composerMenuOpen && (
+                        <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
+                          <ComposerCommandMenu
+                            items={composerMenuItems}
+                            resolvedTheme={resolvedTheme}
+                            isLoading={isComposerMenuLoading}
+                            triggerKind={composerTriggerKind}
+                            activeItemId={activeComposerMenuItem?.id ?? null}
+                            onHighlightedItemChange={onComposerMenuItemHighlighted}
+                            onSelect={onSelectComposerItem}
+                          />
                         </div>
                       )}
-                    <ComposerPromptEditor
-                      ref={composerEditorRef}
-                      value={
-                        isComposerApprovalState
-                          ? ""
-                          : activePendingProgress
-                            ? activePendingProgress.customAnswer
-                            : prompt
-                      }
-                      cursor={composerCursor}
-                      terminalContexts={
-                        !isComposerApprovalState && pendingUserInputs.length === 0
-                          ? composerTerminalContexts
-                          : []
-                      }
-                      onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
-                      onChange={onPromptChange}
-                      onCommandKeyDown={onComposerCommandKey}
-                      onPaste={onComposerPaste}
-                      placeholder={
-                        isComposerApprovalState
-                          ? (activePendingApproval?.detail ??
-                            "Resolve this approval request to continue")
-                          : activePendingProgress
+
+                      {pendingUserInputs.length === 0 &&
+                        (composerImages.length > 0 || composerFiles.length > 0) && (
+                          <div className="mb-3 flex flex-wrap gap-2">
+                            {composerImages.map((image) => (
+                              <div
+                                key={image.id}
+                                className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+                              >
+                                {image.previewUrl ? (
+                                  <button
+                                    type="button"
+                                    className="h-full w-full cursor-zoom-in"
+                                    aria-label={`Preview ${image.name}`}
+                                    onClick={() => {
+                                      const preview = buildExpandedImagePreview(
+                                        composerImages,
+                                        image.id,
+                                      );
+                                      if (!preview) return;
+                                      setExpandedImage(preview);
+                                    }}
+                                  >
+                                    <img
+                                      src={image.previewUrl}
+                                      alt={image.name}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  </button>
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-muted-foreground/70">
+                                    {image.name}
+                                  </div>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="absolute right-1 top-1 bg-background/80 hover:bg-background/90"
+                                  onClick={() => removeComposerImage(image.id)}
+                                  aria-label={`Remove ${image.name}`}
+                                >
+                                  <XIcon />
+                                </Button>
+                              </div>
+                            ))}
+                            {composerFiles.map((file) => (
+                              <div
+                                key={file.id}
+                                className="flex min-w-0 max-w-full items-center gap-2 rounded-md border border-border/80 bg-background px-2.5 py-1.5 text-xs"
+                              >
+                                <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                                <div className="min-w-0">
+                                  <div className="truncate font-medium text-foreground/85">
+                                    {file.name}
+                                  </div>
+                                  <div className="truncate text-[10px] text-muted-foreground/65">
+                                    {formatFileSize(file.sizeBytes)}
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="ml-1 shrink-0 text-muted-foreground/65"
+                                  onClick={() => removeComposerFile(file.id)}
+                                  aria-label={`Remove ${file.name}`}
+                                >
+                                  <XIcon />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      <ComposerPromptEditor
+                        ref={composerEditorRef}
+                        value={activePendingProgress ? activePendingProgress.customAnswer : prompt}
+                        cursor={composerCursor}
+                        terminalContexts={
+                          pendingUserInputs.length === 0 ? composerTerminalContexts : []
+                        }
+                        onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                        onChange={onPromptChange}
+                        onCommandKeyDown={onComposerCommandKey}
+                        onPaste={onComposerPaste}
+                        placeholder={
+                          activePendingProgress
                             ? "Type your own answer, or leave this blank to use the selected option"
                             : showPlanFollowUpPrompt && activeProposedPlan
                               ? "Add feedback to refine the plan, or leave this blank to implement it"
                               : agentComposerPlaceholder
                                 ? agentComposerPlaceholder
-                              : phase === "disconnected"
-                                ? "Ask for follow-up changes or attach files"
-                                : "Ask anything, @tag files/folders, or use / to show available commands"
-                      }
-                      disabled={isConnecting || isComposerApprovalState}
-                    />
-                  </div>
+                                : phase === "disconnected"
+                                  ? "Ask for follow-up changes or attach files"
+                                  : "Ask anything, @tag files/folders, or use / to show available commands"
+                        }
+                        disabled={isConnecting}
+                      />
+                    </div>
+                  ) : null}
 
                   {/* Bottom toolbar */}
                   {activePendingApproval ? (

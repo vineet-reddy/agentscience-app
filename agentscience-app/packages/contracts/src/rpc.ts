@@ -71,6 +71,7 @@ import {
   CodexAuthCancelLoginInput,
   CodexAuthError,
   CodexAuthState,
+  GeminiAuthApiKeyLoginInput,
   ServerConfigStreamEvent,
   ServerConfig,
   ServerLifecycleStreamEvent,
@@ -120,6 +121,8 @@ export const WS_METHODS = {
   serverGetCodexAuthState: "server.getCodexAuthState",
   serverStartCodexChatgptLogin: "server.startCodexChatgptLogin",
   serverLoginCodexWithApiKey: "server.loginCodexWithApiKey",
+  serverLoginGeminiWithApiKey: "server.loginGeminiWithApiKey",
+  serverLoginGeminiWithGoogle: "server.loginGeminiWithGoogle",
   serverCancelCodexChatgptLogin: "server.cancelCodexChatgptLogin",
   serverLogoutCodex: "server.logoutCodex",
   serverApplyAgentScienceRuntimeUpdates: "server.applyAgentScienceRuntimeUpdates",
@@ -181,6 +184,24 @@ export const WsServerLoginCodexWithApiKeyRpc = Rpc.make(
     payload: CodexAuthApiKeyLoginInput,
     success: CodexAuthState,
     error: CodexAuthError,
+  },
+);
+
+export const WsServerLoginGeminiWithApiKeyRpc = Rpc.make(
+  WS_METHODS.serverLoginGeminiWithApiKey,
+  {
+    payload: GeminiAuthApiKeyLoginInput,
+    success: ServerSettings,
+    error: ServerSettingsError,
+  },
+);
+
+export const WsServerLoginGeminiWithGoogleRpc = Rpc.make(
+  WS_METHODS.serverLoginGeminiWithGoogle,
+  {
+    payload: Schema.Struct({}),
+    success: ServerSettings,
+    error: ServerSettingsError,
   },
 );
 
@@ -440,6 +461,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetCodexAuthStateRpc,
   WsServerStartCodexChatgptLoginRpc,
   WsServerLoginCodexWithApiKeyRpc,
+  WsServerLoginGeminiWithApiKeyRpc,
+  WsServerLoginGeminiWithGoogleRpc,
   WsServerCancelCodexChatgptLoginRpc,
   WsServerLogoutCodexRpc,
   WsServerApplyAgentScienceRuntimeUpdatesRpc,
