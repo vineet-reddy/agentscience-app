@@ -105,6 +105,20 @@ const BUNDLE_SKIP_SUFFIXES = [
   ".toc",
 ] as const;
 const FIGURE_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
+// Keep staged supplemental uploads inside the Blob token policy. Other
+// recognized binary artifacts remain in the local workspace instead of
+// aborting the paper publish.
+const PUBLISH_BLOB_ALLOWED_CONTENT_TYPES = [
+  "text/*",
+  "image/*",
+  "application/json",
+  "application/pdf",
+  "application/toml",
+  "application/x-bibtex",
+  "application/x-latex",
+  "application/x-tex",
+  "application/yaml",
+] as const;
 /**
  * Max bytes read from a source file while extracting title + abstract.
  * Big enough to get past a typical LaTeX preamble + abstract body; small
@@ -230,9 +244,23 @@ function isInlineTextContent(contentType: string, bytes: Buffer): boolean {
       contentType === "application/json" ||
       contentType === "application/x-bibtex" ||
       contentType === "application/x-latex" ||
+      contentType === "application/x-tex" ||
       contentType === "application/yaml" ||
       contentType === "application/toml" ||
       contentType === "application/typescript")
+  );
+}
+
+function contentTypeMatchesPolicy(contentType: string, policy: string): boolean {
+  if (policy.endsWith("/*")) {
+    return contentType.startsWith(policy.slice(0, -1));
+  }
+  return contentType === policy;
+}
+
+function isPublishBlobAllowedContentType(contentType: string): boolean {
+  return PUBLISH_BLOB_ALLOWED_CONTENT_TYPES.some((policy) =>
+    contentTypeMatchesPolicy(contentType, policy),
   );
 }
 
@@ -621,6 +649,10 @@ async function walkPublishBundle(
     }
 
     if (path.extname(relativePath).toLowerCase() === ".pdf") {
+      continue;
+    }
+
+    if (!isPublishBlobAllowedContentType(contentType)) {
       continue;
     }
 
