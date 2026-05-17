@@ -370,6 +370,83 @@ describe("local paper publish flow", () => {
     }
   });
 
+  it("skips blob-policy-disallowed supplemental artifact types instead of failing publish", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    await fs.writeFile(path.join(paperDir, "analysis.xlsx"), "spreadsheet bytes", "utf8");
+    await fs.writeFile(path.join(paperDir, "draft.docx"), "document bytes", "utf8");
+    await fs.writeFile(path.join(paperDir, "slides.pptx"), "presentation bytes", "utf8");
+    await fs.writeFile(path.join(paperDir, "archive.zip"), "archive bytes", "utf8");
+    await fs.writeFile(path.join(paperDir, "summary.csv"), "metric,value\nscore,1\n", "utf8");
+
+    const uploadedArtifacts: Array<{ path: string; contentType: string }> = [];
+    __internal.setBlobUploaderForTests(async (input) => {
+      if (
+        input.contentType.startsWith("application/vnd.openxmlformats-officedocument.") ||
+        input.contentType === "application/zip"
+      ) {
+        throw new Error(
+          `Vercel Blob: Content type mismatch, "contentType" ${input.contentType} is not allowed.`,
+        );
+      }
+      if (input.role === "artifacts") {
+        uploadedArtifacts.push({
+          path: input.relativePath,
+          contentType: input.contentType,
+        });
+      }
+      return {
+        url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+        pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+        downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+        sizeBytes: input.bytes.length,
+      };
+    });
+    const upstream = await startUpstreamServer(() => ({
+      status: 200,
+      body: {
+        paper: {
+          id: "remote-paper-policy",
+          slug: "desktop-paper-policy",
+          publishedAt: "2026-04-21T20:00:00.000Z",
+        },
+      },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      await Effect.runPromise(service.publish(__internal.encodePaperId(paperDir)));
+
+      expect(uploadedArtifacts).toEqual(
+        expect.arrayContaining([
+          { path: "paper.tex", contentType: "application/x-tex" },
+          { path: "summary.csv", contentType: "text/csv" },
+        ]),
+      );
+      expect(uploadedArtifacts).not.toContainEqual({
+        path: "analysis.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      expect(uploadedArtifacts).not.toContainEqual({
+        path: "draft.docx",
+        contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+      expect(uploadedArtifacts).not.toContainEqual({
+        path: "slides.pptx",
+        contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      });
+      expect(uploadedArtifacts).not.toContainEqual({
+        path: "archive.zip",
+        contentType: "application/zip",
+      });
+    } finally {
+      await upstream.close();
+    }
+  });
+
   it("cleans up uploaded blobs when the publish API rejects the metadata", async () => {
     const workspaceRoot = await makeTempWorkspaceRoot();
     const paperDir = await writePaperWorkspace({ workspaceRoot });
