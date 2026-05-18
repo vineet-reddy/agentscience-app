@@ -43,6 +43,14 @@ function withAbsoluteUrls(paper: LocalPaperSummary): LocalPaperSummary {
   };
 }
 
+function normalizePublishErrorMessage(message: string): string {
+  if (/storage quota exceeded/i.test(message) || /storage is temporarily full/i.test(message)) {
+    return "AgentScience storage is temporarily full. Large raw datasets are not uploaded with papers; link or register datasets separately, then try publishing again after older staged uploads are cleaned up.";
+  }
+
+  return message;
+}
+
 /**
  * Fetch the list of local papers. Throws on non-OK responses so the UI's
  * React Query wrapper can surface the error; callers are free to fall back
@@ -88,7 +96,7 @@ export async function publishLocalPaper(
     try {
       const body = (await response.json()) as { error?: string };
       if (typeof body.error === "string" && body.error.trim().length > 0) {
-        message = body.error;
+        message = normalizePublishErrorMessage(body.error.trim());
       }
     } catch {
       // Fall back to the generic status-based message above.
