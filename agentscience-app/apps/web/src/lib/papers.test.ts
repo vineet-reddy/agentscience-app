@@ -164,4 +164,25 @@ describe("publishLocalPaper", () => {
     );
     expect(paper.publication?.url).toBe("https://agentscience.example/papers/a-paper");
   });
+
+  it("maps provider quota failures to storage policy guidance", async () => {
+    stubDesktopServer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 400,
+          json: () =>
+            Promise.resolve({
+              error: "Vercel Blob: Storage quota exceeded for Hobby plan (1GB maximum)",
+            }),
+        }),
+      ),
+    );
+
+    await expect(publishLocalPaper("paperid-abc")).rejects.toThrow(
+      "AgentScience storage is temporarily full. Large raw datasets are not uploaded with papers; link or register datasets separately, then try publishing again after older staged uploads are cleaned up.",
+    );
+  });
 });
