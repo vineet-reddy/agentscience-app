@@ -119,6 +119,10 @@ const PUBLISH_BLOB_ALLOWED_CONTENT_TYPES = [
   "application/x-tex",
   "application/yaml",
 ] as const;
+const MAX_PUBLISH_ARTIFACT_BYTES = 5 * 1024 * 1024;
+const MAX_PUBLISH_TOTAL_ARTIFACT_BYTES = 25 * 1024 * 1024;
+const MAX_PUBLISH_FIGURE_BYTES = 15 * 1024 * 1024;
+const MAX_PUBLISH_TOTAL_FIGURE_BYTES = 50 * 1024 * 1024;
 /**
  * Max bytes read from a source file while extracting title + abstract.
  * Big enough to get past a typical LaTeX preamble + abstract body; small
@@ -169,6 +173,11 @@ type ArtifactUploadDescriptor = {
   readonly path: string;
   readonly contentType: string;
   readonly bytes: Buffer;
+};
+
+type PublishBundleByteBudget = {
+  artifactBytes: number;
+  figureBytes: number;
 };
 
 type UploadedBlobDescriptor = {
@@ -615,6 +624,7 @@ async function walkPublishBundle(
   artifacts: ArtifactUploadDescriptor[],
   figures: UploadDescriptor[],
   ignoreRules: readonly AgentScienceIgnoreRule[],
+  byteBudget: PublishBundleByteBudget,
 ): Promise<void> {
   let entries: import("node:fs").Dirent[];
   try {
@@ -622,6 +632,7 @@ async function walkPublishBundle(
   } catch {
     return;
   }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
 
   for (const entry of entries) {
     const absolutePath = path.join(currentDir, entry.name);
@@ -635,7 +646,14 @@ async function walkPublishBundle(
     }
 
     if (entry.isDirectory()) {
-      await walkPublishBundle(absolutePath, workspaceDir, artifacts, figures, ignoreRules);
+      await walkPublishBundle(
+        absolutePath,
+        workspaceDir,
+        artifacts,
+        figures,
+        ignoreRules,
+        byteBudget,
+      );
       continue;
     }
 
@@ -656,8 +674,22 @@ async function walkPublishBundle(
       continue;
     }
 
-    const bytes = await readFileBuffer(absolutePath);
+    const stat = await fs.stat(absolutePath).catch(() => null);
+    if (!stat?.isFile()) {
+      continue;
+    }
+
+    const sizeBytes = stat.size;
     if (isFigureFile(relativePath)) {
+      if (
+        sizeBytes > MAX_PUBLISH_FIGURE_BYTES ||
+        byteBudget.figureBytes + sizeBytes > MAX_PUBLISH_TOTAL_FIGURE_BYTES
+      ) {
+        continue;
+      }
+
+      const bytes = await readFileBuffer(absolutePath);
+      byteBudget.figureBytes += sizeBytes;
       figures.push({
         fileName: path.basename(absolutePath),
         contentType,
@@ -666,6 +698,15 @@ async function walkPublishBundle(
       continue;
     }
 
+    if (
+      sizeBytes > MAX_PUBLISH_ARTIFACT_BYTES ||
+      byteBudget.artifactBytes + sizeBytes > MAX_PUBLISH_TOTAL_ARTIFACT_BYTES
+    ) {
+      continue;
+    }
+
+    const bytes = await readFileBuffer(absolutePath);
+    byteBudget.artifactBytes += sizeBytes;
     artifacts.push({
       path: relativePath,
       contentType,
@@ -681,7 +722,10 @@ async function collectPublishBundle(folderAbsolutePath: string): Promise<{
   const artifacts: ArtifactUploadDescriptor[] = [];
   const figures: UploadDescriptor[] = [];
   const ignoreRules = await readAgentScienceIgnoreRules(folderAbsolutePath);
-  await walkPublishBundle(folderAbsolutePath, folderAbsolutePath, artifacts, figures, ignoreRules);
+  await walkPublishBundle(folderAbsolutePath, folderAbsolutePath, artifacts, figures, ignoreRules, {
+    artifactBytes: 0,
+    figureBytes: 0,
+  });
   return { artifacts, figures };
 }
 
@@ -749,10 +793,19 @@ async function buildPublishBody(input: {
     title: input.summary.title.trim(),
     abstract,
     latexSource,
-    pdf: {
+  };
+  const stagedPathnames: string[] = [];
+  const uploadStagedBlob = async (uploadInput: BlobUploaderInput) => {
+    const uploaded = await blobUploaderForTests(uploadInput);
+    stagedPathnames.push(uploaded.pathname);
+    return uploaded;
+  };
+
+  try {
+    body.pdf = {
       fileName: path.basename(pdfAbsolutePath),
       mimeType: pdfContentType,
-      ...(await blobUploaderForTests({
+      ...(await uploadStagedBlob({
         baseUrl: input.baseUrl,
         token: input.token,
         userId: input.userId,
@@ -763,63 +816,70 @@ async function buildPublishBody(input: {
         contentType: pdfContentType,
         bytes: pdfBytes,
       })),
-    },
-  };
+    };
 
-  if (bibMatch) {
-    const bibSource = await readFileText(
-      path.join(input.folderAbsolutePath, bibMatch.relativePath),
-    ).catch(() => null);
-    if (bibSource && bibSource.trim().length > 0) {
-      body.bibSource = bibSource;
+    if (bibMatch) {
+      const bibSource = await readFileText(
+        path.join(input.folderAbsolutePath, bibMatch.relativePath),
+      ).catch(() => null);
+      if (bibSource && bibSource.trim().length > 0) {
+        body.bibSource = bibSource;
+      }
     }
-  }
 
-  const artifacts = [];
-  for (const artifact of bundle.artifacts) {
-    artifacts.push({
-      path: artifact.path,
-      contentType: artifact.contentType,
-      sha256: sha256Hex(artifact.bytes),
-      ...(await blobUploaderForTests({
-        baseUrl: input.baseUrl,
-        token: input.token,
-        userId: input.userId,
-        uploadId,
-        role: "artifacts",
-        relativePath: artifact.path,
-        fileName: path.basename(artifact.path),
+    const artifacts = [];
+    for (const artifact of bundle.artifacts) {
+      artifacts.push({
+        path: artifact.path,
         contentType: artifact.contentType,
-        bytes: artifact.bytes,
-      })),
-      textContent: isInlineTextContent(artifact.contentType, artifact.bytes)
-        ? artifact.bytes.toString("utf8")
-        : undefined,
-    });
-  }
-  body.artifacts = artifacts;
+        sha256: sha256Hex(artifact.bytes),
+        ...(await uploadStagedBlob({
+          baseUrl: input.baseUrl,
+          token: input.token,
+          userId: input.userId,
+          uploadId,
+          role: "artifacts",
+          relativePath: artifact.path,
+          fileName: path.basename(artifact.path),
+          contentType: artifact.contentType,
+          bytes: artifact.bytes,
+        })),
+        textContent: isInlineTextContent(artifact.contentType, artifact.bytes)
+          ? artifact.bytes.toString("utf8")
+          : undefined,
+      });
+    }
+    body.artifacts = artifacts;
 
-  const figures = [];
-  for (const figure of bundle.figures) {
-    figures.push({
-      fileName: figure.fileName,
-      mimeType: figure.contentType,
-      ...(await blobUploaderForTests({
-        baseUrl: input.baseUrl,
-        token: input.token,
-        userId: input.userId,
-        uploadId,
-        role: "figures",
-        relativePath: figure.fileName,
+    const figures = [];
+    for (const figure of bundle.figures) {
+      figures.push({
         fileName: figure.fileName,
-        contentType: figure.contentType,
-        bytes: figure.bytes,
-      })),
-    });
-  }
-  body.figures = figures;
+        mimeType: figure.contentType,
+        ...(await uploadStagedBlob({
+          baseUrl: input.baseUrl,
+          token: input.token,
+          userId: input.userId,
+          uploadId,
+          role: "figures",
+          relativePath: figure.fileName,
+          fileName: figure.fileName,
+          contentType: figure.contentType,
+          bytes: figure.bytes,
+        })),
+      });
+    }
+    body.figures = figures;
 
-  return body;
+    return body;
+  } catch (error) {
+    await cleanupBlobPathnames({
+      baseUrl: input.baseUrl,
+      token: input.token,
+      pathnames: stagedPathnames,
+    });
+    throw error;
+  }
 }
 
 function collectBlobPathnamesFromPublishBody(body: Record<string, unknown>): string[] {
@@ -852,12 +912,12 @@ function collectBlobPathnamesFromPublishBody(body: Record<string, unknown>): str
   return [...new Set(pathnames)];
 }
 
-async function cleanupPublishBodyBlobs(input: {
+async function cleanupBlobPathnames(input: {
   readonly baseUrl: string;
   readonly token: string;
-  readonly body: Record<string, unknown>;
+  readonly pathnames: readonly string[];
 }) {
-  const pathnames = collectBlobPathnamesFromPublishBody(input.body);
+  const pathnames = [...new Set(input.pathnames)];
   if (pathnames.length === 0) {
     return;
   }
@@ -871,6 +931,18 @@ async function cleanupPublishBodyBlobs(input: {
   } catch (error) {
     console.warn(`Failed to clean up ${pathnames.length} uploaded AgentScience blob(s).`, error);
   }
+}
+
+async function cleanupPublishBodyBlobs(input: {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly body: Record<string, unknown>;
+}) {
+  await cleanupBlobPathnames({
+    baseUrl: input.baseUrl,
+    token: input.token,
+    pathnames: collectBlobPathnamesFromPublishBody(input.body),
+  });
 }
 
 function parsePublishedPaperResponse(
@@ -1712,6 +1784,11 @@ export const makeLocalPapersService = Effect.gen(function* () {
 
             const publication = parsePublishedPaperResponse(payload, config.agentScienceBaseUrl);
             if (!publication) {
+              await cleanupPublishBodyBlobs({
+                baseUrl: config.agentScienceBaseUrl,
+                token,
+                body,
+              });
               throw new LocalPaperPublishError(
                 "AgentScience accepted the publish request but returned an unexpected response.",
                 502,
@@ -1818,4 +1895,8 @@ export const __internal = {
   MAX_SCAN_DEPTH,
   AGENTSCIENCE_IGNORE_FILENAME,
   PUBLISHED_METADATA_FILENAME,
+  MAX_PUBLISH_ARTIFACT_BYTES,
+  MAX_PUBLISH_TOTAL_ARTIFACT_BYTES,
+  MAX_PUBLISH_FIGURE_BYTES,
+  MAX_PUBLISH_TOTAL_FIGURE_BYTES,
 };

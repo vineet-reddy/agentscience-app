@@ -447,6 +447,114 @@ describe("local paper publish flow", () => {
     }
   });
 
+  it("skips oversized supplemental artifacts before staging blobs", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    await fs.writeFile(path.join(paperDir, "summary.csv"), "metric,value\nscore,1\n", "utf8");
+    await fs.writeFile(
+      path.join(paperDir, "raw-dependency-screen.csv"),
+      Buffer.alloc(__internal.MAX_PUBLISH_ARTIFACT_BYTES + 1, "x"),
+    );
+
+    const uploadedArtifacts: string[] = [];
+    __internal.setBlobUploaderForTests(async (input) => {
+      if (input.role === "artifacts") {
+        if (input.relativePath === "raw-dependency-screen.csv") {
+          throw new Error("Oversized raw dataset should not be staged.");
+        }
+        uploadedArtifacts.push(input.relativePath);
+      }
+      return {
+        url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+        pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+        downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+        sizeBytes: input.bytes.length,
+      };
+    });
+    const upstream = await startUpstreamServer(() => ({
+      status: 200,
+      body: {
+        paper: {
+          id: "remote-paper-large-artifact",
+          slug: "desktop-paper-large-artifact",
+          publishedAt: "2026-04-21T20:00:00.000Z",
+        },
+      },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      await Effect.runPromise(service.publish(__internal.encodePaperId(paperDir)));
+
+      expect(uploadedArtifacts).toContain("summary.csv");
+      expect(uploadedArtifacts).not.toContain("raw-dependency-screen.csv");
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("enforces a total supplemental artifact budget before staging blobs", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    const artifactSize = __internal.MAX_PUBLISH_ARTIFACT_BYTES;
+    for (const index of [1, 2, 3, 4, 5, 6]) {
+      await fs.writeFile(
+        path.join(paperDir, `bulk-${String(index).padStart(2, "0")}.csv`),
+        Buffer.alloc(artifactSize, "x"),
+      );
+    }
+
+    const uploadedArtifacts: string[] = [];
+    __internal.setBlobUploaderForTests(async (input) => {
+      if (input.role === "artifacts") {
+        if (input.relativePath === "bulk-06.csv") {
+          throw new Error("Artifact beyond the total budget should not be staged.");
+        }
+        uploadedArtifacts.push(input.relativePath);
+      }
+      return {
+        url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+        pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+        downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+        sizeBytes: input.bytes.length,
+      };
+    });
+    const upstream = await startUpstreamServer(() => ({
+      status: 200,
+      body: {
+        paper: {
+          id: "remote-paper-artifact-budget",
+          slug: "desktop-paper-artifact-budget",
+          publishedAt: "2026-04-21T20:00:00.000Z",
+        },
+      },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      await Effect.runPromise(service.publish(__internal.encodePaperId(paperDir)));
+
+      expect(uploadedArtifacts).toEqual(
+        expect.arrayContaining([
+          "bulk-01.csv",
+          "bulk-02.csv",
+          "bulk-03.csv",
+          "bulk-04.csv",
+          "bulk-05.csv",
+        ]),
+      );
+      expect(uploadedArtifacts).not.toContain("bulk-06.csv");
+    } finally {
+      await upstream.close();
+    }
+  });
+
   it("cleans up uploaded blobs when the publish API rejects the metadata", async () => {
     const workspaceRoot = await makeTempWorkspaceRoot();
     const paperDir = await writePaperWorkspace({ workspaceRoot });
@@ -482,6 +590,103 @@ describe("local paper publish flow", () => {
           expect.stringContaining("/figures/figure-1.png"),
         ]),
       );
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("cleans up uploaded blobs when the publish API returns an unexpected success payload", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    const cleanedPathnames: string[][] = [];
+    __internal.setBlobUploaderForTests(async (input) => ({
+      url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+      pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+      downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+      sizeBytes: input.bytes.length,
+    }));
+    __internal.setBlobCleanerForTests(async (input) => {
+      cleanedPathnames.push([...input.pathnames]);
+    });
+    const upstream = await startUpstreamServer(() => ({
+      status: 200,
+      body: { ok: true },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+
+      await expect(
+        Effect.runPromise(service.publish(__internal.encodePaperId(paperDir))),
+      ).rejects.toThrow("unexpected response");
+
+      expect(cleanedPathnames).toHaveLength(1);
+      expect(cleanedPathnames[0]).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("/pdf/paper.pdf"),
+          expect.stringContaining("/figures/figure-1.png"),
+        ]),
+      );
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("cleans up staged blobs when a later blob upload fails", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    await fs.writeFile(path.join(paperDir, "summary.csv"), "metric,value\nscore,1\n", "utf8");
+    const cleanedPathnames: string[][] = [];
+    const uploadedPathnames: string[] = [];
+    __internal.setBlobUploaderForTests(async (input) => {
+      if (input.role === "artifacts" && input.relativePath === "summary.csv") {
+        throw new Error("Vercel Blob: Storage quota exceeded for Hobby plan (1GB maximum)");
+      }
+
+      const pathname = `${input.uploadId}/${input.role}/${input.fileName}`;
+      uploadedPathnames.push(pathname);
+      return {
+        url: `https://blob.example.test/${pathname}`,
+        pathname,
+        downloadUrl: `https://blob.example.test/${pathname}?download=1`,
+        sizeBytes: input.bytes.length,
+      };
+    });
+    __internal.setBlobCleanerForTests(async (input) => {
+      cleanedPathnames.push([...input.pathnames]);
+    });
+    const upstreamCalls: string[] = [];
+    const upstream = await startUpstreamServer((request) => {
+      upstreamCalls.push(`${request.method} ${request.url}`);
+      return {
+        status: 200,
+        body: {
+          paper: {
+            id: "remote-paper-quota",
+            slug: "desktop-paper-quota",
+            publishedAt: "2026-04-21T20:00:00.000Z",
+          },
+        },
+      };
+    });
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+
+      await expect(
+        Effect.runPromise(service.publish(__internal.encodePaperId(paperDir))),
+      ).rejects.toThrow("Storage quota exceeded for Hobby plan");
+
+      expect(upstreamCalls).toEqual([]);
+      expect(uploadedPathnames.length).toBeGreaterThan(0);
+      expect(cleanedPathnames).toHaveLength(1);
+      expect(cleanedPathnames[0]).toEqual(expect.arrayContaining(uploadedPathnames));
     } finally {
       await upstream.close();
     }
