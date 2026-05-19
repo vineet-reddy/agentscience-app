@@ -2,9 +2,11 @@ import {
   type LocalPaperSummary,
   type LocalPapersListResponse,
   type LocalPaperPublishResponse,
+  type LocalPaperSmartPublishResponse,
   LOCAL_PAPERS_ROUTE_PREFIX,
   localPaperFileRoutePath,
   localPaperPublishRoutePath,
+  localPaperSmartPublishRoutePath,
   localPapersListRoutePath,
 } from "@agentscience/contracts";
 
@@ -106,6 +108,41 @@ export async function publishLocalPaper(
 
   const body = (await response.json()) as LocalPaperPublishResponse;
   return withAbsoluteUrls(body.paper);
+}
+
+export type SmartPublishStep = LocalPaperSmartPublishResponse["steps"][number];
+
+export async function smartPublishLocalPaper(
+  paperId: string,
+  signal?: AbortSignal,
+): Promise<LocalPaperSmartPublishResponse> {
+  const init: RequestInit = {
+    method: "POST",
+    credentials: "same-origin",
+  };
+  if (signal) init.signal = signal;
+
+  const response = await fetch(absolutize(localPaperSmartPublishRoutePath(paperId)), init);
+  let body: LocalPaperSmartPublishResponse | null = null;
+  try {
+    body = (await response.json()) as LocalPaperSmartPublishResponse;
+  } catch {
+    body = null;
+  }
+
+  if (!response.ok && !body) {
+    throw new Error(`Failed to publish paper (${response.status})`);
+  }
+
+  if (!body) {
+    throw new Error("AgentScience could not read the publish result.");
+  }
+
+  return {
+    ...body,
+    paper: body.paper ? withAbsoluteUrls(body.paper) : null,
+    error: body.error ? normalizePublishErrorMessage(body.error) : undefined,
+  };
 }
 
 /** Query key helpers used with `@tanstack/react-query`. */

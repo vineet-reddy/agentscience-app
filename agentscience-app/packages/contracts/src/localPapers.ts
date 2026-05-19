@@ -35,6 +35,10 @@ export function localPaperPublishRoutePath(paperId: string): string {
   return `${LOCAL_PAPERS_ROUTE_PREFIX}/${encodeURIComponent(paperId)}/publish`;
 }
 
+export function localPaperSmartPublishRoutePath(paperId: string): string {
+  return `${LOCAL_PAPERS_ROUTE_PREFIX}/${encodeURIComponent(paperId)}/smart-publish`;
+}
+
 /**
  * A single on-disk artifact inside a paper folder (PDF, source LaTeX, etc.).
  */
@@ -105,3 +109,19 @@ export const LocalPaperPublishResponse = Schema.Struct({
   paper: LocalPaperSummary,
 });
 export type LocalPaperPublishResponse = typeof LocalPaperPublishResponse.Type;
+
+export type LocalPaperSmartPublishStepStatus = "running" | "success" | "failed" | "skipped";
+export type LocalPaperSmartPublishStatus = "published" | "repairing" | "failed";
+
+export type LocalPaperSmartPublishStep = {
+  readonly command: string;
+  readonly status: LocalPaperSmartPublishStepStatus;
+  readonly detail: string;
+};
+
+export type LocalPaperSmartPublishResponse = {
+  readonly status: LocalPaperSmartPublishStatus;
+  readonly paper: LocalPaperSummary | null;
+  readonly steps: readonly LocalPaperSmartPublishStep[];
+  readonly error?: string | undefined;
+};

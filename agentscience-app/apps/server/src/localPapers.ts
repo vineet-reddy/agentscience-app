@@ -24,10 +24,18 @@
  */
 import Mime from "@effect/platform-node/Mime";
 import {
+  CommandId,
+  DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
   type LocalPaperContainerKind,
   type LocalPaperFile,
   type LocalPaperPublication,
+  type LocalPaperSmartPublishResponse,
+  type LocalPaperSmartPublishStep,
   type LocalPaperSummary,
+  MessageId,
+  type ModelSelection,
   ProjectId,
   ThreadId,
   localPaperFileRoutePath,
@@ -141,6 +149,8 @@ export interface LocalPapersServiceShape {
   readonly resolveFilePath: (paperId: string, relativePath: string) => Effect.Effect<string | null>;
   /** Publish or update a local paper on AgentScience. */
   readonly publish: (paperId: string) => Effect.Effect<LocalPaperSummary, LocalPaperPublishError>;
+  /** Publish with bounded bundle retries and return the visible workflow transcript. */
+  readonly smartPublish: (paperId: string) => Effect.Effect<LocalPaperSmartPublishResponse>;
 }
 
 export class LocalPapersService extends ServiceMap.Service<
@@ -179,6 +189,60 @@ type PublishBundleByteBudget = {
   artifactBytes: number;
   figureBytes: number;
 };
+
+type PublishBundlePolicy = {
+  readonly name: "standard" | "lean" | "paper-only";
+  readonly command: string;
+  readonly description: string;
+  readonly includeArtifacts: boolean;
+  readonly includeFigures: boolean;
+  readonly maxArtifactBytes: number;
+  readonly maxTotalArtifactBytes: number;
+  readonly maxFigureBytes: number;
+  readonly maxTotalFigureBytes: number;
+};
+
+const STANDARD_PUBLISH_BUNDLE_POLICY: PublishBundlePolicy = {
+  name: "standard",
+  command: "publish --bundle standard",
+  description: "Upload the PDF plus policy-sized supplemental artifacts and figures.",
+  includeArtifacts: true,
+  includeFigures: true,
+  maxArtifactBytes: MAX_PUBLISH_ARTIFACT_BYTES,
+  maxTotalArtifactBytes: MAX_PUBLISH_TOTAL_ARTIFACT_BYTES,
+  maxFigureBytes: MAX_PUBLISH_FIGURE_BYTES,
+  maxTotalFigureBytes: MAX_PUBLISH_TOTAL_FIGURE_BYTES,
+};
+
+const LEAN_PUBLISH_BUNDLE_POLICY: PublishBundlePolicy = {
+  name: "lean",
+  command: "publish --bundle lean",
+  description: "Retry with a small text-only supplement budget and no figures.",
+  includeArtifacts: true,
+  includeFigures: false,
+  maxArtifactBytes: 1 * 1024 * 1024,
+  maxTotalArtifactBytes: 2 * 1024 * 1024,
+  maxFigureBytes: 0,
+  maxTotalFigureBytes: 0,
+};
+
+const PAPER_ONLY_PUBLISH_BUNDLE_POLICY: PublishBundlePolicy = {
+  name: "paper-only",
+  command: "publish --bundle paper-only",
+  description: "Retry with only the paper PDF, LaTeX source, and bibliography metadata.",
+  includeArtifacts: false,
+  includeFigures: false,
+  maxArtifactBytes: 0,
+  maxTotalArtifactBytes: 0,
+  maxFigureBytes: 0,
+  maxTotalFigureBytes: 0,
+};
+
+const SMART_PUBLISH_POLICIES = [
+  STANDARD_PUBLISH_BUNDLE_POLICY,
+  LEAN_PUBLISH_BUNDLE_POLICY,
+  PAPER_ONLY_PUBLISH_BUNDLE_POLICY,
+] as const;
 
 type UploadedBlobDescriptor = {
   readonly url: string;
@@ -625,6 +689,7 @@ async function walkPublishBundle(
   figures: UploadDescriptor[],
   ignoreRules: readonly AgentScienceIgnoreRule[],
   byteBudget: PublishBundleByteBudget,
+  policy: PublishBundlePolicy,
 ): Promise<void> {
   let entries: import("node:fs").Dirent[];
   try {
@@ -653,6 +718,7 @@ async function walkPublishBundle(
         figures,
         ignoreRules,
         byteBudget,
+        policy,
       );
       continue;
     }
@@ -682,8 +748,9 @@ async function walkPublishBundle(
     const sizeBytes = stat.size;
     if (isFigureFile(relativePath)) {
       if (
-        sizeBytes > MAX_PUBLISH_FIGURE_BYTES ||
-        byteBudget.figureBytes + sizeBytes > MAX_PUBLISH_TOTAL_FIGURE_BYTES
+        !policy.includeFigures ||
+        sizeBytes > policy.maxFigureBytes ||
+        byteBudget.figureBytes + sizeBytes > policy.maxTotalFigureBytes
       ) {
         continue;
       }
@@ -699,8 +766,9 @@ async function walkPublishBundle(
     }
 
     if (
-      sizeBytes > MAX_PUBLISH_ARTIFACT_BYTES ||
-      byteBudget.artifactBytes + sizeBytes > MAX_PUBLISH_TOTAL_ARTIFACT_BYTES
+      !policy.includeArtifacts ||
+      sizeBytes > policy.maxArtifactBytes ||
+      byteBudget.artifactBytes + sizeBytes > policy.maxTotalArtifactBytes
     ) {
       continue;
     }
@@ -718,6 +786,20 @@ async function walkPublishBundle(
 async function collectPublishBundle(folderAbsolutePath: string): Promise<{
   readonly artifacts: ArtifactUploadDescriptor[];
   readonly figures: UploadDescriptor[];
+}>;
+async function collectPublishBundle(
+  folderAbsolutePath: string,
+  policy: PublishBundlePolicy,
+): Promise<{
+  readonly artifacts: ArtifactUploadDescriptor[];
+  readonly figures: UploadDescriptor[];
+}>;
+async function collectPublishBundle(
+  folderAbsolutePath: string,
+  policy: PublishBundlePolicy = STANDARD_PUBLISH_BUNDLE_POLICY,
+): Promise<{
+  readonly artifacts: ArtifactUploadDescriptor[];
+  readonly figures: UploadDescriptor[];
 }> {
   const artifacts: ArtifactUploadDescriptor[] = [];
   const figures: UploadDescriptor[] = [];
@@ -725,7 +807,7 @@ async function collectPublishBundle(folderAbsolutePath: string): Promise<{
   await walkPublishBundle(folderAbsolutePath, folderAbsolutePath, artifacts, figures, ignoreRules, {
     artifactBytes: 0,
     figureBytes: 0,
-  });
+  }, policy);
   return { artifacts, figures };
 }
 
@@ -767,6 +849,7 @@ async function buildPublishBody(input: {
   readonly baseUrl: string;
   readonly token: string;
   readonly userId: string;
+  readonly policy?: PublishBundlePolicy;
 }): Promise<Record<string, unknown>> {
   assertPublishablePaper(input.summary);
   const abstract = input.summary.abstract?.trim();
@@ -783,7 +866,7 @@ async function buildPublishBody(input: {
     readFileText(sourceAbsolutePath),
     readFileBuffer(pdfAbsolutePath),
     findShallowestCandidate(input.folderAbsolutePath, BIB_FILENAME_CANDIDATES, MAX_SCAN_DEPTH),
-    collectPublishBundle(input.folderAbsolutePath),
+    collectPublishBundle(input.folderAbsolutePath, input.policy ?? STANDARD_PUBLISH_BUNDLE_POLICY),
   ]);
 
   const uploadId = randomUUID();
@@ -978,6 +1061,64 @@ function parsePublishedPaperResponse(
     url: joinUrl(baseUrl, `/papers/${encodeURIComponent(slug)}`),
     publishedAt,
   };
+}
+
+function toSmartPublishErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message.trim();
+  }
+  return "Publishing could not finish.";
+}
+
+function isBundleRepairCandidate(error: unknown): boolean {
+  if (!(error instanceof LocalPaperPublishError)) {
+    return true;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    error.status === 400 ||
+    error.status === 413 ||
+    error.status === 422 ||
+    message.includes("blob") ||
+    message.includes("quota") ||
+    message.includes("storage") ||
+    message.includes("content type") ||
+    message.includes("too large") ||
+    message.includes("payload") ||
+    message.includes("file")
+  );
+}
+
+function makeSmartPublishStep(
+  command: string,
+  status: LocalPaperSmartPublishStep["status"],
+  detail: string,
+): LocalPaperSmartPublishStep {
+  return { command, status, detail };
+}
+
+function buildPublishRepairPrompt(input: {
+  readonly paper: LocalPaperSummary;
+  readonly folderAbsolutePath: string;
+  readonly lastError: string;
+}): string {
+  return [
+    "The user clicked Publish from the paper preview. Publishing still failed after AgentScience tried smaller safe bundles.",
+    "",
+    "Fix this paper bundle so it can publish under AgentScience storage limits.",
+    "",
+    "Rules:",
+    "- Do not upload raw large datasets.",
+    "- Preserve the scientific claim and the paper PDF/source intent.",
+    "- Replace raw data artifacts with dataset links, registry references, compact derived tables, or short summaries.",
+    "- Update agentscience.publish.json, .agentscienceignore, LaTeX text, and supporting files as needed.",
+    "- Rebuild the paper if source files change.",
+    "- Retry publishing when the bundle is safe.",
+    "",
+    `Paper title: ${input.paper.title}`,
+    `Paper folder: ${input.folderAbsolutePath}`,
+    `Last publish error: ${input.lastError}`,
+  ].join("\n");
 }
 
 /**
@@ -1663,7 +1804,10 @@ export const makeLocalPapersService = Effect.gen(function* () {
       });
     }).pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
 
-  const publish: LocalPapersServiceShape["publish"] = (paperId) =>
+  const publishWithPolicy = (
+    paperId: string,
+    policy: PublishBundlePolicy,
+  ): Effect.Effect<LocalPaperSummary, LocalPaperPublishError> =>
     Effect.gen(function* () {
       const settings = yield* serverSettings.getSettings.pipe(
         Effect.mapError(
@@ -1729,6 +1873,7 @@ export const makeLocalPapersService = Effect.gen(function* () {
               baseUrl: config.agentScienceBaseUrl,
               token,
               userId: signedInUser.id,
+              policy,
             });
 
           const sendRequest = async (input: {
@@ -1851,10 +1996,190 @@ export const makeLocalPapersService = Effect.gen(function* () {
       });
     });
 
+  const publish: LocalPapersServiceShape["publish"] = (paperId) =>
+    publishWithPolicy(paperId, STANDARD_PUBLISH_BUNDLE_POLICY);
+
+  const startPublishRepairAgent = (input: {
+    readonly paperId: string;
+    readonly paper: LocalPaperSummary;
+    readonly folderAbsolutePath: string;
+    readonly lastError: string;
+  }) =>
+    Effect.gen(function* () {
+      const createdAt = new Date().toISOString();
+      const threadId =
+        input.paper.threadId ??
+        ThreadId.makeUnsafe(`thread-publish-repair-${randomUUID()}`);
+      const modelSelection: ModelSelection = {
+        provider: "codex",
+        model: DEFAULT_MODEL_BY_PROVIDER.codex,
+      };
+      const messageText = buildPublishRepairPrompt({
+        paper: input.paper,
+        folderAbsolutePath: input.folderAbsolutePath,
+        lastError: input.lastError,
+      });
+
+      yield* orchestrationEngine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe(`cmd-smart-publish-${randomUUID()}`),
+        threadId,
+        message: {
+          messageId: MessageId.makeUnsafe(`msg-smart-publish-${randomUUID()}`),
+          role: "user",
+          text: "Prepare this paper for publishing under AgentScience storage limits.",
+          providerText: messageText,
+          attachments: [],
+        },
+        modelSelection,
+        titleSeed: `Publish ${input.paper.title}`,
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        researchDepth: "standard",
+        ...(input.paper.threadId
+          ? {}
+          : {
+              bootstrap: {
+                createThread: {
+                  projectId: input.paper.projectId,
+                  folderSlug: input.paper.folderName,
+                  title: input.paper.threadTitle ?? input.paper.title,
+                  workspaceKind: "paper" as const,
+                  modelSelection,
+                  runtimeMode: DEFAULT_RUNTIME_MODE,
+                  interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                  workflowMode: "open" as const,
+                  branch: null,
+                  worktreePath: null,
+                  createdAt,
+                },
+              },
+            }),
+        createdAt,
+      });
+
+      return threadId;
+    });
+
+  const smartPublish: LocalPapersServiceShape["smartPublish"] = (paperId) =>
+    Effect.gen(function* () {
+      const steps: LocalPaperSmartPublishStep[] = [
+        makeSmartPublishStep(
+          "bundle inspect",
+          "success",
+          "Checking the paper files and applying AgentScience storage rules.",
+        ),
+      ];
+      let lastError: unknown = null;
+
+      for (const policy of SMART_PUBLISH_POLICIES) {
+        const stepIndex = steps.push(
+          makeSmartPublishStep(policy.command, "running", policy.description),
+        ) - 1;
+        const result = yield* publishWithPolicy(paperId, policy).pipe(
+          Effect.map((paper) => ({ ok: true as const, paper })),
+          Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
+        );
+        if (result.ok) {
+          steps[stepIndex] = makeSmartPublishStep(
+            policy.command,
+            "success",
+            policy.name === "standard"
+              ? "Published with the normal safe paper bundle."
+              : "Published after cutting the bundle down to fit the storage policy.",
+          );
+          return { status: "published", paper: result.paper, steps };
+        }
+
+        lastError = result.error;
+        const message = toSmartPublishErrorMessage(result.error);
+        steps[stepIndex] = makeSmartPublishStep(
+          policy.command,
+          "failed",
+          policy.name === "paper-only"
+            ? `The smallest automatic bundle still failed: ${message}`
+            : `That bundle was still too large or invalid, so AgentScience is trying a smaller one.`,
+        );
+
+        if (!isBundleRepairCandidate(result.error)) {
+          return { status: "failed", paper: null, steps, error: message };
+        }
+      }
+
+      const settingsResult = yield* serverSettings.getSettings.pipe(
+        Effect.map((settings) => ({ ok: true as const, settings })),
+        Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
+      );
+      if (!settingsResult.ok) {
+        return {
+          status: "failed",
+          paper: null,
+          steps,
+          error: toSmartPublishErrorMessage(settingsResult.error),
+        };
+      }
+      const settings = settingsResult.settings;
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const containerRoot = normalizeWorkspacePath(settings.workspaceRoot);
+      const folderAbsolutePath = resolvePaperFolderAbsolutePath(paperId, containerRoot);
+      const candidate = folderAbsolutePath ? toPaperCandidate(folderAbsolutePath, containerRoot) : null;
+      const paper = candidate
+        ? yield* Effect.tryPromise(() =>
+            inspectPaperFolder(candidate, buildReadModelLookups(readModel)),
+          ).pipe(Effect.catch(() => Effect.succeed(null)))
+        : null;
+      const lastErrorMessage = toSmartPublishErrorMessage(lastError);
+
+      if (!folderAbsolutePath || !paper) {
+        return { status: "failed", paper: null, steps, error: lastErrorMessage };
+      }
+
+      const repairStepIndex = steps.push(
+        makeSmartPublishStep(
+          "agent repair publish bundle",
+          "running",
+          "The automatic cuts were not enough, so a paper agent is inspecting the bundle and replacing large raw data files with publishable links or summaries.",
+        ),
+      ) - 1;
+      const repairResult = yield* startPublishRepairAgent({
+          paperId,
+          paper,
+          folderAbsolutePath,
+          lastError: lastErrorMessage,
+        }).pipe(
+          Effect.map((threadId) => ({ ok: true as const, threadId })),
+          Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
+      );
+
+      if (repairResult.ok) {
+        steps[repairStepIndex] = makeSmartPublishStep(
+          "agent repair publish bundle",
+          "success",
+          "A paper agent is now repairing the bundle in the background. Open chat to watch or adjust the work.",
+        );
+        return {
+          status: "repairing",
+          paper,
+          steps,
+          error:
+            "The paper needs an agent repair pass before it can publish. AgentScience started that work in the paper chat.",
+        };
+      }
+
+      const repairError = toSmartPublishErrorMessage(repairResult.error);
+      steps[repairStepIndex] = makeSmartPublishStep(
+        "agent repair publish bundle",
+        "failed",
+        `AgentScience could not start the repair agent: ${repairError}`,
+      );
+      return { status: "failed", paper, steps, error: repairError };
+    });
+
   return {
     list,
     resolveFilePath,
     publish,
+    smartPublish,
   } satisfies LocalPapersServiceShape;
 });
 

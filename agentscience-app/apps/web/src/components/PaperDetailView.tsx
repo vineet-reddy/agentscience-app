@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
+  CheckCircle2Icon,
   DownloadIcon,
   ExternalLinkIcon,
   FileTextIcon,
   HardDriveIcon,
   Loader2Icon,
   MessageSquareTextIcon,
+  XCircleIcon,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -17,7 +19,8 @@ import {
   fetchLocalPaper,
   localPaperQueryKey,
   localPapersQueryKey,
-  publishLocalPaper,
+  smartPublishLocalPaper,
+  type SmartPublishStep,
   type LocalPaper,
 } from "../lib/papers";
 import { cn } from "../lib/utils";
@@ -75,6 +78,7 @@ function DetailHeader({
   isLoading: boolean;
 }) {
   const navigate = useNavigate();
+  const [publishProgress, setPublishProgress] = useState<SmartPublishProgress | null>(null);
 
   const goBack = () => {
     void navigate({ to: "/papers" });
@@ -115,15 +119,25 @@ function DetailHeader({
             <div className="no-drag-region ms-auto flex items-center gap-2">
               {paper?.threadId ? <OpenInChatButton threadId={paper.threadId} /> : null}
               {paper ? <OpenPublishedPaperButton paper={paper} /> : null}
-              {paper ? <PublishPaperButton paper={paper} /> : null}
+              {paper ? (
+                <PublishPaperButton paper={paper} onProgressChange={setPublishProgress} />
+              ) : null}
               {paper?.pdf ? <DownloadButton paper={paper} /> : null}
             </div>
           </div>
+          {publishProgress ? <PublishProgressTray progress={publishProgress} /> : null}
         </>
       )}
     </>
   );
 }
+
+type SmartPublishProgress = {
+  readonly status: "running" | "success" | "failed" | "repairing";
+  readonly headline: string;
+  readonly steps: readonly SmartPublishStep[];
+  readonly error?: string | undefined;
+};
 
 function BackToPapersButton({ onClick }: { onClick: () => void }) {
   return (
@@ -208,28 +222,98 @@ function OpenPublishedPaperButton({ paper }: { paper: LocalPaper }) {
   );
 }
 
-function PublishPaperButton({ paper }: { paper: LocalPaper }) {
+function PublishPaperButton({
+  paper,
+  onProgressChange,
+}: {
+  paper: LocalPaper;
+  onProgressChange: (progress: SmartPublishProgress | null) => void;
+}) {
   const queryClient = useQueryClient();
   const { state: authState } = useAgentScienceAccount();
   const publishMutation = useMutation({
-    mutationFn: () => publishLocalPaper(paper.id),
-    onSuccess: async (published) => {
-      queryClient.setQueryData(localPaperQueryKey(paper.id), published);
-      await queryClient.invalidateQueries({ queryKey: localPapersQueryKey });
-      toastManager.add({
-        type: "success",
-        title: paper.publication ? "Published paper updated" : "Paper published",
-        description: "AgentScience now has the latest version of this paper.",
+    mutationFn: () => smartPublishLocalPaper(paper.id),
+    onMutate: () => {
+      onProgressChange({
+        status: "running",
+        headline: "Preparing the paper for publishing",
+        steps: [
+          {
+            command: "publish",
+            status: "running",
+            detail:
+              "Checking the paper files, storage limits, and whether the bundle needs to be cut down.",
+          },
+        ],
       });
     },
+    onSuccess: async (result) => {
+      if (result.paper) {
+        queryClient.setQueryData(localPaperQueryKey(paper.id), result.paper);
+      }
+      await queryClient.invalidateQueries({ queryKey: localPapersQueryKey });
+      if (result.status === "published" && result.paper?.publication) {
+        onProgressChange({
+          status: "success",
+          headline: paper.publication ? "Published paper updated" : "Paper published",
+          steps: result.steps,
+        });
+        toastManager.add({
+          type: "success",
+          title: paper.publication ? "Published paper updated" : "Paper published",
+          description: "AgentScience now has the latest version of this paper.",
+        });
+      } else if (result.status === "repairing") {
+        onProgressChange({
+          status: "repairing",
+          headline: "A paper agent is repairing the bundle",
+          steps: result.steps,
+          error: result.error,
+        });
+        toastManager.add({
+          type: "warning",
+          title: "Agent repair started",
+          description:
+            result.error ??
+            "AgentScience is repairing the paper bundle before trying to publish again.",
+        });
+      } else {
+        const message =
+          result.error ?? "The paper could not be published. AgentScience needs attention first.";
+        onProgressChange({
+          status: "failed",
+          headline: "Publishing needs attention",
+          steps: result.steps,
+          error: message,
+        });
+        toastManager.add({
+          type: "error",
+          title: "Publish needs attention",
+          description: message,
+        });
+      }
+    },
     onError: (error) => {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The paper could not be published to AgentScience.";
+      onProgressChange({
+        status: "failed",
+        headline: "Publishing needs attention",
+        steps: [
+          {
+            command: "publish",
+            status: "failed",
+            detail: message,
+          },
+        ],
+        error: message,
+      });
       toastManager.add({
         type: "error",
         title: "Publish failed",
-        description:
-          error instanceof Error
-            ? error.message
-            : "The paper could not be published to AgentScience.",
+        description: message,
       });
     },
   });
@@ -267,6 +351,72 @@ function PublishPaperButton({ paper }: { paper: LocalPaper }) {
       )}
       <span>{publishMutation.isPending ? "Publishing" : paper.publication ? "Update" : "Publish"}</span>
     </Button>
+  );
+}
+
+function PublishProgressTray({ progress }: { progress: SmartPublishProgress }) {
+  const latestStep = progress.steps.toReversed().find((step) => step.status === "running");
+  const summary =
+    latestStep?.detail ??
+    progress.error ??
+    progress.steps[progress.steps.length - 1]?.detail ??
+    "AgentScience is preparing the paper.";
+
+  return (
+    <div className="no-drag-region border-b border-border bg-snow-white px-6 py-3">
+      <div className="mx-auto flex max-w-[980px] flex-col gap-2">
+        <div className="flex items-start gap-2">
+          {progress.status === "success" ? (
+            <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-ink" aria-hidden />
+          ) : progress.status === "failed" ? (
+            <XCircleIcon className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden />
+          ) : (
+            <Loader2Icon className="mt-0.5 size-4 shrink-0 animate-spin text-ink" aria-hidden />
+          )}
+          <div className="min-w-0">
+            <p className="text-[0.8125rem] font-medium text-ink">{progress.headline}</p>
+            <p className="mt-0.5 text-[0.75rem] leading-snug text-ink-light">{summary}</p>
+          </div>
+        </div>
+        <div className="grid gap-1.5 pl-6">
+          {progress.steps.map((step) => (
+            <PublishProgressStep
+              key={`${step.command}-${step.status}-${step.detail}`}
+              step={step}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PublishProgressStep({ step }: { step: SmartPublishStep }) {
+  const Icon =
+    step.status === "success"
+      ? CheckCircle2Icon
+      : step.status === "failed"
+        ? XCircleIcon
+        : step.status === "running"
+          ? Loader2Icon
+          : FileTextIcon;
+  return (
+    <div className="flex min-w-0 items-start gap-2 text-[0.75rem]">
+      <Icon
+        className={cn(
+          "mt-0.5 size-3.5 shrink-0",
+          step.status === "running" && "animate-spin",
+          step.status === "failed" ? "text-danger" : "text-ink-faint",
+        )}
+        aria-hidden
+      />
+      <div className="min-w-0">
+        <p className="leading-snug text-ink-light">{step.detail}</p>
+        <p className="truncate font-mono text-[0.6875rem] leading-snug text-ink-faint">
+          {step.command}
+        </p>
+      </div>
+    </div>
   );
 }
 

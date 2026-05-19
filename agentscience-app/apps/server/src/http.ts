@@ -29,6 +29,7 @@ import {
   ThreadId,
   type LocalPapersListResponse,
   type LocalPaperPublishResponse,
+  type LocalPaperSmartPublishResponse,
 } from "@agentscience/contracts";
 import { LocalPapersService } from "./localPapers.ts";
 import { PaperReviewService } from "./paperReview.ts";
@@ -1499,7 +1500,7 @@ export const localPapersPublishRouteLayer = HttpRouter.add(
     }
 
     const segments = decodeLocalPapersSegments(url.value.pathname);
-    if (segments.length !== 2 || segments[1] !== "publish") {
+    if (segments.length !== 2 || (segments[1] !== "publish" && segments[1] !== "smart-publish")) {
       return HttpServerResponse.text("Not Found", { status: 404 });
     }
 
@@ -1509,6 +1510,14 @@ export const localPapersPublishRouteLayer = HttpRouter.add(
     }
 
     const localPapers = yield* LocalPapersService;
+    if (segments[1] === "smart-publish") {
+      const result = yield* localPapers.smartPublish(paperIdSegment);
+      const body: LocalPaperSmartPublishResponse = result;
+      const status =
+        result.status === "published" ? 200 : result.status === "repairing" ? 202 : 400;
+      return yield* HttpServerResponse.json(body, { status });
+    }
+
     return yield* localPapers.publish(paperIdSegment).pipe(
       Effect.matchEffect({
         onFailure: (error) => {
