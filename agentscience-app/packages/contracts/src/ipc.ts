@@ -124,6 +124,13 @@ export interface DesktopBridge {
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
   onMenuAction: (listener: (action: string) => void) => () => void;
+  onDeepLink: (
+    listener: (deepLink: {
+      kind: "paper-open";
+      slug: string;
+      baseUrl: string;
+    }) => void,
+  ) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;

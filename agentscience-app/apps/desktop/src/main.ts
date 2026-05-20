@@ -44,6 +44,12 @@ import {
   setAnalyticsEnabled,
   tryTrackAppOpened,
 } from "./analyticsService";
+import {
+  collectAgentScienceDeepLinkUrls,
+  deepLinkKey,
+  parseAgentScienceDeepLink,
+  type AgentScienceDeepLink,
+} from "./deepLinks";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
@@ -100,6 +106,7 @@ const IS_FULL_SCREEN_CHANNEL = "desktop:is-full-screen";
 const FULL_SCREEN_CHANGED_CHANNEL = "desktop:full-screen-changed";
 const ANALYTICS_GET_CHANNEL = "desktop:analytics-get";
 const ANALYTICS_SET_ENABLED_CHANNEL = "desktop:analytics-set-enabled";
+const DEEP_LINK_CHANNEL = "desktop:deep-link";
 const BASE_DIR = process.env.AGENTSCIENCE_HOME?.trim() || Path.join(OS.homedir(), ".agentscience");
 const DESKTOP_SCHEME = "agentscience";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
@@ -157,6 +164,7 @@ let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let backendObservabilitySettings = readPersistedBackendObservabilitySettings();
+let appShellLoaded = false;
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const expectedBackendExitChildren = new WeakSet<ChildProcess.ChildProcess>();
@@ -168,6 +176,8 @@ const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
 const initialUpdateState = (): DesktopUpdateState =>
   createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo);
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const initialDeepLinkUrls = collectAgentScienceDeepLinkUrls(process.argv);
+const pendingDeepLinks = new Map<string, AgentScienceDeepLink>();
 
 function focusOrCreateMainWindow(): void {
   const existingWindow =
@@ -193,9 +203,60 @@ if (!hasSingleInstanceLock) {
   isQuitting = true;
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
     focusOrCreateMainWindow();
+    for (const rawUrl of collectAgentScienceDeepLinkUrls(argv)) {
+      handleIncomingDeepLink(rawUrl);
+    }
   });
+}
+
+function dispatchPendingDeepLinks(): void {
+  if (!appShellLoaded || !mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  for (const [key, deepLink] of pendingDeepLinks) {
+    pendingDeepLinks.delete(key);
+    mainWindow.webContents.send(DEEP_LINK_CHANNEL, deepLink);
+  }
+}
+
+function enqueueDeepLink(deepLink: AgentScienceDeepLink): void {
+  const key = deepLinkKey(deepLink);
+  pendingDeepLinks.set(key, deepLink);
+  dispatchPendingDeepLinks();
+}
+
+function handleIncomingDeepLink(rawUrl: string): void {
+  const deepLink = parseAgentScienceDeepLink(rawUrl);
+  if (!deepLink) {
+    writeDesktopLogLine("deep-link", `ignored invalid url=${sanitizeLogValue(rawUrl)}`);
+    return;
+  }
+
+  focusOrCreateMainWindow();
+  enqueueDeepLink(deepLink);
+}
+
+function registerOsProtocolHandler(): void {
+  try {
+    if (process.defaultApp) {
+      const mainArg = process.argv[1];
+      if (mainArg) {
+        app.setAsDefaultProtocolClient(DESKTOP_SCHEME, process.execPath, [mainArg]);
+      }
+      return;
+    }
+
+    app.setAsDefaultProtocolClient(DESKTOP_SCHEME);
+  } catch (error) {
+    console.warn("[desktop] failed to register OS protocol handler", error);
+    writeDesktopLogLine(
+      "deep-link",
+      `protocol registration failed message=${formatErrorMessage(error)}`,
+    );
+  }
 }
 
 function logTimestamp(): string {
@@ -1779,7 +1840,19 @@ function loadAppShell(window: BrowserWindow): void {
     return;
   }
 
-  void window.loadURL(resolveAppShellUrl());
+  appShellLoaded = false;
+  void window.loadURL(resolveAppShellUrl()).then(
+    () => {
+      appShellLoaded = true;
+      dispatchPendingDeepLinks();
+    },
+    (error) => {
+      writeDesktopLogLine(
+        "deep-link",
+        `app shell load failed message=${formatErrorMessage(error)}`,
+      );
+    },
+  );
   if (isDevelopment && !window.webContents.isDevToolsOpened()) {
     window.webContents.openDevTools({ mode: "detach" });
   }
@@ -1897,6 +1970,11 @@ app.setPath("userData", resolveUserDataPath());
 
 configureAppIdentity();
 
+app.on("open-url", (event, rawUrl) => {
+  event.preventDefault();
+  handleIncomingDeepLink(rawUrl);
+});
+
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
   backendPort = await Effect.service(NetService).pipe(
@@ -1922,6 +2000,9 @@ async function bootstrap(): Promise<void> {
     loadAppShell(mainWindow);
     writeDesktopLogHeader("bootstrap app shell loaded");
   }
+  for (const rawUrl of initialDeepLinkUrls) {
+    handleIncomingDeepLink(rawUrl);
+  }
   // Daily anonymous-usage ping. No-op when opted out, env var unset, or
   // we already pinged for the current UTC day. See docs/PRIVACY.md.
   tryTrackAppOpened({ now: new Date() });
@@ -1943,6 +2024,7 @@ if (hasSingleInstanceLock) {
       writeDesktopLogHeader("app ready");
       configureAppIdentity();
       configureApplicationMenu();
+      registerOsProtocolHandler();
       registerDesktopProtocol();
       configureAutoUpdater();
       void bootstrap().catch((error) => {

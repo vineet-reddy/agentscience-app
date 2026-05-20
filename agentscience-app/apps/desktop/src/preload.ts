@@ -18,6 +18,7 @@ const IS_FULL_SCREEN_CHANNEL = "desktop:is-full-screen";
 const FULL_SCREEN_CHANGED_CHANNEL = "desktop:full-screen-changed";
 const ANALYTICS_GET_CHANNEL = "desktop:analytics-get";
 const ANALYTICS_SET_ENABLED_CHANNEL = "desktop:analytics-set-enabled";
+const DEEP_LINK_CHANNEL = "desktop:deep-link";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: () => {
@@ -45,6 +46,25 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(MENU_ACTION_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(MENU_ACTION_CHANNEL, wrappedListener);
+    };
+  },
+  onDeepLink: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, deepLink: unknown) => {
+      if (
+        typeof deepLink !== "object" ||
+        deepLink === null ||
+        (deepLink as { kind?: unknown }).kind !== "paper-open" ||
+        typeof (deepLink as { slug?: unknown }).slug !== "string" ||
+        typeof (deepLink as { baseUrl?: unknown }).baseUrl !== "string"
+      ) {
+        return;
+      }
+      listener(deepLink as Parameters<typeof listener>[0]);
+    };
+
+    ipcRenderer.on(DEEP_LINK_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(DEEP_LINK_CHANNEL, wrappedListener);
     };
   },
   getUpdateState: () => ipcRenderer.invoke(UPDATE_GET_STATE_CHANNEL),

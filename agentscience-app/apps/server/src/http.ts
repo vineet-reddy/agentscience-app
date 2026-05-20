@@ -27,6 +27,8 @@ import {
   LOCAL_PAPERS_ROUTE_PREFIX,
   PAPER_REVIEW_ROUTE_PREFIX,
   ThreadId,
+  DEEP_LINKS_ROUTE_PREFIX,
+  type DeepLinkPaperOpenResponse,
   type LocalPapersListResponse,
   type LocalPaperPublishResponse,
   type LocalPaperSmartPublishResponse,
@@ -427,6 +429,73 @@ function normalizePaperSummary(
     publishedAt,
     url: resolveAbsoluteAgentScienceUrl(baseUrl, `/papers/${encodeURIComponent(slug)}`),
   };
+}
+
+function normalizeDeepLinkBaseUrl(rawBaseUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawBaseUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+  parsed.hash = "";
+  parsed.search = "";
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function extractPaperTitle(payload: unknown): string | null {
+  const paper = isRecord(payload) && isRecord(payload.paper) ? payload.paper : payload;
+  if (!isRecord(paper)) return null;
+  const title = typeof paper.title === "string" ? paper.title.trim() : "";
+  return title.length > 0 ? title : null;
+}
+
+async function fetchRemotePaperForDeepLink(input: {
+  readonly baseUrl: string;
+  readonly slug: string;
+  readonly token: string;
+}): Promise<{ readonly found: boolean; readonly title: string | null }> {
+  const directUrl = new URL(`/api/v1/papers/${encodeURIComponent(input.slug)}`, input.baseUrl);
+  const directResponse = await fetch(directUrl.toString(), {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${input.token}`,
+    },
+  });
+  if (directResponse.ok) {
+    return { found: true, title: extractPaperTitle(await directResponse.json()) };
+  }
+  if (directResponse.status !== 404) {
+    return { found: false, title: null };
+  }
+
+  const listUrl = new URL("/api/v1/papers", input.baseUrl);
+  listUrl.searchParams.set("limit", String(DATASET_REGISTRY_MAX_LIMIT));
+  const listResponse = await fetch(listUrl.toString(), {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${input.token}`,
+    },
+  });
+  if (!listResponse.ok) {
+    return { found: false, title: null };
+  }
+
+  const payload = await listResponse.json();
+  if (!isRecord(payload) || !Array.isArray(payload.papers)) {
+    return { found: false, title: null };
+  }
+
+  const match = payload.papers.find(
+    (paper) => isRecord(paper) && paper.slug === input.slug,
+  );
+  return match
+    ? { found: true, title: extractPaperTitle(match) }
+    : { found: false, title: null };
 }
 
 async function fetchPublicPaperMap(baseUrl: string): Promise<Map<string, NormalizedPaperSummary>> {
@@ -1420,6 +1489,89 @@ export const paperReviewCompileRouteLayer = HttpRouter.add(
     }
 
     return HttpServerResponse.text("Not Found", { status: 404 });
+  }),
+);
+
+export const deepLinkPaperOpenRouteLayer = HttpRouter.add(
+  "POST",
+  `${DEEP_LINKS_ROUTE_PREFIX}/paper/open`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const bodyJson = yield* request.json;
+    if (
+      !isRecord(bodyJson) ||
+      typeof bodyJson.slug !== "string" ||
+      typeof bodyJson.baseUrl !== "string"
+    ) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const slug = bodyJson.slug.trim();
+    const baseUrl = normalizeDeepLinkBaseUrl(bodyJson.baseUrl);
+    if (slug.length === 0 || !baseUrl) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const agentScienceAuth = yield* AgentScienceAuthService;
+    const authState = yield* agentScienceAuth.getState;
+    const token = yield* agentScienceAuth.getBearerToken;
+    if (authState.status !== "signed-in" || !token) {
+      const response: DeepLinkPaperOpenResponse = {
+        status: "auth-required",
+        slug,
+        baseUrl,
+        paper: null,
+        remoteTitle: null,
+        message: "Connect this device to AgentScience, then the paper link will resume.",
+      };
+      return yield* HttpServerResponse.json(response);
+    }
+
+    const remote = yield* Effect.tryPromise(() =>
+      fetchRemotePaperForDeepLink({ baseUrl, slug, token }),
+    ).pipe(Effect.catch(() => Effect.succeed({ found: false, title: null })));
+
+    if (!remote.found) {
+      const response: DeepLinkPaperOpenResponse = {
+        status: "not-found",
+        slug,
+        baseUrl,
+        paper: null,
+        remoteTitle: null,
+        message: "AgentScience could not find that published paper for this account.",
+      };
+      return yield* HttpServerResponse.json(response, { status: 404 });
+    }
+
+    const localPapers = yield* LocalPapersService;
+    const papers = yield* localPapers.list();
+    const localPaper =
+      papers.find((paper) => paper.publication?.slug === slug) ??
+      papers.find((paper) => paper.folderName === slug) ??
+      null;
+
+    if (!localPaper) {
+      const response: DeepLinkPaperOpenResponse = {
+        status: "not-local",
+        slug,
+        baseUrl,
+        paper: null,
+        remoteTitle: remote.title,
+        message:
+          "The app found this published paper, but no matching local editing workspace is on this computer yet.",
+      };
+      return yield* HttpServerResponse.json(response);
+    }
+
+    const response: DeepLinkPaperOpenResponse = {
+      status: "opened",
+      slug,
+      baseUrl,
+      paper: localPaper,
+      remoteTitle: remote.title,
+      message: "Opened the matching local paper workspace.",
+    };
+    return yield* HttpServerResponse.json(response);
   }),
 );
 

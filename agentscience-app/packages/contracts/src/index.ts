@@ -13,6 +13,7 @@ export * from "./project";
 export * from "./paperReview";
 export * from "./stages";
 export * from "./localPapers";
+export * from "./deepLinks";
 export * from "./agentScienceAuth";
 export * from "./rpc";
 export * from "./telemetry";

@@ -1313,6 +1313,12 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     directories: {
       buildResources: "apps/desktop/resources",
     },
+    protocols: [
+      {
+        name: "AgentScience",
+        schemes: ["agentscience"],
+      },
+    ],
     extraResources: [
       {
         from: "apps/desktop/managed-resources",

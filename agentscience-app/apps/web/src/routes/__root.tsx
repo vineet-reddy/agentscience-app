@@ -50,6 +50,8 @@ import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
 import { resolveOnboardingAccountSyncKey } from "../onboardingGate";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
+import { openPaperDeepLink, type PaperOpenDeepLink } from "../lib/deepLinks";
+import { localPapersQueryKey } from "../lib/papers";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import {
   describeAgentScienceRuntimeStatus,
@@ -140,6 +142,7 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <ServerStateBootstrap />
+        <DeepLinkCoordinator agentScienceStatus={agentScienceStatus} />
         <EventRouter />
         <WebSocketConnectionCoordinator />
         <SlowRpcAckToastCoordinator />
@@ -216,6 +219,90 @@ function AgentScienceRuntimeNoticeCoordinator() {
       },
     });
   }, [navigate, status]);
+
+  return null;
+}
+
+function DeepLinkCoordinator({
+  agentScienceStatus,
+}: {
+  agentScienceStatus: string;
+}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const pendingPaperOpenRef = useRef<PaperOpenDeepLink | null>(null);
+  const activeKeyRef = useRef<string | null>(null);
+
+  const handlePaperOpen = useEffectEvent(async (deepLink: PaperOpenDeepLink) => {
+    const key = `${deepLink.baseUrl}:${deepLink.slug}`;
+    if (activeKeyRef.current === key) {
+      return;
+    }
+    activeKeyRef.current = key;
+
+    try {
+      const result = await openPaperDeepLink(deepLink);
+      if (result.status === "auth-required") {
+        pendingPaperOpenRef.current = deepLink;
+        toastManager.add({
+          type: "info",
+          title: "Sign in to open paper",
+          description: result.message,
+        });
+        return;
+      }
+
+      pendingPaperOpenRef.current = null;
+      await queryClient.invalidateQueries({ queryKey: localPapersQueryKey });
+
+      if (result.status === "opened" && result.paper) {
+        await navigate({
+          to: "/papers/$paperId",
+          params: { paperId: result.paper.id },
+        });
+        toastManager.add({
+          type: "success",
+          title: "Opened paper",
+          description: result.paper.title,
+        });
+        return;
+      }
+
+      await navigate({ to: "/papers" });
+      toastManager.add({
+        type: result.status === "not-found" ? "error" : "warning",
+        title: result.status === "not-local" ? "Local workspace not found" : "Paper not found",
+        description: result.message,
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Couldn't open paper link",
+        description: error instanceof Error ? error.message : "An unknown error occurred.",
+      });
+    } finally {
+      activeKeyRef.current = null;
+    }
+  });
+
+  useEffect(() => {
+    const unsubscribe = window.desktopBridge?.onDeepLink((deepLink) => {
+      if (deepLink.kind !== "paper-open") return;
+      void handlePaperOpen(deepLink);
+    });
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handlePaperOpen]);
+
+  useEffect(() => {
+    if (agentScienceStatus !== "signed-in" || !pendingPaperOpenRef.current) {
+      return;
+    }
+    const pending = pendingPaperOpenRef.current;
+    pendingPaperOpenRef.current = null;
+    void handlePaperOpen(pending);
+  }, [agentScienceStatus, handlePaperOpen]);
 
   return null;
 }
