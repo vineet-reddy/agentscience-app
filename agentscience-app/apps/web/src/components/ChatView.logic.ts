@@ -1,13 +1,7 @@
-import {
-  ProjectId,
-  type ModelSelection,
-  type ThreadId,
-  type TurnId,
-} from "@agentscience/contracts";
+import { type ModelSelection, type ThreadId, type TurnId } from "@agentscience/contracts";
 import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
 import { randomUUID } from "~/lib/utils";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
-import { Schema } from "effect";
 import { useStore } from "../store";
 import {
   filterTerminalContextsWithText,
@@ -15,11 +9,8 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 
-export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "agentscience:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 const WORKTREE_BRANCH_PREFIX = "agentscience";
-
-export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
 export function buildLocalDraftThread(
   threadId: ThreadId,
