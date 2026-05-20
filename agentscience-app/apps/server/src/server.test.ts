@@ -546,6 +546,7 @@ const buildAppUnderTest = (options?: {
               Effect.fail(
                 new LocalPaperPublishError("Publishing was not mocked for this test.", 500),
               ),
+            smartPublish: () => Effect.succeed({ status: "failed" as const, paper: null, steps: [] }),
             ...options?.layers?.localPapers,
           }),
         ),
@@ -866,6 +867,54 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         paper: summary,
       });
       assert.equal(publishedPaperId, "paper-1");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes smart local paper publish requests through the embedded server", () =>
+    Effect.gen(function* () {
+      const steps = [
+        {
+          command: "publish --bundle standard",
+          status: "success" as const,
+          detail: "Published with the normal safe paper bundle.",
+        },
+      ];
+
+      yield* buildAppUnderTest({
+        layers: {
+          localPapers: {
+            smartPublish: (paperId) =>
+              Effect.succeed({
+                status: "repairing" as const,
+                paper: null,
+                steps: [
+                  ...steps,
+                  {
+                    command: "paper id",
+                    status: "skipped" as const,
+                    detail: paperId,
+                  },
+                ],
+              }),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.post("/api/papers/paper-1/smart-publish");
+
+      assert.equal(response.status, 202);
+      assert.deepStrictEqual(yield* response.json, {
+        status: "repairing",
+        paper: null,
+        steps: [
+          ...steps,
+          {
+            command: "paper id",
+            status: "skipped",
+            detail: "paper-1",
+          },
+        ],
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

@@ -5,6 +5,7 @@ import {
   fetchLocalPapers,
   publishLocalPaper,
   resolveLocalPaperFileUrl,
+  smartPublishLocalPaper,
 } from "./papers";
 
 afterEach(() => {
@@ -32,6 +33,70 @@ describe("resolveLocalPaperFileUrl", () => {
     stubDesktopServer();
     const url = resolveLocalPaperFileUrl("paperid-abc", "figures/fig 1.png");
     expect(url).toBe("http://127.0.0.1:55566/api/papers/paperid-abc/files/figures/fig%201.png");
+  });
+});
+
+describe("smartPublishLocalPaper", () => {
+  it("returns plain progress steps and absolutizes the published paper", async () => {
+    stubDesktopServer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              status: "published",
+              paper: {
+                id: "paperid-abc",
+                title: "A paper",
+                folderName: "a-paper",
+                containerKind: "paper",
+                updatedAt: "2026-04-17T00:00:00.000Z",
+                pdf: {
+                  relativePath: "paper.pdf",
+                  url: "/api/papers/paperid-abc/files/paper.pdf",
+                  sizeBytes: 123,
+                  updatedAt: "2026-04-17T00:00:00.000Z",
+                  contentType: "application/pdf",
+                },
+                source: null,
+                abstract: null,
+                publishManifestPresent: false,
+                publication: null,
+                threadId: null,
+                threadTitle: null,
+                threadArchivedAt: null,
+                projectId: null,
+                projectName: null,
+              },
+              steps: [
+                {
+                  command: "publish --bundle lean",
+                  status: "success",
+                  detail: "Published after cutting the bundle down to fit the storage policy.",
+                },
+              ],
+            }),
+        }),
+      ),
+    );
+
+    const result = await smartPublishLocalPaper("paperid-abc");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:55566/api/papers/paperid-abc/smart-publish",
+      expect.objectContaining({
+        credentials: "same-origin",
+        method: "POST",
+      }),
+    );
+    expect(result.steps[0]?.detail).toContain("cutting the bundle");
+    expect(result.status).toBe("published");
+    expect(result.paper?.pdf?.url).toBe(
+      "http://127.0.0.1:55566/api/papers/paperid-abc/files/paper.pdf",
+    );
   });
 });
 
