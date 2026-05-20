@@ -284,29 +284,29 @@ function compareActivities(
 function buildCheckpointsFromTurns(
   turns: ReadonlyArray<ProjectionTurnRow>,
 ): OrchestrationThread["checkpoints"] {
-  return turns
-    .flatMap((turn) => {
-      if (
-        turn.turnId === null ||
-        turn.checkpointTurnCount === null ||
-        turn.checkpointRef === null ||
-        turn.checkpointStatus === null ||
-        turn.completedAt === null
-      ) {
-        return [];
-      }
-      return [
-        {
-          turnId: turn.turnId,
-          checkpointTurnCount: turn.checkpointTurnCount,
-          checkpointRef: turn.checkpointRef,
-          status: turn.checkpointStatus,
-          files: turn.checkpointFiles,
-          assistantMessageId: turn.assistantMessageId,
-          completedAt: turn.completedAt,
-        },
-      ];
-    })
+  const checkpoints: Array<OrchestrationThread["checkpoints"][number]> = [];
+  for (const turn of turns) {
+    if (
+      turn.turnId === null ||
+      turn.checkpointTurnCount === null ||
+      turn.checkpointRef === null ||
+      turn.checkpointStatus === null ||
+      turn.completedAt === null
+    ) {
+      continue;
+    }
+    checkpoints.push({
+      turnId: turn.turnId,
+      checkpointTurnCount: turn.checkpointTurnCount,
+      checkpointRef: turn.checkpointRef,
+      status: turn.checkpointStatus,
+      files: turn.checkpointFiles,
+      assistantMessageId: turn.assistantMessageId,
+      completedAt: turn.completedAt,
+    });
+  }
+
+  return checkpoints
     .toSorted(
       (left, right) =>
         left.checkpointTurnCount - right.checkpointTurnCount ||
@@ -765,7 +765,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });
-            messagesByThread.set(row.threadId, threadMessages.slice(-MAX_THREAD_MESSAGES));
+            messagesByThread.set(row.threadId, threadMessages);
           }
 
           const sessionsByThread = new Map<string, OrchestrationThread["session"]>();
@@ -796,7 +796,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });
-            proposedPlansByThread.set(row.threadId, threadPlans.slice(-MAX_THREAD_PROPOSED_PLANS));
+            proposedPlansByThread.set(row.threadId, threadPlans);
           }
 
           const activitiesByThread = new Map<
