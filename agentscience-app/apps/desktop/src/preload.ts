@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { DesktopBridge } from "@agentscience/contracts";
+import type { DesktopBridge, DesktopDeepLink } from "@agentscience/contracts";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const PICK_FILES_CHANNEL = "desktop:pick-files";
@@ -8,6 +8,8 @@ const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
+const DEEP_LINK_CHANNEL = "desktop:deep-link";
+const DEEP_LINK_READY_CHANNEL = "desktop:deep-link-ready";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
@@ -47,6 +49,26 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(MENU_ACTION_CHANNEL, wrappedListener);
     };
   },
+  onDeepLink: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, deepLink: unknown) => {
+      if (!isDesktopDeepLink(deepLink)) return;
+      listener(deepLink);
+    };
+
+    ipcRenderer.on(DEEP_LINK_CHANNEL, wrappedListener);
+    void ipcRenderer.invoke(DEEP_LINK_READY_CHANNEL).then((pending: unknown) => {
+      if (!Array.isArray(pending)) return;
+      for (const deepLink of pending) {
+        if (isDesktopDeepLink(deepLink)) {
+          listener(deepLink);
+        }
+      }
+    });
+
+    return () => {
+      ipcRenderer.removeListener(DEEP_LINK_CHANNEL, wrappedListener);
+    };
+  },
   getUpdateState: () => ipcRenderer.invoke(UPDATE_GET_STATE_CHANNEL),
   checkForUpdate: () => ipcRenderer.invoke(UPDATE_CHECK_CHANNEL),
   downloadUpdate: () => ipcRenderer.invoke(UPDATE_DOWNLOAD_CHANNEL),
@@ -79,3 +101,13 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   setAnalyticsEnabled: (enabled: boolean) =>
     ipcRenderer.invoke(ANALYTICS_SET_ENABLED_CHANNEL, enabled),
 } satisfies DesktopBridge);
+
+function isDesktopDeepLink(value: unknown): value is DesktopDeepLink {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as { type?: unknown; slug?: unknown; baseUrl?: unknown };
+  return (
+    record.type === "paper-open" &&
+    typeof record.slug === "string" &&
+    (record.baseUrl === undefined || typeof record.baseUrl === "string")
+  );
+}

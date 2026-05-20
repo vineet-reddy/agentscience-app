@@ -65,6 +65,14 @@ export interface ContextMenuItem<T extends string = string> {
   disabled?: boolean;
 }
 
+export interface PaperOpenDeepLink {
+  type: "paper-open";
+  slug: string;
+  baseUrl?: string;
+}
+
+export type DesktopDeepLink = PaperOpenDeepLink;
+
 export type DesktopUpdateStatus =
   | "disabled"
   | "idle"
@@ -124,6 +132,7 @@ export interface DesktopBridge {
   ) => Promise<T | null>;
   openExternal: (url: string) => Promise<boolean>;
   onMenuAction: (listener: (action: string) => void) => () => void;
+  onDeepLink: (listener: (deepLink: DesktopDeepLink) => void) => () => void;
   getUpdateState: () => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
