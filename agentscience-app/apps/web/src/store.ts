@@ -439,8 +439,12 @@ function buildThreadIdsByProjectId(threads: ReadonlyArray<Thread>): Record<strin
     if (thread.projectId === null) {
       continue;
     }
-    const existingThreadIds = threadIdsByProjectId[thread.projectId] ?? EMPTY_THREAD_IDS;
-    threadIdsByProjectId[thread.projectId] = [...existingThreadIds, thread.id];
+    const existingThreadIds = threadIdsByProjectId[thread.projectId];
+    if (existingThreadIds) {
+      existingThreadIds.push(thread.id);
+    } else {
+      threadIdsByProjectId[thread.projectId] = [thread.id];
+    }
   }
   return threadIdsByProjectId;
 }
