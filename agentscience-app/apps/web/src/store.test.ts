@@ -316,6 +316,44 @@ describe("store read model sync", () => {
 
     expect(next.projects.map((project) => project.id)).toEqual([project1, project2, project3]);
   });
+
+  it("preserves project thread membership order for large mixed snapshots", () => {
+    const project1 = ProjectId.makeUnsafe("project-1");
+    const project2 = ProjectId.makeUnsafe("project-2");
+    const project3 = ProjectId.makeUnsafe("project-3");
+    const projectIds = [project1, project2, null, project1, project3, project2] as const;
+    const threads = Array.from({ length: 180 }, (_, index) => {
+      const projectId = projectIds[index % projectIds.length] ?? null;
+      return makeReadModelThread({
+        id: ThreadId.makeUnsafe(`thread-${index}`),
+        projectId,
+        folderSlug: `thread-${index}`,
+        title: `Thread ${index}`,
+        createdAt: new Date(Date.UTC(2026, 1, 27, 0, 0, index)).toISOString(),
+      });
+    });
+    const readModel: OrchestrationReadModel = {
+      snapshotSequence: 3,
+      updatedAt: "2026-02-27T00:03:00.000Z",
+      projects: [
+        makeReadModelProject({ id: project1, title: "Project 1", folderSlug: "project-1" }),
+        makeReadModelProject({ id: project2, title: "Project 2", folderSlug: "project-2" }),
+        makeReadModelProject({ id: project3, title: "Project 3", folderSlug: "project-3" }),
+      ],
+      threads,
+    };
+
+    const next = syncServerReadModel(makeState(makeThread()), readModel);
+    const expectedThreadIdsForProject = (projectId: ProjectId) =>
+      threads.flatMap((thread) => (thread.projectId === projectId ? [thread.id] : []));
+
+    expect(next.threadIdsByProjectId[project1]).toEqual(expectedThreadIdsForProject(project1));
+    expect(next.threadIdsByProjectId[project2]).toEqual(expectedThreadIdsForProject(project2));
+    expect(next.threadIdsByProjectId[project3]).toEqual(expectedThreadIdsForProject(project3));
+    expect(Object.values(next.threadIdsByProjectId).flat()).not.toContain(
+      ThreadId.makeUnsafe("thread-2"),
+    );
+  });
 });
 
 describe("incremental orchestration updates", () => {
