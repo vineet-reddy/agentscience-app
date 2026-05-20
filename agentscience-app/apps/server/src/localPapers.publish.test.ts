@@ -8,7 +8,10 @@ import { Effect, Layer } from "effect";
 import { AgentScienceAuthService } from "./agentScienceAuth.ts";
 import { ServerConfig } from "./config.ts";
 import { makeLocalPapersService, __internal } from "./localPapers.ts";
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
+import {
+  type OrchestrationEngineShape,
+  OrchestrationEngineService,
+} from "./orchestration/Services/OrchestrationEngine.ts";
 import { ServerSettingsService } from "./serverSettings.ts";
 
 async function makeTempWorkspaceRoot(): Promise<string> {
@@ -109,6 +112,7 @@ async function makeService(input: {
   readonly baseUrl: string;
   readonly userId?: string;
   readonly handle?: string;
+  readonly orchestration?: Partial<OrchestrationEngineShape>;
 }) {
   const layer = Layer.mergeAll(
     Layer.mock(ServerSettingsService)({
@@ -124,6 +128,8 @@ async function makeService(input: {
           projects: [],
           updatedAt: "2026-04-21T12:00:00.000Z",
         }),
+      dispatch: () => Effect.succeed({ sequence: 1 }),
+      ...input.orchestration,
     }),
     Layer.mock(AgentScienceAuthService)({
       getState: Effect.succeed({
@@ -690,5 +696,99 @@ describe("local paper publish flow", () => {
     } finally {
       await upstream.close();
     }
+  });
+
+  it("smart-publishes by retrying with a smaller bundle when supplemental uploads hit quota", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    await fs.writeFile(path.join(paperDir, "summary.csv"), "metric,value\nscore,1\n", "utf8");
+    const uploadedByAttempt: string[][] = [];
+    let currentAttempt: string[] = [];
+    __internal.setBlobUploaderForTests(async (input) => {
+      if (input.role === "pdf") {
+        currentAttempt = [];
+        uploadedByAttempt.push(currentAttempt);
+      }
+      currentAttempt.push(`${input.role}/${input.relativePath}`);
+      if (input.role === "artifacts") {
+        throw new Error("Vercel Blob: Storage quota exceeded for Hobby plan (1GB maximum)");
+      }
+      return {
+        url: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}`,
+        pathname: `${input.uploadId}/${input.role}/${input.fileName}`,
+        downloadUrl: `https://blob.example.test/${input.uploadId}/${input.role}/${input.fileName}?download=1`,
+        sizeBytes: input.bytes.length,
+      };
+    });
+    __internal.setBlobCleanerForTests(async () => {});
+    const upstream = await startUpstreamServer(() => ({
+      status: 200,
+      body: {
+        paper: {
+          id: "remote-paper-smart",
+          slug: "desktop-paper-smart",
+          publishedAt: "2026-04-21T20:00:00.000Z",
+        },
+      },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      const result = await Effect.runPromise(service.smartPublish(__internal.encodePaperId(paperDir)));
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe("published");
+      expect(result.paper?.publication?.slug).toBe("desktop-paper-smart");
+      expect(result.steps.map((step) => step.status)).toContain("failed");
+      expect(result.steps.at(-1)).toMatchObject({
+        command: "publish --bundle figures-only",
+        status: "success",
+      });
+      expect(uploadedByAttempt.at(-1)).toEqual(["pdf/paper.pdf", "figures/figure-1.png"]);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("starts a repair thread when every safe bundle fails for a paper without an existing chat", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({ workspaceRoot });
+    const dispatchedTypes: string[] = [];
+    const dispatchedTurnStarts: Array<{ bootstrap?: unknown; providerText?: string }> = [];
+    __internal.setBlobUploaderForTests(async () => {
+      throw new Error("Vercel Blob: Storage quota exceeded for Hobby plan (1GB maximum)");
+    });
+    __internal.setBlobCleanerForTests(async () => {});
+
+    const service = await makeService({
+      workspaceRoot,
+      baseUrl: "https://agentscience.example",
+      orchestration: {
+        dispatch: (command) =>
+          Effect.sync(() => {
+            dispatchedTypes.push(command.type);
+            if (command.type === "thread.turn.start") {
+              dispatchedTurnStarts.push({
+                bootstrap: command.bootstrap,
+                ...(command.message.providerText !== undefined
+                  ? { providerText: command.message.providerText }
+                  : {}),
+              });
+            }
+            return { sequence: dispatchedTypes.length };
+          }),
+      },
+    });
+
+    const result = await Effect.runPromise(service.smartPublish(__internal.encodePaperId(paperDir)));
+
+    expect(result.status).toBe("repairing");
+    expect(result.repairThreadId).toMatch(/^thread-publish-repair-/);
+    expect(dispatchedTypes).toEqual(["thread.create", "thread.turn.start"]);
+    expect(dispatchedTurnStarts[0]?.bootstrap).toBeUndefined();
+    expect(dispatchedTurnStarts[0]?.providerText).toContain("Retry publishing when the bundle is safe.");
   });
 });
