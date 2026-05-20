@@ -1319,6 +1319,12 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         to: "managed-resources",
       },
     ],
+    protocols: [
+      {
+        name: "AgentScience",
+        schemes: ["agentscience"],
+      },
+    ],
   };
   if (mockUpdates) {
     buildConfig.publish = [
@@ -1351,6 +1357,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       executableName: "agentscience",
       icon: "icon.png",
       category: "Development",
+      mimeTypes: ["x-scheme-handler/agentscience"],
       desktop: {
         entry: {
           StartupWMClass: "agentscience",

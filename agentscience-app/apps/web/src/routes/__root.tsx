@@ -1,5 +1,6 @@
 import {
   OrchestrationEvent,
+  type DesktopDeepLink,
   type ServerLifecycleWelcomePayload,
   type ThreadId,
 } from "@agentscience/contracts";
@@ -50,6 +51,8 @@ import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
 import { resolveOnboardingAccountSyncKey } from "../onboardingGate";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
+import { handlePaperOpenDeepLink } from "../lib/deepLinks";
+import { fetchLocalPapers, localPapersQueryKey } from "../lib/papers";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import {
   describeAgentScienceRuntimeStatus,
@@ -140,6 +143,7 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <ServerStateBootstrap />
+        <DesktopDeepLinkCoordinator />
         <EventRouter />
         <WebSocketConnectionCoordinator />
         <SlowRpcAckToastCoordinator />
@@ -175,6 +179,58 @@ function RootRouteView() {
       </AnchoredToastProvider>
     </ToastProvider>
   );
+}
+
+function DesktopDeepLinkCoordinator() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const handleDeepLink = useEffectEvent((deepLink: DesktopDeepLink) => {
+    if (deepLink.type !== "paper-open") {
+      return;
+    }
+
+    void handlePaperOpenDeepLink(deepLink, {
+      loadPapers: fetchLocalPapers,
+      cachePapers: (papers) => {
+        queryClient.setQueryData(localPapersQueryKey, papers);
+      },
+      navigateToPaper: (paperId) => navigate({ to: "/papers/$paperId", params: { paperId } }),
+      notifyMissing: () => {
+        toastManager.add({
+          type: "warning",
+          title: "Paper not found on this device",
+          description:
+            "AgentScience could not find a local paper published with that web slug.",
+          data: {
+            dismissAfterVisibleMs: 8_000,
+            hideCopyButton: true,
+          },
+        });
+      },
+      notifyFailed: (error) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open paper",
+          description:
+            error instanceof Error ? error.message : "AgentScience could not open the paper.",
+          data: {
+            dismissAfterVisibleMs: 8_000,
+          },
+        });
+      },
+    });
+  });
+
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    if (!bridge) {
+      return;
+    }
+
+    return bridge.onDeepLink(handleDeepLink);
+  }, []);
+
+  return null;
 }
 
 function AgentScienceRuntimeNoticeCoordinator() {

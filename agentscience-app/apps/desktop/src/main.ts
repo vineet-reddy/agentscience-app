@@ -19,6 +19,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import * as Effect from "effect/Effect";
 import type {
   DesktopTheme,
+  DesktopDeepLink,
   DesktopUpdateActionResult,
   DesktopUpdateCheckResult,
   DesktopUpdateState,
@@ -45,6 +46,7 @@ import {
   tryTrackAppOpened,
 } from "./analyticsService";
 import { syncShellEnvironment } from "./syncShellEnvironment";
+import { extractAgentScienceDeepLinkUrls, parseAgentScienceDeepLink } from "./deepLinks";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
   createInitialDesktopUpdateState,
@@ -90,6 +92,8 @@ const SET_THEME_CHANNEL = "desktop:set-theme";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const MENU_ACTION_CHANNEL = "desktop:menu-action";
+const DEEP_LINK_CHANNEL = "desktop:deep-link";
+const DEEP_LINK_READY_CHANNEL = "desktop:deep-link-ready";
 const UPDATE_STATE_CHANNEL = "desktop:update-state";
 const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
@@ -152,11 +156,13 @@ let restartAttempt = 0;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
 let desktopProtocolRegistered = false;
+let rendererReadyForDeepLinks = false;
 let aboutCommitHashCache: string | null | undefined;
 let desktopLogSink: RotatingFileSink | null = null;
 let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let backendObservabilitySettings = readPersistedBackendObservabilitySettings();
+const pendingDeepLinks: DesktopDeepLink[] = [];
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const expectedBackendExitChildren = new WeakSet<ChildProcess.ChildProcess>();
@@ -193,10 +199,21 @@ if (!hasSingleInstanceLock) {
   isQuitting = true;
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    queueDeepLinksFromArgv(argv);
     focusOrCreateMainWindow();
+    dispatchPendingDeepLinks();
   });
 }
+
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  queueDeepLinkUrl(url);
+  if (app.isReady()) {
+    focusOrCreateMainWindow();
+    dispatchPendingDeepLinks();
+  }
+});
 
 function logTimestamp(): string {
   return new Date().toISOString();
@@ -738,6 +755,61 @@ function registerDesktopProtocol(): void {
   });
 
   desktopProtocolRegistered = true;
+}
+
+function registerDeepLinkProtocolClient(): void {
+  try {
+    const defaultApp = (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp === true;
+    const defaultAppArgs = process.argv
+      .slice(1)
+      .filter((arg) => !arg.startsWith(`${DESKTOP_SCHEME}://`));
+    const registered =
+      defaultApp && defaultAppArgs.length > 0
+        ? app.setAsDefaultProtocolClient(DESKTOP_SCHEME, process.execPath, defaultAppArgs)
+        : app.setAsDefaultProtocolClient(DESKTOP_SCHEME);
+
+    if (!registered) {
+      console.warn(`[desktop] failed to register ${DESKTOP_SCHEME}:// protocol handler`);
+    }
+  } catch (error) {
+    console.warn(`[desktop] failed to register ${DESKTOP_SCHEME}:// protocol handler`, error);
+  }
+}
+
+function queueDeepLinkUrl(rawUrl: string): void {
+  const parsed = parseAgentScienceDeepLink(rawUrl);
+  if (!parsed.ok) {
+    console.warn(`[desktop] ignored deep link: ${parsed.reason}`);
+    return;
+  }
+
+  pendingDeepLinks.push(parsed.deepLink);
+}
+
+function queueDeepLinksFromArgv(argv: readonly string[]): void {
+  for (const rawUrl of extractAgentScienceDeepLinkUrls(argv)) {
+    queueDeepLinkUrl(rawUrl);
+  }
+}
+
+function dispatchPendingDeepLinks(): void {
+  if (!rendererReadyForDeepLinks || pendingDeepLinks.length === 0) {
+    return;
+  }
+
+  const targetWindow = mainWindow;
+  if (
+    !targetWindow ||
+    targetWindow.isDestroyed() ||
+    targetWindow.webContents.isLoadingMainFrame()
+  ) {
+    return;
+  }
+
+  const deepLinks = pendingDeepLinks.splice(0, pendingDeepLinks.length);
+  for (const deepLink of deepLinks) {
+    targetWindow.webContents.send(DEEP_LINK_CHANNEL, deepLink);
+  }
 }
 
 function dispatchMenuAction(action: string): void {
@@ -1600,6 +1672,13 @@ function registerIpcHandlers(): void {
     }
   });
 
+  ipcMain.removeHandler(DEEP_LINK_READY_CHANNEL);
+  ipcMain.handle(DEEP_LINK_READY_CHANNEL, async () => {
+    rendererReadyForDeepLinks = true;
+    const deepLinks = pendingDeepLinks.splice(0, pendingDeepLinks.length);
+    return deepLinks;
+  });
+
   ipcMain.removeHandler(UPDATE_GET_STATE_CHANNEL);
   ipcMain.handle(UPDATE_GET_STATE_CHANNEL, async () => updateState);
 
@@ -1853,9 +1932,15 @@ function createWindow(options?: { readonly loadAppImmediately?: boolean }): Brow
   };
   window.on("enter-full-screen", () => sendFullScreenState(true));
   window.on("leave-full-screen", () => sendFullScreenState(false));
+  window.webContents.on("did-start-loading", () => {
+    if (mainWindow === window) {
+      rendererReadyForDeepLinks = false;
+    }
+  });
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
+    dispatchPendingDeepLinks();
   });
   window.webContents.on("console-message", (event) => {
     if (!app.isPackaged) {
@@ -1884,6 +1969,7 @@ function createWindow(options?: { readonly loadAppImmediately?: boolean }): Brow
   window.on("closed", () => {
     if (mainWindow === window) {
       mainWindow = null;
+      rendererReadyForDeepLinks = false;
     }
   });
 
@@ -1943,8 +2029,10 @@ if (hasSingleInstanceLock) {
       writeDesktopLogHeader("app ready");
       configureAppIdentity();
       configureApplicationMenu();
+      registerDeepLinkProtocolClient();
       registerDesktopProtocol();
       configureAutoUpdater();
+      queueDeepLinksFromArgv(process.argv);
       void bootstrap().catch((error) => {
         handleFatalStartupError("bootstrap", error);
       });
