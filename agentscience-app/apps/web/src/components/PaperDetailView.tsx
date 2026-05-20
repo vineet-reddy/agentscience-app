@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
@@ -9,6 +9,7 @@ import {
   HardDriveIcon,
   Loader2Icon,
   MessageSquareTextIcon,
+  XIcon,
   XCircleIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -18,11 +19,10 @@ import { useAgentScienceAccount } from "../hooks/useAgentScienceAccount";
 import {
   fetchLocalPaper,
   localPaperQueryKey,
-  localPapersQueryKey,
-  smartPublishLocalPaper,
   type LocalPaper,
   type SmartPublishStep,
 } from "../lib/papers";
+import { useLocalPaperPublishStore, type SmartPublishProgress } from "../localPaperPublishStore";
 import { cn } from "../lib/utils";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { MacTitlebarDragRow } from "./MacTitlebarDragRow";
@@ -78,7 +78,10 @@ function DetailHeader({
   isLoading: boolean;
 }) {
   const navigate = useNavigate();
-  const [publishProgress, setPublishProgress] = useState<SmartPublishProgress | null>(null);
+  const publishProgress = useLocalPaperPublishStore((state) =>
+    paper ? (state.progressByPaperId[paper.id] ?? null) : null,
+  );
+  const clearPublishProgress = useLocalPaperPublishStore((state) => state.clearProgress);
 
   const goBack = () => {
     void navigate({ to: "/papers" });
@@ -119,26 +122,21 @@ function DetailHeader({
             <div className="no-drag-region ms-auto flex items-center gap-2">
               {paper?.threadId ? <OpenInChatButton threadId={paper.threadId} /> : null}
               {paper ? <OpenPublishedPaperButton paper={paper} /> : null}
-              {paper ? (
-                <PublishPaperButton paper={paper} onProgressChange={setPublishProgress} />
-              ) : null}
+              {paper ? <PublishPaperButton paper={paper} progress={publishProgress} /> : null}
               {paper?.pdf ? <DownloadButton paper={paper} /> : null}
             </div>
           </div>
-          {publishProgress ? <PublishProgressTray progress={publishProgress} /> : null}
+          {paper && publishProgress ? (
+            <PublishProgressTray
+              progress={publishProgress}
+              onDismiss={() => clearPublishProgress(paper.id)}
+            />
+          ) : null}
         </>
       )}
     </>
   );
 }
-
-type SmartPublishProgress = {
-  readonly status: "running" | "success" | "failed" | "repairing";
-  readonly headline: string;
-  readonly steps: readonly SmartPublishStep[];
-  readonly error?: string | undefined;
-  readonly repairThreadId?: string | undefined;
-};
 
 function BackToPapersButton({ onClick }: { onClick: () => void }) {
   return (
@@ -225,105 +223,20 @@ function OpenPublishedPaperButton({ paper }: { paper: LocalPaper }) {
 
 function PublishPaperButton({
   paper,
-  onProgressChange,
+  progress,
 }: {
   paper: LocalPaper;
-  onProgressChange: (progress: SmartPublishProgress | null) => void;
+  progress: SmartPublishProgress | null;
 }) {
   const queryClient = useQueryClient();
   const { state: authState } = useAgentScienceAccount();
-  const publishMutation = useMutation({
-    mutationFn: () => smartPublishLocalPaper(paper.id),
-    onMutate: () => {
-      onProgressChange({
-        status: "running",
-        headline: "Preparing the paper for publishing",
-        steps: [
-          {
-            command: "publish",
-            status: "running",
-            detail:
-              "Checking the paper files, storage limits, and whether the bundle needs to be cut down.",
-          },
-        ],
-      });
-    },
-    onSuccess: async (result) => {
-      if (result.paper) {
-        queryClient.setQueryData(localPaperQueryKey(paper.id), result.paper);
-      }
-      await queryClient.invalidateQueries({ queryKey: localPapersQueryKey });
-      if (result.status === "published" && result.paper?.publication) {
-        onProgressChange({
-          status: "success",
-          headline: paper.publication ? "Published paper updated" : "Paper published",
-          steps: result.steps,
-        });
-        toastManager.add({
-          type: "success",
-          title: paper.publication ? "Published paper updated" : "Paper published",
-          description: "AgentScience now has the latest version of this paper.",
-        });
-      } else if (result.status === "repairing") {
-        onProgressChange({
-          status: "repairing",
-          headline: "A paper agent is repairing the bundle",
-          steps: result.steps,
-          error: result.error,
-          repairThreadId: result.repairThreadId,
-        });
-        toastManager.add({
-          type: "warning",
-          title: "Agent repair started",
-          description:
-            result.error ??
-            "AgentScience is repairing the paper bundle before trying to publish again.",
-        });
-      } else {
-        const message =
-          result.error ?? "The paper could not be published. AgentScience needs attention first.";
-        onProgressChange({
-          status: "failed",
-          headline: "Publishing needs attention",
-          steps: result.steps,
-          error: message,
-        });
-        toastManager.add({
-          type: "error",
-          title: "Publish needs attention",
-          description: message,
-        });
-      }
-    },
-    onError: (error) => {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "The paper could not be published to AgentScience.";
-      onProgressChange({
-        status: "failed",
-        headline: "Publishing needs attention",
-        steps: [
-          {
-            command: "publish",
-            status: "failed",
-            detail: message,
-          },
-        ],
-        error: message,
-      });
-      toastManager.add({
-        type: "error",
-        title: "Publish failed",
-        description: message,
-      });
-    },
-  });
+  const startPublish = useLocalPaperPublishStore((state) => state.startPublish);
 
   const isSignedIn = authState?.status === "signed-in";
   const hasLatexSource = !!paper.source && paper.source.relativePath.endsWith(".tex");
   const isPublishable = !!paper.pdf && hasLatexSource;
-  const disabled = publishMutation.isPending || !isSignedIn || !isPublishable;
+  const isPublishing = progress?.status === "running";
+  const disabled = isPublishing || !isSignedIn || !isPublishable;
   const title = !isSignedIn
     ? "Connect this device to AgentScience before publishing."
     : !paper.source
@@ -343,26 +256,34 @@ function PublishPaperButton({
       variant={paper.publication ? "outline" : "default"}
       disabled={disabled}
       title={title}
-      onClick={() => void publishMutation.mutateAsync()}
+      onClick={() => void startPublish({ paper, queryClient })}
       className="gap-1.5"
     >
-      {publishMutation.isPending ? (
+      {isPublishing ? (
         <Loader2Icon className="size-3.5 animate-spin" aria-hidden />
       ) : (
         <ExternalLinkIcon className="size-3.5" aria-hidden />
       )}
-      <span>{publishMutation.isPending ? "Publishing" : paper.publication ? "Update" : "Publish"}</span>
+      <span>{isPublishing ? "Publishing" : paper.publication ? "Update" : "Publish"}</span>
     </Button>
   );
 }
 
-function PublishProgressTray({ progress }: { progress: SmartPublishProgress }) {
+function PublishProgressTray({
+  progress,
+  onDismiss,
+}: {
+  progress: SmartPublishProgress;
+  onDismiss: () => void;
+}) {
   const latestStep = progress.steps.toReversed().find((step) => step.status === "running");
   const summary =
     latestStep?.detail ??
     progress.error ??
     progress.steps[progress.steps.length - 1]?.detail ??
     "AgentScience is preparing the paper.";
+  const canDismiss = progress.status !== "running";
+  const showStepList = !(progress.status === "running" && progress.steps.length === 1);
 
   return (
     <div className="no-drag-region border-b border-border bg-snow-white px-6 py-3">
@@ -379,15 +300,28 @@ function PublishProgressTray({ progress }: { progress: SmartPublishProgress }) {
             <p className="text-[0.8125rem] font-medium text-ink">{progress.headline}</p>
             <p className="mt-0.5 text-[0.75rem] leading-snug text-ink-light">{summary}</p>
           </div>
+          {canDismiss ? (
+            <button
+              type="button"
+              className="ml-auto inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-ink-faint transition-colors hover:bg-snow-white-dark hover:text-ink"
+              onClick={onDismiss}
+              aria-label="Dismiss publish status"
+              title="Dismiss publish status"
+            >
+              <XIcon className="size-3.5" aria-hidden />
+            </button>
+          ) : null}
         </div>
-        <div className="grid gap-1.5 pl-6">
-          {progress.steps.map((step) => (
-            <PublishProgressStep
-              key={`${step.command}-${step.status}-${step.detail}`}
-              step={step}
-            />
-          ))}
-        </div>
+        {showStepList ? (
+          <div className="grid gap-1.5 pl-6">
+            {progress.steps.map((step) => (
+              <PublishProgressStep
+                key={`${step.command}-${step.status}-${step.detail}`}
+                step={step}
+              />
+            ))}
+          </div>
+        ) : null}
         {progress.repairThreadId ? (
           <Link
             to="/$threadId"
