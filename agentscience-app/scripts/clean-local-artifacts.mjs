@@ -2,11 +2,11 @@
 
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const defaultRepoRoot = fileURLToPath(new URL("..", import.meta.url));
 
-const removePaths = new Set([
+const defaultRemovePaths = [
   "node_modules",
   ".bun",
   ".turbo",
@@ -20,9 +20,9 @@ const removePaths = new Set([
   "apps/web/.playwright",
   "apps/web/playwright-report",
   "apps/web/src/components/__screenshots__",
-]);
+];
 
-function addWorkspaceGeneratedPaths(parent) {
+function addWorkspaceGeneratedPaths(repoRoot, removePaths, parent) {
   const parentPath = join(repoRoot, parent);
   if (!existsSync(parentPath)) {
     return;
@@ -43,7 +43,7 @@ function addWorkspaceGeneratedPaths(parent) {
   }
 }
 
-function addManagedResourceGeneratedPaths() {
+function addManagedResourceGeneratedPaths(repoRoot, removePaths) {
   const managedResourcesPath = join(repoRoot, "apps/desktop/managed-resources");
   if (!existsSync(managedResourcesPath)) {
     return;
@@ -68,12 +68,12 @@ function addManagedResourceGeneratedPaths() {
   }
 }
 
-function removeGeneratedPath(relativePath) {
+function removeGeneratedPath(repoRoot, relativePath) {
   const absolutePath = join(repoRoot, relativePath);
   rmSync(absolutePath, { recursive: true, force: true });
 }
 
-function removeIgnoredMetadataFiles() {
+function removeIgnoredMetadataFiles(repoRoot) {
   const stack = [repoRoot];
   while (stack.length > 0) {
     const current = stack.pop();
@@ -98,12 +98,22 @@ function removeIgnoredMetadataFiles() {
   }
 }
 
-addWorkspaceGeneratedPaths("apps");
-addWorkspaceGeneratedPaths("packages");
-addManagedResourceGeneratedPaths();
-
-for (const relativePath of [...removePaths].toSorted()) {
-  removeGeneratedPath(relativePath);
+export function collectLocalArtifactPaths(repoRoot = defaultRepoRoot) {
+  const removePaths = new Set(defaultRemovePaths);
+  addWorkspaceGeneratedPaths(repoRoot, removePaths, "apps");
+  addWorkspaceGeneratedPaths(repoRoot, removePaths, "packages");
+  addManagedResourceGeneratedPaths(repoRoot, removePaths);
+  return [...removePaths].toSorted();
 }
 
-removeIgnoredMetadataFiles();
+export function cleanLocalArtifacts(repoRoot = defaultRepoRoot) {
+  for (const relativePath of collectLocalArtifactPaths(repoRoot)) {
+    removeGeneratedPath(repoRoot, relativePath);
+  }
+
+  removeIgnoredMetadataFiles(repoRoot);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  cleanLocalArtifacts();
+}
