@@ -34,6 +34,8 @@ const MAX_SCALE = 5;
 const WHEEL_PIXELS_PER_ZOOM_STEP = 30;
 const SMOOTH_REDRAW_DELAY_MS = 400;
 const KEYBOARD_ZOOM_FACTOR = 1.15;
+const DOUBLE_CLICK_ZOOM_FACTOR = 1.6;
+const DOUBLE_CLICK_FIT_THRESHOLD = 1.35;
 
 type PdfViewerInstance = InstanceType<typeof PDFViewer>;
 type PdfLinkServiceInstance = InstanceType<typeof PDFLinkService>;
@@ -311,6 +313,39 @@ function getPointerZoomOrigin(input: {
   };
 }
 
+function getCurrentPageWidthScale(input: {
+  readonly container: HTMLDivElement;
+  readonly viewerElement: HTMLDivElement | null;
+  readonly currentScale: number;
+}): number | null {
+  if (!Number.isFinite(input.currentScale) || input.currentScale <= 0) {
+    return null;
+  }
+
+  const viewerElement = input.viewerElement;
+  const page = viewerElement?.querySelector<HTMLElement>(".page") ?? null;
+  if (!viewerElement || !page) {
+    return null;
+  }
+
+  const viewerStyle = window.getComputedStyle(viewerElement);
+  const horizontalPadding =
+    Number.parseFloat(viewerStyle.paddingLeft) + Number.parseFloat(viewerStyle.paddingRight);
+  const availableWidth = input.container.clientWidth - horizontalPadding;
+  const currentPageWidth = page.getBoundingClientRect().width;
+
+  if (
+    !Number.isFinite(availableWidth) ||
+    !Number.isFinite(currentPageWidth) ||
+    availableWidth <= 0 ||
+    currentPageWidth <= 0
+  ) {
+    return null;
+  }
+
+  return clampScale(input.currentScale * (availableWidth / currentPageWidth));
+}
+
 function PaperPreviewLoader() {
   return (
     <div className="paper-preview-overlay">
@@ -353,13 +388,53 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
   const isControlKeyDownRef = useRef(false);
   const wheelUnusedFactorRef = useRef(1);
   const wheelUnusedTicksRef = useRef(0);
+  const isAutoFitScaleRef = useRef(true);
+  const lastAutoFitScaleRef = useRef<number | null>(null);
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoadingDocument, setIsLoadingDocument] = useState(true);
   const [hasRenderedPages, setHasRenderedPages] = useState(false);
   const [scaleLabel, setScaleLabel] = useState("");
 
-  const zoomByFactor = useCallback((scaleFactor: number, origin?: { x: number; y: number }) => {
+  const applyAutoFitScale = useCallback((origin?: { x: number; y: number }) => {
+    const container = containerRef.current;
+    const pdfViewer = pdfViewerRef.current;
+    if (!container || !pdfViewer || !pdfViewer.pdfDocument) {
+      return;
+    }
+
+    const previousScale = pdfViewer.currentScale;
+    const hasPreviousScale = Number.isFinite(previousScale) && previousScale > 0;
+
+    const rect = container.getBoundingClientRect();
+    const center = origin ?? getVisiblePageCenterZoomOrigin({
+      container,
+      viewerElement: viewerElementRef.current,
+    });
+
+    pdfViewer.currentScaleValue = DEFAULT_SCALE_VALUE;
+
+    const actualScale = pdfViewer.currentScale;
+    if (!Number.isFinite(actualScale) || actualScale <= 0) {
+      return;
+    }
+
+    const scaleDiff = hasPreviousScale ? actualScale / previousScale - 1 : 0;
+    if (scaleDiff !== 0) {
+      container.scrollLeft += (center.x - rect.left) * scaleDiff;
+      container.scrollTop += (center.y - rect.top) * scaleDiff;
+    }
+
+    isAutoFitScaleRef.current = true;
+    lastAutoFitScaleRef.current = actualScale;
+    setScaleLabel(formatScaleLabel(actualScale));
+  }, []);
+
+  const zoomByFactor = useCallback((
+    scaleFactor: number,
+    origin?: { x: number; y: number },
+    options?: { readonly keepAutoFitMode?: boolean },
+  ) => {
     const container = containerRef.current;
     const pdfViewer = pdfViewerRef.current;
     if (!container || !pdfViewer || !pdfViewer.pdfDocument) {
@@ -401,6 +476,9 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
       container.scrollTop += (center.y - rect.top) * scaleDiff;
     }
 
+    if (!options?.keepAutoFitMode) {
+      isAutoFitScaleRef.current = false;
+    }
     setScaleLabel(formatScaleLabel(actualScale));
   }, []);
 
@@ -413,14 +491,53 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
   }, [zoomByFactor]);
 
   const resetZoom = useCallback(() => {
+    applyAutoFitScale();
+  }, [applyAutoFitScale]);
+
+  const handleDoubleClickZoom = useCallback((event: MouseEvent) => {
+    const container = containerRef.current;
     const pdfViewer = pdfViewerRef.current;
-    if (!pdfViewer || !pdfViewer.pdfDocument) {
+    if (!container || !pdfViewer || !pdfViewer.pdfDocument) {
       return;
     }
 
-    pdfViewer.currentScaleValue = DEFAULT_SCALE_VALUE;
-    setScaleLabel(formatScaleLabel(pdfViewer.currentScale));
-  }, []);
+    event.preventDefault();
+    event.stopPropagation();
+    container.focus({ preventScroll: true });
+
+    const origin = getPointerZoomOrigin({
+      container,
+      viewerElement: viewerElementRef.current,
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const currentScale = pdfViewer.currentScale;
+    if (!Number.isFinite(currentScale) || currentScale <= 0) {
+      return;
+    }
+
+    const autoFitScale =
+      getCurrentPageWidthScale({
+        container,
+        viewerElement: viewerElementRef.current,
+        currentScale,
+      }) ?? lastAutoFitScaleRef.current;
+    if (
+      event.shiftKey ||
+      (autoFitScale !== null && currentScale > autoFitScale * DOUBLE_CLICK_FIT_THRESHOLD)
+    ) {
+      if (autoFitScale !== null && !event.shiftKey) {
+        zoomByFactor(autoFitScale / currentScale, origin, { keepAutoFitMode: true });
+        isAutoFitScaleRef.current = true;
+        return;
+      }
+
+      zoomByFactor(1 / DOUBLE_CLICK_ZOOM_FACTOR, origin);
+      return;
+    }
+
+    zoomByFactor(DOUBLE_CLICK_ZOOM_FACTOR, origin);
+  }, [zoomByFactor]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -445,8 +562,7 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
     linkServiceRef.current = linkService;
 
     const handlePagesInit = () => {
-      pdfViewer.currentScaleValue = DEFAULT_SCALE_VALUE;
-      setScaleLabel(formatScaleLabel(pdfViewer.currentScale));
+      applyAutoFitScale();
     };
     const handlePageRendered = (event: { cssTransform?: boolean }) => {
       if (!event.cssTransform) {
@@ -469,7 +585,7 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
       pdfViewerRef.current = null;
       linkServiceRef.current = null;
     };
-  }, []);
+  }, [applyAutoFitScale]);
 
   useEffect(() => {
     let cancelled = false;
@@ -478,6 +594,8 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
     setIsLoadingDocument(true);
     setHasRenderedPages(false);
     setScaleLabel("");
+    isAutoFitScaleRef.current = true;
+    lastAutoFitScaleRef.current = null;
 
     clearPdfViewerDocument({
       pdfViewer: pdfViewerRef.current,
@@ -624,17 +742,43 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
     };
 
     container.addEventListener("wheel", handleWheel, { passive: false });
+    container.addEventListener("dblclick", handleDoubleClickZoom);
     container.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("blur", handleWindowBlur);
 
     return () => {
       container.removeEventListener("wheel", handleWheel);
+      container.removeEventListener("dblclick", handleDoubleClickZoom);
       container.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, [resetZoom, zoomByFactor, zoomByWheelTicks]);
+  }, [handleDoubleClickZoom, resetZoom, zoomByFactor, zoomByWheelTicks]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    let animationFrame = 0;
+    const resizeObserver = new ResizeObserver(() => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        if (isAutoFitScaleRef.current) {
+          applyAutoFitScale();
+        }
+      });
+    });
+
+    resizeObserver.observe(container);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+    };
+  }, [applyAutoFitScale]);
 
   const showLoader = isLoadingDocument || (!loadError && !hasRenderedPages);
   const controlsDisabled = !!loadError || isLoadingDocument;
