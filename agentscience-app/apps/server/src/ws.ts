@@ -464,9 +464,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>
         observeRpcStreamEffect(
           WS_METHODS.subscribeOrchestrationDomainEvents,
-          Effect.gen(function* () {
-            return orchestrationEngine.streamDomainEventsWithReplay;
-          }),
+          Effect.succeed(orchestrationEngine.streamDomainEventsWithReplay),
           { "rpc.aggregate": "orchestration" },
         ),
       [WS_METHODS.serverGetConfig]: (_input) =>
