@@ -8,7 +8,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentscience/contracts": "workspace:*",
     "@agentscience/shared": "workspace:*",
     "@effect/platform-node": "catalog:",
     "effect": "catalog:"

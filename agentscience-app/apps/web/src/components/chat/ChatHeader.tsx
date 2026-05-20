@@ -1,38 +1,25 @@
-import { type EditorId, type ProjectScript, type ThreadId } from "@agentscience/contracts";
+import { type EditorId } from "@agentscience/contracts";
 import { memo } from "react";
 import { BookOpenTextIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { Toggle } from "../ui/toggle";
 import { SidebarTrigger } from "../ui/sidebar";
 import { SidebarReopenTrigger } from "../SidebarReopenTrigger";
 import { OpenInPicker } from "./OpenInPicker";
 
 interface ChatHeaderProps {
-  activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
-  isGitRepo: boolean;
   openInCwd: string | null;
-  activeProjectScripts: ProjectScript[] | undefined;
-  preferredScriptId: string | null;
   availableEditors: ReadonlyArray<EditorId>;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
-  diffToggleShortcutLabel: string | null;
-  gitCwd: string | null;
-  diffOpen: boolean;
   paperReviewAvailable: boolean;
   paperReviewOpen: boolean;
   activeWorkStatusLabel?: string | null;
-  onRunProjectScript: (script: ProjectScript) => void;
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
-  onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
-  onToggleDiff: () => void;
   onTogglePaperReview: () => void;
 }
 
