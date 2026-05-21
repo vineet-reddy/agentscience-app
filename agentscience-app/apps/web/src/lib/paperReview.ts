@@ -36,12 +36,20 @@ export function paperReviewPreviewKey(
     return null;
   }
 
-  return [
-    snapshot.preview.kind,
-    snapshot.preview.relativePath,
-    snapshot.preview.updatedAt,
-    snapshot.preview.url,
-  ].join(":");
+  return [snapshot.preview.kind, snapshot.preview.relativePath].join(":");
+}
+
+export function paperReviewAutoOpenKey(
+  snapshot: PaperReviewSnapshot | null | undefined,
+  latestPaperPresentedActivityId: string | null,
+): string | null {
+  const previewKey = paperReviewPreviewKey(snapshot);
+  if (!previewKey) {
+    return null;
+  }
+  return latestPaperPresentedActivityId
+    ? `presentation:${latestPaperPresentedActivityId}`
+    : `preview:${previewKey}`;
 }
 
 function resolvePaperReviewRequestUrl(url: string): string {

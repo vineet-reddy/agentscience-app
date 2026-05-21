@@ -1,9 +1,10 @@
-import { ThreadId } from "@agentscience/contracts";
+import { ThreadId, type PaperReviewSnapshot } from "@agentscience/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchPaperReviewBytes,
   fetchPaperReviewSnapshot,
+  paperReviewAutoOpenKey,
   paperReviewPreviewKey,
   paperReviewReadyPdfKey,
 } from "./paperReview";
@@ -73,46 +74,98 @@ describe("paperReview", () => {
     ).toBeNull();
   });
 
-  it("keys any reviewable workspace preview for auto-opening the canvas", () => {
-    expect(
-      paperReviewPreviewKey({
-        threadId,
-        threadTitle: "Paper thread",
-        workspaceRoot: "/tmp/paper",
-        source: null,
-        pdf: null,
-        figure: {
-          kind: "figure",
-          label: "Figure",
-          relativePath: "figures/effect.png",
-          url: `/api/paper-review/${threadId}/files/figures/effect.png`,
-          sizeBytes: 42,
-          updatedAt: "2026-04-16T08:00:00.000Z",
-          contentType: "image/png",
-        },
-        bibliography: null,
-        notes: null,
+  it("keys any reviewable workspace preview by stable artifact target", () => {
+    const snapshot: PaperReviewSnapshot = {
+      threadId,
+      threadTitle: "Paper thread",
+      workspaceRoot: "/tmp/paper",
+      source: null,
+      pdf: null,
+      figure: {
+        kind: "figure",
+        label: "Figure",
+        relativePath: "figures/effect.png",
+        url: `/api/paper-review/${threadId}/files/figures/effect.png`,
+        sizeBytes: 42,
+        updatedAt: "2026-04-16T08:00:00.000Z",
+        contentType: "image/png",
+      },
+      bibliography: null,
+      notes: null,
+      preview: {
+        kind: "image",
+        relativePath: "figures/effect.png",
+        url: `/api/paper-review/${threadId}/files/figures/effect.png`,
+        updatedAt: "2026-04-16T08:00:00.000Z",
+      },
+      compile: {
+        status: "idle",
+        compiler: "none",
+        compilerLabel: null,
+        canCompile: false,
+        needsBuild: false,
+        lastBuiltAt: null,
+        lastError: null,
+        outputExcerpt: null,
+      },
+      reviewRecommended: true,
+    };
+
+    expect(paperReviewPreviewKey(snapshot)).toBe("image:figures/effect.png");
+    expect(paperReviewAutoOpenKey(snapshot, null)).toBe(
+      "preview:image:figures/effect.png",
+    );
+    expect(paperReviewAutoOpenKey(snapshot, "activity-paper-presented")).toBe(
+      "presentation:activity-paper-presented",
+    );
+  });
+
+  it("keeps the auto-open key stable when a dismissed artifact is only touched by polling", () => {
+    const baseSnapshot = {
+      threadId,
+      threadTitle: "Paper thread",
+      workspaceRoot: "/tmp/paper",
+      source: null,
+      pdf: null,
+      figure: null,
+      bibliography: null,
+      notes: null,
+      preview: {
+        kind: "pdf" as const,
+        relativePath: "paper.pdf",
+        url: `/api/paper-review/${threadId}/files/paper.pdf`,
+        updatedAt: "2026-05-21T12:00:00.000Z",
+      },
+      compile: {
+        status: "ready" as const,
+        compiler: "managed-latexmk" as const,
+        compilerLabel: "latexmk",
+        canCompile: true,
+        needsBuild: false,
+        lastBuiltAt: "2026-05-21T12:00:00.000Z",
+        lastError: null,
+        outputExcerpt: null,
+      },
+      reviewRecommended: true,
+    };
+
+    const dismissedKey = paperReviewAutoOpenKey(baseSnapshot, null);
+    const nextPollKey = paperReviewAutoOpenKey(
+      {
+        ...baseSnapshot,
         preview: {
-          kind: "image",
-          relativePath: "figures/effect.png",
-          url: `/api/paper-review/${threadId}/files/figures/effect.png`,
-          updatedAt: "2026-04-16T08:00:00.000Z",
+          ...baseSnapshot.preview,
+          updatedAt: "2026-05-21T12:00:05.000Z",
         },
         compile: {
-          status: "idle",
-          compiler: "none",
-          compilerLabel: null,
-          canCompile: false,
-          needsBuild: false,
-          lastBuiltAt: null,
-          lastError: null,
-          outputExcerpt: null,
+          ...baseSnapshot.compile,
+          lastBuiltAt: "2026-05-21T12:00:05.000Z",
         },
-        reviewRecommended: true,
-      }),
-    ).toBe(
-      `image:figures/effect.png:2026-04-16T08:00:00.000Z:/api/paper-review/${threadId}/files/figures/effect.png`,
+      },
+      null,
     );
+
+    expect(nextPollKey).toBe(dismissedKey);
   });
 
   it("targets the desktop backend origin and normalizes artifact URLs", async () => {

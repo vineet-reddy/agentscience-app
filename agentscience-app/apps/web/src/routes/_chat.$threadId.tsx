@@ -28,7 +28,7 @@ import {
   stripDiffSearchParams,
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { fetchPaperReviewSnapshot, paperReviewPreviewKey } from "../lib/paperReview";
+import { fetchPaperReviewSnapshot, paperReviewAutoOpenKey } from "../lib/paperReview";
 import {
   PAPER_REVIEW_INLINE_DEFAULT_WIDTH,
   PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH,
@@ -307,7 +307,10 @@ function ChatThreadRouteView() {
     enabled: routeThreadExists,
     refetchInterval: 5_000,
   });
-  const reviewableOutputKey = paperReviewPreviewKey(paperReviewQuery.data);
+  const reviewAutoOpenKey = paperReviewAutoOpenKey(
+    paperReviewQuery.data,
+    latestPaperPresentedActivityId,
+  );
   const paperReviewAvailable = Boolean(
     paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId,
   );
@@ -333,9 +336,9 @@ function ChatThreadRouteView() {
     setReviewOpen(false);
     setDismissedReviewByThreadId((current) => ({
       ...current,
-      [threadId]: reviewableOutputKey ?? "__manual__",
+      [threadId]: reviewAutoOpenKey ?? "__manual__",
     }));
-  }, [reviewableOutputKey, threadId]);
+  }, [reviewAutoOpenKey, threadId]);
   const openReview = useCallback(() => {
     setReviewOpen(true);
     setOpenedReviewByThreadId((current) =>
@@ -370,20 +373,22 @@ function ChatThreadRouteView() {
   }, [latestPaperPresentedActivityId, queryClient, threadId]);
 
   useEffect(() => {
-    if (!paperReviewAvailable || !reviewableOutputKey) {
+    if (!paperReviewAvailable || !reviewAutoOpenKey) {
       return;
     }
-    if (dismissedReviewByThreadId[threadId] === reviewableOutputKey) {
-      return;
-    }
-
-    if (lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] === reviewableOutputKey) {
+    if (dismissedReviewByThreadId[threadId] === reviewAutoOpenKey) {
       return;
     }
 
-    lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] = reviewableOutputKey;
+    if (
+      lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] === reviewAutoOpenKey
+    ) {
+      return;
+    }
+
+    lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] = reviewAutoOpenKey;
     openReview();
-  }, [dismissedReviewByThreadId, openReview, paperReviewAvailable, reviewableOutputKey, threadId]);
+  }, [dismissedReviewByThreadId, openReview, paperReviewAvailable, reviewAutoOpenKey, threadId]);
 
   useEffect(() => {
     const previousUpdatedAt = lastObservedThreadUpdatedAtByThreadIdRef.current[threadId];
