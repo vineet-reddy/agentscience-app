@@ -1,10 +1,12 @@
 import {
   type LocalPaperSummary,
+  type LocalPaperPublishedResolveResponse,
   type LocalPapersListResponse,
   type LocalPaperPublishResponse,
   type LocalPaperSmartPublishResponse,
   LOCAL_PAPERS_ROUTE_PREFIX,
   localPaperFileRoutePath,
+  localPaperPublishedRoutePath,
   localPaperPublishRoutePath,
   localPaperSmartPublishRoutePath,
   localPapersListRoutePath,
@@ -80,6 +82,26 @@ export async function fetchLocalPaper(
 ): Promise<LocalPaper | null> {
   const papers = await fetchLocalPapers(signal);
   return papers.find((paper) => paper.id === paperId) ?? null;
+}
+
+export async function resolvePublishedLocalPaper(
+  slug: string,
+  baseUrl?: string | undefined,
+  signal?: AbortSignal,
+): Promise<LocalPaper | null> {
+  const requestUrl = new URL(absolutize(localPaperPublishedRoutePath(slug)));
+  if (baseUrl) {
+    requestUrl.searchParams.set("baseUrl", baseUrl);
+  }
+
+  const init: RequestInit = { credentials: "same-origin" };
+  if (signal) init.signal = signal;
+  const response = await fetch(requestUrl.toString(), init);
+  if (!response.ok) {
+    throw new Error(`Failed to open published paper (${response.status})`);
+  }
+  const body = (await response.json()) as LocalPaperPublishedResolveResponse;
+  return body.paper ? withAbsoluteUrls(body.paper) : null;
 }
 
 export async function publishLocalPaper(

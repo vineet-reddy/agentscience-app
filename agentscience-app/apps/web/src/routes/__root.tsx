@@ -52,7 +52,11 @@ import { resolveOnboardingAccountSyncKey } from "../onboardingGate";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { handlePaperOpenDeepLink } from "../lib/deepLinks";
-import { fetchLocalPapers, localPapersQueryKey } from "../lib/papers";
+import {
+  localPaperQueryKey,
+  localPapersQueryKey,
+  resolvePublishedLocalPaper,
+} from "../lib/papers";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import {
   describeAgentScienceRuntimeStatus,
@@ -190,9 +194,25 @@ function DesktopDeepLinkCoordinator() {
     }
 
     void handlePaperOpenDeepLink(deepLink, {
-      loadPapers: fetchLocalPapers,
-      cachePapers: (papers) => {
-        queryClient.setQueryData(localPapersQueryKey, papers);
+      resolvePublishedPaper: resolvePublishedLocalPaper,
+      cachePaper: (paper) => {
+        queryClient.setQueryData(localPaperQueryKey(paper.id), paper);
+        queryClient.setQueryData(localPapersQueryKey, (current: unknown) => {
+          if (!Array.isArray(current)) {
+            return [paper];
+          }
+          const existingIndex = current.findIndex(
+            (item) =>
+              item &&
+              typeof item === "object" &&
+              "id" in item &&
+              (item as { id?: unknown }).id === paper.id,
+          );
+          if (existingIndex === -1) {
+            return [paper, ...current];
+          }
+          return current.map((item, index) => (index === existingIndex ? paper : item));
+        });
       },
       navigateToPaper: (paperId) => navigate({ to: "/papers/$paperId", params: { paperId } }),
       notifyMissing: () => {

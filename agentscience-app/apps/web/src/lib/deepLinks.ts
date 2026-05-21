@@ -5,18 +5,14 @@ import type { LocalPaper } from "./papers";
 export type PaperOpenDeepLinkHandlerResult = "opened" | "missing" | "failed";
 
 export interface PaperOpenDeepLinkHandlerDependencies {
-  loadPapers: () => Promise<ReadonlyArray<LocalPaper>>;
-  cachePapers: (papers: ReadonlyArray<LocalPaper>) => void;
+  resolvePublishedPaper: (
+    slug: string,
+    baseUrl?: string | undefined,
+  ) => Promise<LocalPaper | null>;
+  cachePaper: (paper: LocalPaper) => void;
   navigateToPaper: (paperId: string) => Promise<void>;
   notifyMissing: (slug: string) => void;
   notifyFailed: (error: unknown) => void;
-}
-
-export function findLocalPaperForPublishedSlug(
-  papers: ReadonlyArray<LocalPaper>,
-  slug: string,
-): LocalPaper | null {
-  return papers.find((paper) => paper.publication?.slug === slug) ?? null;
 }
 
 export async function handlePaperOpenDeepLink(
@@ -24,14 +20,13 @@ export async function handlePaperOpenDeepLink(
   dependencies: PaperOpenDeepLinkHandlerDependencies,
 ): Promise<PaperOpenDeepLinkHandlerResult> {
   try {
-    const papers = await dependencies.loadPapers();
-    dependencies.cachePapers(papers);
-    const paper = findLocalPaperForPublishedSlug(papers, deepLink.slug);
+    const paper = await dependencies.resolvePublishedPaper(deepLink.slug, deepLink.baseUrl);
     if (!paper) {
       dependencies.notifyMissing(deepLink.slug);
       return "missing";
     }
 
+    dependencies.cachePaper(paper);
     await dependencies.navigateToPaper(paper.id);
     return "opened";
   } catch (error) {

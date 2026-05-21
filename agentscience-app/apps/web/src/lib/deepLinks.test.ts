@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { findLocalPaperForPublishedSlug, handlePaperOpenDeepLink } from "./deepLinks";
+import { handlePaperOpenDeepLink } from "./deepLinks";
 import type { LocalPaper } from "./papers";
 
 function localPaper(overrides: Partial<LocalPaper>): LocalPaper {
@@ -24,33 +24,8 @@ function localPaper(overrides: Partial<LocalPaper>): LocalPaper {
   };
 }
 
-describe("findLocalPaperForPublishedSlug", () => {
-  it("matches the published AgentScience slug, not the local folder name", () => {
-    const paper = localPaper({
-      id: "paperid-published",
-      folderName: "local-draft-folder",
-      publication: {
-        remotePaperId: "remote-paper-1",
-        slug: "published-paper",
-        url: "https://agentscience.app/papers/published-paper",
-        publishedAt: "2026-04-18T00:00:00.000Z",
-      },
-    });
-
-    expect(findLocalPaperForPublishedSlug([paper], "published-paper")?.id).toBe(
-      "paperid-published",
-    );
-    expect(findLocalPaperForPublishedSlug([paper], "local-draft-folder")).toBeNull();
-  });
-
-  it("ignores local-only papers", () => {
-    expect(findLocalPaperForPublishedSlug([localPaper({ folderName: "test-paper" })], "test-paper"))
-      .toBeNull();
-  });
-});
-
 describe("handlePaperOpenDeepLink", () => {
-  it("loads local papers and navigates to the matching published paper", async () => {
+  it("resolves the published paper and navigates to it", async () => {
     const paper = localPaper({
       id: "paperid-published",
       publication: {
@@ -60,7 +35,8 @@ describe("handlePaperOpenDeepLink", () => {
         publishedAt: "2026-04-18T00:00:00.000Z",
       },
     });
-    const cachePapers = vi.fn();
+    const cachePaper = vi.fn();
+    const resolvePublishedPaper = vi.fn().mockResolvedValue(paper);
     const navigateToPaper = vi.fn().mockResolvedValue(undefined);
     const notifyMissing = vi.fn();
     const notifyFailed = vi.fn();
@@ -69,8 +45,8 @@ describe("handlePaperOpenDeepLink", () => {
       handlePaperOpenDeepLink(
         { type: "paper-open", slug: "published-paper" },
         {
-          loadPapers: async () => [paper],
-          cachePapers,
+          resolvePublishedPaper,
+          cachePaper,
           navigateToPaper,
           notifyMissing,
           notifyFailed,
@@ -78,10 +54,38 @@ describe("handlePaperOpenDeepLink", () => {
       ),
     ).resolves.toBe("opened");
 
-    expect(cachePapers).toHaveBeenCalledWith([paper]);
+    expect(resolvePublishedPaper).toHaveBeenCalledWith("published-paper", undefined);
+    expect(cachePaper).toHaveBeenCalledWith(paper);
     expect(navigateToPaper).toHaveBeenCalledWith("paperid-published");
     expect(notifyMissing).not.toHaveBeenCalled();
     expect(notifyFailed).not.toHaveBeenCalled();
+  });
+
+  it("passes the web origin through to the local resolver", async () => {
+    const paper = localPaper({ id: "paperid-published" });
+    const resolvePublishedPaper = vi.fn().mockResolvedValue(paper);
+
+    await expect(
+      handlePaperOpenDeepLink(
+        {
+          type: "paper-open",
+          slug: "published-paper",
+          baseUrl: "http://localhost:3000",
+        },
+        {
+          resolvePublishedPaper,
+          cachePaper: vi.fn(),
+          navigateToPaper: vi.fn().mockResolvedValue(undefined),
+          notifyMissing: vi.fn(),
+          notifyFailed: vi.fn(),
+        },
+      ),
+    ).resolves.toBe("opened");
+
+    expect(resolvePublishedPaper).toHaveBeenCalledWith(
+      "published-paper",
+      "http://localhost:3000",
+    );
   });
 
   it("notifies when no local paper has the published slug", async () => {
@@ -92,8 +96,8 @@ describe("handlePaperOpenDeepLink", () => {
       handlePaperOpenDeepLink(
         { type: "paper-open", slug: "missing-paper" },
         {
-          loadPapers: async () => [localPaper({ folderName: "missing-paper" })],
-          cachePapers: vi.fn(),
+          resolvePublishedPaper: async () => null,
+          cachePaper: vi.fn(),
           navigateToPaper: vi.fn(),
           notifyMissing,
           notifyFailed,
@@ -113,10 +117,10 @@ describe("handlePaperOpenDeepLink", () => {
       handlePaperOpenDeepLink(
         { type: "paper-open", slug: "published-paper" },
         {
-          loadPapers: async () => {
+          resolvePublishedPaper: async () => {
             throw error;
           },
-          cachePapers: vi.fn(),
+          cachePaper: vi.fn(),
           navigateToPaper: vi.fn(),
           notifyMissing: vi.fn(),
           notifyFailed,

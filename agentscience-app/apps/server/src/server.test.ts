@@ -541,6 +541,7 @@ const buildAppUnderTest = (options?: {
           }),
           Layer.mock(LocalPapersService)({
             list: () => Effect.succeed([]),
+            resolvePublished: () => Effect.succeed(null),
             resolveFilePath: () => Effect.succeed(null),
             publish: () =>
               Effect.fail(
@@ -867,6 +868,59 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         paper: summary,
       });
       assert.equal(publishedPaperId, "paper-1");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes published paper deep-link resolution through the embedded server", () =>
+    Effect.gen(function* () {
+      let resolvedSlug: string | null = null;
+      let resolvedBaseUrl: string | undefined;
+      const summary = {
+        id: "paper-1",
+        title: "A publishable desktop paper",
+        folderName: "a-publishable-desktop-paper",
+        containerKind: "paper" as const,
+        updatedAt: "2026-04-21T12:00:00.000Z",
+        pdf: null,
+        source: null,
+        abstract: null,
+        publishManifestPresent: false,
+        publication: {
+          remotePaperId: "remote-paper-1",
+          slug: "published-paper",
+          url: "https://agentscience.example/papers/published-paper",
+          publishedAt: "2026-04-21T13:00:00.000Z",
+        },
+        threadId: null,
+        threadTitle: null,
+        threadArchivedAt: null,
+        projectId: null,
+        projectName: null,
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          localPapers: {
+            resolvePublished: (slug, baseUrl) =>
+              Effect.sync(() => {
+                resolvedSlug = slug;
+                resolvedBaseUrl = baseUrl;
+                return summary;
+              }),
+          },
+        },
+      });
+
+      const response = yield* HttpClient.get(
+        "/api/papers/published/published-paper?baseUrl=https%3A%2F%2Fagentscience.example",
+      );
+
+      assert.equal(response.status, 200);
+      assert.deepStrictEqual(yield* response.json, {
+        paper: summary,
+      });
+      assert.equal(resolvedSlug, "published-paper");
+      assert.equal(resolvedBaseUrl, "https://agentscience.example");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

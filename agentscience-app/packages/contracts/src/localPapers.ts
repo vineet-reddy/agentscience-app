@@ -27,6 +27,10 @@ export function localPapersListRoutePath(): string {
   return LOCAL_PAPERS_ROUTE_PREFIX;
 }
 
+export function localPaperPublishedRoutePath(slug: string): string {
+  return `${LOCAL_PAPERS_ROUTE_PREFIX}/published/${encodeURIComponent(slug)}`;
+}
+
 export function localPaperFileRoutePath(paperId: string, relativePath: string): string {
   return `${LOCAL_PAPERS_ROUTE_PREFIX}/${encodeURIComponent(paperId)}/files/${encodeRelativePath(relativePath)}`;
 }
@@ -109,6 +113,12 @@ export const LocalPaperPublishResponse = Schema.Struct({
   paper: LocalPaperSummary,
 });
 export type LocalPaperPublishResponse = typeof LocalPaperPublishResponse.Type;
+
+export const LocalPaperPublishedResolveResponse = Schema.Struct({
+  paper: Schema.NullOr(LocalPaperSummary),
+});
+export type LocalPaperPublishedResolveResponse =
+  typeof LocalPaperPublishedResolveResponse.Type;
 
 export type LocalPaperSmartPublishStepStatus = "running" | "success" | "failed" | "skipped";
 export type LocalPaperSmartPublishStatus = "published" | "repairing" | "failed";

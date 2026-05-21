@@ -142,6 +142,16 @@ export interface LocalPapersServiceShape {
   /** Scan the managed workspace and return every paper found on disk. */
   readonly list: () => Effect.Effect<LocalPaperSummary[]>;
   /**
+   * Resolve a published AgentScience paper slug to a local paper. If the
+   * paper was published outside this app but a single authored local paper
+   * clearly matches the remote title/abstract, persist publication metadata
+   * so later opens and updates use the stable remote identity.
+   */
+  readonly resolvePublished: (
+    slug: string,
+    baseUrl?: string | undefined,
+  ) => Effect.Effect<LocalPaperSummary | null, LocalPaperPublishError>;
+  /**
    * Resolve a file inside a paper folder to an absolute filesystem path, or
    * `null` if the path is outside the paper's folder or does not exist.
    * Used by the HTTP layer to serve previews and downloads.
@@ -1071,6 +1081,183 @@ function parsePublishedPaperResponse(
   };
 }
 
+type RemotePublishedPaper = {
+  readonly publication: LocalPaperPublication;
+  readonly title: string;
+  readonly abstract: string;
+  readonly authorHandles: readonly string[];
+};
+
+function parseRemotePublishedPaper(
+  payload: unknown,
+  baseUrl: string,
+): RemotePublishedPaper | null {
+  const publication = parsePublishedPaperResponse(payload, baseUrl);
+  if (!publication || !payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (!record.paper || typeof record.paper !== "object" || Array.isArray(record.paper)) {
+    return null;
+  }
+
+  const paper = record.paper as Record<string, unknown>;
+  const title =
+    typeof paper.title === "string" && paper.title.trim().length > 0
+      ? cleanTitleWhitespace(paper.title)
+      : null;
+  const abstract =
+    typeof paper.abstract === "string" && paper.abstract.trim().length > 0
+      ? paper.abstract.trim()
+      : null;
+  if (!title || !abstract) {
+    return null;
+  }
+
+  const authorHandles = Array.isArray(paper.authors)
+    ? paper.authors.flatMap((author) => {
+        if (!author || typeof author !== "object" || Array.isArray(author)) return [];
+        const handle = (author as Record<string, unknown>).handle;
+        return typeof handle === "string" && handle.trim().length > 0
+          ? [handle.trim().toLowerCase()]
+          : [];
+      })
+    : [];
+
+  return {
+    publication,
+    title,
+    abstract,
+    authorHandles,
+  };
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replaceAll(/\\[a-zA-Z]+\*?(?:\[[^\]]*])?(?:\{([^{}]*)})?/g, "$1")
+    .replaceAll(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replaceAll(/\s+/g, " ");
+}
+
+function abstractsAreCompatible(localAbstract: string | null, remoteAbstract: string): boolean {
+  if (!localAbstract) {
+    return false;
+  }
+
+  const local = normalizeComparableText(localAbstract);
+  const remote = normalizeComparableText(remoteAbstract);
+  if (!local || !remote) {
+    return false;
+  }
+  if (local === remote || local.startsWith(remote) || remote.startsWith(local)) {
+    return true;
+  }
+
+  const localPrefix = local.slice(0, 240);
+  const remotePrefix = remote.slice(0, 240);
+  return (
+    localPrefix.length >= 120 &&
+    remotePrefix.length >= 120 &&
+    localPrefix === remotePrefix
+  );
+}
+
+function chooseLocalPaperForRemote(
+  summaries: ReadonlyArray<{
+    readonly candidate: PaperCandidate;
+    readonly summary: LocalPaperSummary;
+  }>,
+  remote: RemotePublishedPaper,
+): { readonly candidate: PaperCandidate; readonly summary: LocalPaperSummary } | null {
+  const remoteTitle = normalizeComparableText(remote.title);
+  const titleMatches = summaries.filter(({ summary }) => {
+    if (summary.publication && summary.publication.slug !== remote.publication.slug) {
+      return false;
+    }
+    return normalizeComparableText(summary.title) === remoteTitle;
+  });
+
+  if (titleMatches.length === 0) {
+    return null;
+  }
+
+  const abstractMatches = titleMatches.filter(({ summary }) =>
+    abstractsAreCompatible(summary.abstract, remote.abstract),
+  );
+  if (abstractMatches.length === 1) {
+    return abstractMatches[0]!;
+  }
+
+  return titleMatches.length === 1 ? titleMatches[0]! : null;
+}
+
+async function fetchRemotePublishedPaper(input: {
+  readonly baseUrl: string;
+  readonly slug: string;
+  readonly token: string | undefined;
+}): Promise<RemotePublishedPaper | null> {
+  const response = await fetch(
+    joinUrl(input.baseUrl, `/api/v1/papers/${encodeURIComponent(input.slug)}`),
+    {
+      headers: {
+        accept: "application/json",
+        ...(input.token ? { authorization: `Bearer ${input.token}` } : {}),
+      },
+    },
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new LocalPaperPublishError(
+      `Unable to load published paper (${response.status}).`,
+      response.status,
+    );
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new LocalPaperPublishError("AgentScience returned an invalid paper response.", 502);
+  }
+
+  return parseRemotePublishedPaper(payload, input.baseUrl);
+}
+
+function normalizePublishedResolveBaseUrl(
+  rawBaseUrl: string | undefined,
+  fallback: string,
+): string {
+  const raw = rawBaseUrl?.trim() || fallback;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new LocalPaperPublishError("Invalid AgentScience base URL.", 400);
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new LocalPaperPublishError("Invalid AgentScience base URL.", 400);
+  }
+  if (
+    parsed.origin === "null" ||
+    parsed.pathname !== "/" ||
+    parsed.search.length > 0 ||
+    parsed.hash.length > 0 ||
+    parsed.username.length > 0 ||
+    parsed.password.length > 0
+  ) {
+    throw new LocalPaperPublishError("Invalid AgentScience base URL.", 400);
+  }
+
+  return parsed.origin;
+}
+
 function toSmartPublishErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message.trim();
@@ -1746,6 +1933,31 @@ async function inspectPaperFolder(
   };
 }
 
+async function inspectCandidateFolders(input: {
+  readonly containerRoot: string;
+  readonly readModel: Parameters<typeof buildReadModelLookups>[0];
+}): Promise<
+  Array<{
+    readonly candidate: PaperCandidate;
+    readonly summary: LocalPaperSummary;
+  }>
+> {
+  const candidates = await discoverCandidateFolders(input.containerRoot);
+  const lookups = buildReadModelLookups(input.readModel);
+  const summaries: Array<{
+    readonly candidate: PaperCandidate;
+    readonly summary: LocalPaperSummary;
+  }> = [];
+  for (const candidate of candidates) {
+    const summary = await inspectPaperFolder(candidate, lookups);
+    if (summary) {
+      summaries.push({ candidate, summary });
+    }
+  }
+  summaries.sort((a, b) => Date.parse(b.summary.updatedAt) - Date.parse(a.summary.updatedAt));
+  return summaries;
+}
+
 // ── Service implementation ──────────────────────────────────────────────
 
 export const makeLocalPapersService = Effect.gen(function* () {
@@ -1761,17 +1973,92 @@ export const makeLocalPapersService = Effect.gen(function* () {
       const containerRoot = normalizeWorkspacePath(settings.workspaceRoot);
 
       return yield* Effect.tryPromise(async () => {
-        const candidates = await discoverCandidateFolders(containerRoot);
-        const lookups = buildReadModelLookups(readModel);
-        const summaries: LocalPaperSummary[] = [];
-        for (const candidate of candidates) {
-          const summary = await inspectPaperFolder(candidate, lookups);
-          if (summary) summaries.push(summary);
-        }
-        summaries.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-        return summaries;
+        const inspected = await inspectCandidateFolders({ containerRoot, readModel });
+        return inspected.map(({ summary }) => summary);
       });
     }).pipe(Effect.catch(() => Effect.succeed<LocalPaperSummary[]>([])));
+
+  const resolvePublished: LocalPapersServiceShape["resolvePublished"] = (slug, rawBaseUrl) =>
+    Effect.gen(function* () {
+      const normalizedSlug = slug.trim();
+      if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(normalizedSlug)) {
+        return yield* Effect.fail(
+          new LocalPaperPublishError("Invalid published paper slug.", 400),
+        );
+      }
+
+      const settings = yield* serverSettings.getSettings.pipe(
+        Effect.mapError(
+          (error) =>
+            new LocalPaperPublishError(
+              error instanceof Error && error.message.trim().length > 0
+                ? error.message
+                : "Unable to read the local workspace settings.",
+              500,
+            ),
+        ),
+      );
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const containerRoot = normalizeWorkspacePath(settings.workspaceRoot);
+      const baseUrl = normalizePublishedResolveBaseUrl(rawBaseUrl, config.agentScienceBaseUrl);
+      const authStateResult = yield* agentScienceAuth.getState.pipe(
+        Effect.map((state) => ({ ok: true as const, state })),
+        Effect.catch((error) => Effect.succeed({ ok: false as const, error })),
+      );
+      const token = yield* agentScienceAuth.getBearerToken;
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const inspected = await inspectCandidateFolders({ containerRoot, readModel });
+          const existing = inspected.find(
+            ({ summary }) => summary.publication?.slug === normalizedSlug,
+          );
+          if (existing) {
+            return existing.summary;
+          }
+
+          const remote = await fetchRemotePublishedPaper({
+            baseUrl,
+            slug: normalizedSlug,
+            token,
+          });
+          if (!remote) {
+            return null;
+          }
+
+          if (
+            !authStateResult.ok ||
+            authStateResult.state.status !== "signed-in" ||
+            !authStateResult.state.user ||
+            !remote.authorHandles.includes(authStateResult.state.user.handle.toLowerCase())
+          ) {
+            return null;
+          }
+
+          const match = chooseLocalPaperForRemote(inspected, remote);
+          if (!match) {
+            return null;
+          }
+
+          await writePublicationRecord(match.candidate.folderAbsolutePath, {
+            ownerUserId: authStateResult.state.user.id,
+            publication: remote.publication,
+          });
+
+          const lookups = buildReadModelLookups(readModel);
+          return await inspectPaperFolder(match.candidate, lookups);
+        },
+        catch: (cause) =>
+          cause instanceof LocalPaperPublishError
+            ? cause
+            : new LocalPaperPublishError(
+                cause instanceof Error && cause.message.trim().length > 0
+                  ? cause.message
+                  : "Failed to resolve the published paper.",
+                500,
+              ),
+      });
+    });
 
   const resolveFilePath: LocalPapersServiceShape["resolveFilePath"] = (paperId, relativePath) =>
     Effect.gen(function* () {
@@ -2203,6 +2490,7 @@ export const makeLocalPapersService = Effect.gen(function* () {
 
   return {
     list,
+    resolvePublished,
     resolveFilePath,
     publish,
     smartPublish,

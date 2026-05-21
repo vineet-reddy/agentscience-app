@@ -28,6 +28,7 @@ import {
   PAPER_REVIEW_ROUTE_PREFIX,
   ThreadId,
   type LocalPapersListResponse,
+  type LocalPaperPublishedResolveResponse,
   type LocalPaperPublishResponse,
   type LocalPaperSmartPublishResponse,
 } from "@agentscience/contracts";
@@ -1460,6 +1461,29 @@ export const localPapersRouteLayer = HttpRouter.add(
       const papers = yield* localPapers.list();
       const body: LocalPapersListResponse = { papers };
       return yield* HttpServerResponse.json(body);
+    }
+
+    // GET /api/papers/published/:slug?baseUrl=<origin>
+    if (segments.length === 2 && segments[0] === "published") {
+      const slug = segments[1];
+      if (!slug) {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
+      return yield* localPapers
+        .resolvePublished(slug, url.value.searchParams.get("baseUrl") ?? undefined)
+        .pipe(
+          Effect.matchEffect({
+            onFailure: (error) =>
+              HttpServerResponse.json(
+                { error: error.message.trim() || "Failed to resolve published paper." },
+                { status: error.status },
+              ),
+            onSuccess: (paper) => {
+              const body: LocalPaperPublishedResolveResponse = { paper };
+              return HttpServerResponse.json(body);
+            },
+          }),
+        );
     }
 
     // GET /api/papers/:id/files/<path>

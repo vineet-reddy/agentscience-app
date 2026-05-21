@@ -162,6 +162,146 @@ describe("local paper publish flow", () => {
     __internal.resetBlobCleanerForTests();
   });
 
+  it("resolves an already-published local paper from stored publication metadata", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const paperDir = await writePaperWorkspace({
+      workspaceRoot,
+      title: "Color-Specific Calibration Matters More Than Pooled Accuracy",
+      abstract:
+        "Physicochemical models of wine quality are often benchmarked by pooled predictive accuracy, even when the underlying wines come from distinct production styles.",
+    });
+    await fs.writeFile(
+      path.join(paperDir, __internal.PUBLISHED_METADATA_FILENAME),
+      JSON.stringify({
+        ownerUserId: "user-1",
+        remotePaperId: "remote-paper-color-calibration",
+        slug: "color-specific-calibration",
+        url: "https://agentscience.example/papers/color-specific-calibration",
+        publishedAt: "2026-05-19T12:00:00.000Z",
+      }),
+      "utf8",
+    );
+    let upstreamFetchCount = 0;
+    const upstream = await startUpstreamServer(() => {
+      upstreamFetchCount += 1;
+      return { status: 500, body: { error: "should not fetch remote paper" } };
+    });
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      const resolved = await Effect.runPromise(
+        service.resolvePublished("color-specific-calibration", upstream.baseUrl),
+      );
+
+      expect(resolved?.id).toBe(__internal.encodePaperId(paperDir));
+      expect(resolved?.publication).toEqual({
+        remotePaperId: "remote-paper-color-calibration",
+        slug: "color-specific-calibration",
+        url: "https://agentscience.example/papers/color-specific-calibration",
+        publishedAt: "2026-05-19T12:00:00.000Z",
+      });
+      expect(upstreamFetchCount).toBe(0);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("adopts a matching locally authored paper when resolving a published slug", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const title = "Diagnosis Structure Explains Much of the Apparent Mutation-Burden Survival Signal";
+    const abstract =
+      "Public pediatric brain tumor datasets now make pan-histology molecular prognostic analyses possible, but that breadth creates a hard statistical problem.";
+    const paperDir = await writePaperWorkspace({ workspaceRoot, title, abstract });
+    const upstream = await startUpstreamServer((request) => {
+      expect(request.method).toBe("GET");
+      expect(request.url).toBe("/api/v1/papers/diagnosis-structure-paper");
+      return {
+        status: 200,
+        body: {
+          paper: {
+            id: "remote-paper-diagnosis",
+            slug: "diagnosis-structure-paper",
+            title,
+            abstract,
+            publishedAt: "2026-05-20T12:00:00.000Z",
+            authors: [{ name: "Researcher One", handle: "researcherone" }],
+          },
+        },
+      };
+    });
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      const resolved = await Effect.runPromise(
+        service.resolvePublished("diagnosis-structure-paper", upstream.baseUrl),
+      );
+
+      expect(resolved?.id).toBe(__internal.encodePaperId(paperDir));
+      expect(resolved?.publication).toEqual({
+        remotePaperId: "remote-paper-diagnosis",
+        slug: "diagnosis-structure-paper",
+        url: `${upstream.baseUrl}/papers/diagnosis-structure-paper`,
+        publishedAt: "2026-05-20T12:00:00.000Z",
+      });
+
+      const rawMetadata = await fs.readFile(
+        path.join(paperDir, __internal.PUBLISHED_METADATA_FILENAME),
+        "utf8",
+      );
+      expect(JSON.parse(rawMetadata)).toMatchObject({
+        ownerUserId: "user-1",
+        remotePaperId: "remote-paper-diagnosis",
+        slug: "diagnosis-structure-paper",
+      });
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("does not adopt a matching paper when the remote author is another account", async () => {
+    const workspaceRoot = await makeTempWorkspaceRoot();
+    const title = "A publishable paper from the desktop app";
+    const abstract =
+      "This abstract is intentionally long enough to satisfy the platform validation and prove that the desktop app can publish a fully local paper bundle through the canonical API.";
+    const paperDir = await writePaperWorkspace({ workspaceRoot, title, abstract });
+    const upstream = await startUpstreamServer(() => ({
+      status: 200,
+      body: {
+        paper: {
+          id: "remote-paper-other",
+          slug: "other-author-paper",
+          title,
+          abstract,
+          publishedAt: "2026-05-20T12:00:00.000Z",
+          authors: [{ name: "Someone Else", handle: "someoneelse" }],
+        },
+      },
+    }));
+
+    try {
+      const service = await makeService({
+        workspaceRoot,
+        baseUrl: upstream.baseUrl,
+      });
+      const resolved = await Effect.runPromise(
+        service.resolvePublished("other-author-paper", upstream.baseUrl),
+      );
+
+      expect(resolved).toBeNull();
+      await expect(
+        fs.access(path.join(paperDir, __internal.PUBLISHED_METADATA_FILENAME)),
+      ).rejects.toThrow();
+    } finally {
+      await upstream.close();
+    }
+  });
+
   it("publishes a local paper bundle and persists the published metadata", async () => {
     const workspaceRoot = await makeTempWorkspaceRoot();
     const paperDir = await writePaperWorkspace({ workspaceRoot });
