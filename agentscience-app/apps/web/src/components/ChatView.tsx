@@ -244,6 +244,7 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_DATASET_ENTRIES: DatasetEntry[] = [];
 const EMPTY_DATASET_PROVIDERS: DatasetProvider[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
+const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const MAX_MODE_ACKNOWLEDGED_STORAGE_KEY = "agentscience:max-mode-acknowledged:v1";
 const FILE_ATTACHMENTS_ACKNOWLEDGED_STORAGE_KEY =
@@ -814,9 +815,31 @@ export default function ChatView({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
-  const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
-  const optimisticUserMessagesRef = useRef(optimisticUserMessages);
-  optimisticUserMessagesRef.current = optimisticUserMessages;
+  const [optimisticUserMessagesByThreadId, setOptimisticUserMessagesByThreadId] = useState<
+    Partial<Record<ThreadId, ChatMessage[]>>
+  >({});
+  const optimisticUserMessagesByThreadIdRef = useRef(optimisticUserMessagesByThreadId);
+  optimisticUserMessagesByThreadIdRef.current = optimisticUserMessagesByThreadId;
+  const optimisticUserMessages = optimisticUserMessagesByThreadId[threadId] ?? EMPTY_CHAT_MESSAGES;
+  const updateOptimisticUserMessages = useCallback(
+    (targetThreadId: ThreadId, updater: (messages: ChatMessage[]) => ChatMessage[]) => {
+      setOptimisticUserMessagesByThreadId((existing) => {
+        const current = existing[targetThreadId] ?? [];
+        const nextMessages = updater(current);
+        if (nextMessages === current) {
+          return existing;
+        }
+        const next = { ...existing };
+        if (nextMessages.length > 0) {
+          next[targetThreadId] = nextMessages;
+        } else {
+          delete next[targetThreadId];
+        }
+        return next;
+      });
+    },
+    [],
+  );
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>(composerTerminalContexts);
   const [localDraftErrorsByThreadId, setLocalDraftErrorsByThreadId] = useState<
     Record<ThreadId, string | null>
@@ -1408,8 +1431,10 @@ export default function ChatView({
   useEffect(() => {
     return () => {
       clearAttachmentPreviewHandoffs();
-      for (const message of optimisticUserMessagesRef.current) {
-        revokeUserMessagePreviewUrls(message);
+      for (const messages of Object.values(optimisticUserMessagesByThreadIdRef.current)) {
+        for (const message of messages ?? []) {
+          revokeUserMessagePreviewUrls(message);
+        }
       }
     };
   }, [clearAttachmentPreviewHandoffs]);
@@ -2448,7 +2473,7 @@ export default function ChatView({
       return;
     }
     const timer = window.setTimeout(() => {
-      setOptimisticUserMessages((existing) =>
+      updateOptimisticUserMessages(activeThread.id, (existing) =>
         existing.filter((message) => !serverIds.has(message.id)),
       );
     }, 0);
@@ -2463,7 +2488,13 @@ export default function ChatView({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeThread?.id,
+    activeThread?.messages,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+    updateOptimisticUserMessages,
+  ]);
 
   useEffect(() => {
     promptRef.current = prompt;
@@ -2471,12 +2502,6 @@ export default function ChatView({
   }, [prompt]);
 
   useEffect(() => {
-    setOptimisticUserMessages((existing) => {
-      for (const message of existing) {
-        revokeUserMessagePreviewUrls(message);
-      }
-      return [];
-    });
     resetLocalDispatch();
     setComposerHighlightedItemId(null);
     setComposerCursor(collapseExpandedComposerCursor(promptRef.current, promptRef.current.length));
@@ -3174,7 +3199,7 @@ export default function ChatView({
       })),
       ...composerFilesSnapshot,
     ];
-    setOptimisticUserMessages((existing) => [
+    updateOptimisticUserMessages(threadIdForSend, (existing) => [
       ...existing,
       {
         id: messageIdForSend,
@@ -3329,7 +3354,7 @@ export default function ChatView({
         composerFilesRef.current.length === 0 &&
         composerTerminalContextsRef.current.length === 0
       ) {
-        setOptimisticUserMessages((existing) => {
+        updateOptimisticUserMessages(threadIdForSend, (existing) => {
           const removed = existing.filter((message) => message.id === messageIdForSend);
           for (const message of removed) {
             revokeUserMessagePreviewUrls(message);
@@ -3579,7 +3604,7 @@ export default function ChatView({
       sendInFlightRef.current = true;
       beginLocalDispatch({ preparingWorktree: false });
       setThreadError(threadIdForSend, null);
-      setOptimisticUserMessages((existing) => [
+      updateOptimisticUserMessages(threadIdForSend, (existing) => [
         ...existing,
         {
           id: messageIdForSend,
@@ -3639,7 +3664,7 @@ export default function ChatView({
         }
         sendInFlightRef.current = false;
       } catch (err) {
-        setOptimisticUserMessages((existing) =>
+        updateOptimisticUserMessages(threadIdForSend, (existing) =>
           existing.filter((message) => message.id !== messageIdForSend),
         );
         setThreadError(
@@ -3669,6 +3694,7 @@ export default function ChatView({
       setComposerDraftInteractionMode,
       setThreadError,
       selectedModel,
+      updateOptimisticUserMessages,
     ],
   );
 

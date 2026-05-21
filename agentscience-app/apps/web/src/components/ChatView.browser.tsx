@@ -24,6 +24,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { render } from "vitest-browser-react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useOnboardingStore } from "../onboardingStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
@@ -2122,6 +2123,67 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       resolveDispatch({ sequence: fixture.snapshot.snapshotSequence + 1 });
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps a just-sent message visible across route changes while the live domain event is delayed", async () => {
+    const otherThreadId = "thread-browser-other" as ThreadId;
+    const uniquePrompt = "race latency proof prompt 03c09f";
+    useOnboardingStore.getState().complete({ skipped: true });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: addThreadToSnapshot(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-race-latency-target" as MessageId,
+          targetText: "race latency baseline",
+        }),
+        otherThreadId,
+      ),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: fixture.snapshot.snapshotSequence + 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill(uniquePrompt);
+      await waitForLayout();
+
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const dispatchRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(dispatchRequest).toMatchObject({ type: "thread.turn.start" });
+          expect(document.body.textContent).toContain(uniquePrompt);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: otherThreadId },
+      });
+      await waitForLayout();
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+      await waitForLayout();
+
+      expect(document.body.textContent).toContain(uniquePrompt);
+    } finally {
       await mounted.cleanup();
     }
   });
