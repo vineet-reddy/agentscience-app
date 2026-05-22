@@ -24,8 +24,8 @@ export function describeAgentScienceRuntimeStatus(
       settingsTitle: "Runtime check unavailable",
       settingsDescription:
         status.message ?? "AgentScience could not run the startup runtime check on this system.",
-      noticeTitle: null,
-      noticeDescription: null,
+      noticeTitle: "Runtime check unavailable",
+      noticeDescription: "Open Settings to review the managed tools.",
     };
   }
 
@@ -34,8 +34,8 @@ export function describeAgentScienceRuntimeStatus(
       settingsTitle: "Runtime check failed",
       settingsDescription:
         status.message ?? "AgentScience could not complete the startup runtime check.",
-      noticeTitle: null,
-      noticeDescription: null,
+      noticeTitle: "Runtime check failed",
+      noticeDescription: "Open Settings to review the managed tools.",
     };
   }
 
@@ -78,6 +78,9 @@ export function shouldShowAgentScienceRuntimeNotice(
   status: ServerRuntimeAgentScience | null | undefined,
 ): boolean {
   return Boolean(
-    status && status.state === "ready" && (status.updateAvailable || status.refreshRecommended),
+    status &&
+      (status.state === "error" ||
+        status.state === "unavailable" ||
+        (status.state === "ready" && (status.updateAvailable || status.refreshRecommended))),
   );
 }
