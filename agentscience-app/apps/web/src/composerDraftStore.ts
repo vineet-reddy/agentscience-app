@@ -32,8 +32,8 @@ import {
   normalizeTerminalContextText,
 } from "./lib/terminalContext";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
-import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
+import { persist } from "zustand/middleware";
+import { createDebouncedJsonPersistStorage, createMemoryStorage } from "./lib/storage";
 import {
   getDefaultProviderModelOptions,
   getDefaultServerModel,
@@ -51,46 +51,18 @@ export type DraftThreadKind = typeof DraftThreadKindSchema.Type;
 
 const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
 
-const composerDebouncedStorage = createDebouncedStorage(
+const composerPersistStorage = createDebouncedJsonPersistStorage<PersistedComposerDraftStoreState>(
   typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
   COMPOSER_PERSIST_DEBOUNCE_MS,
+  {
+    legacyKeys: LEGACY_COMPOSER_DRAFT_STORAGE_KEYS,
+  },
 );
-const composerPersistStorage = {
-  async getItem(name: string): Promise<string | null> {
-    const currentValue = await composerDebouncedStorage.getItem(name);
-    if (currentValue !== null) {
-      return currentValue;
-    }
-    for (const legacyName of LEGACY_COMPOSER_DRAFT_STORAGE_KEYS) {
-      const legacyValue = await composerDebouncedStorage.getItem(legacyName);
-      if (legacyValue !== null) {
-        return legacyValue;
-      }
-    }
-    return null;
-  },
-  setItem(name: string, value: string): void {
-    composerDebouncedStorage.setItem(name, value);
-    for (const legacyName of LEGACY_COMPOSER_DRAFT_STORAGE_KEYS) {
-      if (legacyName !== name) {
-        composerDebouncedStorage.removeItem(legacyName);
-      }
-    }
-  },
-  removeItem(name: string): void {
-    composerDebouncedStorage.removeItem(name);
-    for (const legacyName of LEGACY_COMPOSER_DRAFT_STORAGE_KEYS) {
-      if (legacyName !== name) {
-        composerDebouncedStorage.removeItem(legacyName);
-      }
-    }
-  },
-};
 
 // Flush pending composer draft writes before page unload to prevent data loss.
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
-    composerDebouncedStorage.flush();
+    composerPersistStorage.flush();
   });
 }
 
@@ -1305,7 +1277,7 @@ function verifyPersistedAttachments(
 ): void {
   let persistedIdSet = new Set<string>();
   try {
-    composerDebouncedStorage.flush();
+    composerPersistStorage.flush();
     persistedIdSet = new Set(readPersistedAttachmentIdsFromStorage(threadId));
   } catch {
     persistedIdSet = new Set();
@@ -2466,7 +2438,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
     {
       name: COMPOSER_DRAFT_STORAGE_KEY,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
-      storage: createJSONStorage(() => composerPersistStorage),
+      storage: composerPersistStorage,
       migrate: migratePersistedComposerDraftStoreState,
       partialize: partializeComposerDraftStoreState,
       merge: (persistedState, currentState) => {
