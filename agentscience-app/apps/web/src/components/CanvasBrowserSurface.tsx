@@ -289,6 +289,25 @@ function createVisualActionScript(
   const buttonNumber = action.button === "right" ? 2 : action.button === "middle" ? 1 : 0;
   const buttonsNumber = action.button === "right" ? 2 : action.button === "middle" ? 4 : 1;
   const targetAt = (point) => document.elementFromPoint(point.x, point.y) || document.body || document.documentElement;
+  const targetFromSelector = () => {
+    const selector = typeof action.selector === "string" ? action.selector.trim() : "";
+    if (!selector) return null;
+    const target = document.querySelector(selector);
+    if (!target) {
+      throw new Error(\`No browser element matched selector: \${selector}\`);
+    }
+    return target;
+  };
+  const pointForElement = (target) => {
+    if (!(target instanceof Element)) {
+      return { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) };
+    }
+    const rect = target.getBoundingClientRect();
+    return {
+      x: Math.round(Math.max(0, Math.min(window.innerWidth - 1, rect.left + Math.min(24, Math.max(8, rect.width / 2))))),
+      y: Math.round(Math.max(0, Math.min(window.innerHeight - 1, rect.top + Math.min(18, Math.max(8, rect.height / 2)))))
+    };
+  };
   const eventInit = (point, detail = 1) => ({
     bubbles: true,
     cancelable: true,
@@ -443,8 +462,11 @@ function createVisualActionScript(
     }
     return activationTarget;
   };
-  const editableTarget = () => {
-    const active = document.activeElement;
+  const editableTarget = (preferredTarget = null) => {
+    if (preferredTarget instanceof HTMLElement || preferredTarget instanceof SVGElement) {
+      preferredTarget.focus?.({ preventScroll: false });
+    }
+    const active = preferredTarget || document.activeElement;
     if (
       active instanceof HTMLInputElement ||
       active instanceof HTMLTextAreaElement ||
@@ -454,18 +476,8 @@ function createVisualActionScript(
     }
     throw new Error("No editable browser element is focused.");
   };
-  const pointForElement = (target) => {
-    if (!(target instanceof Element)) {
-      return { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) };
-    }
-    const rect = target.getBoundingClientRect();
-    return {
-      x: Math.round(Math.max(0, Math.min(window.innerWidth - 1, rect.left + Math.min(24, Math.max(8, rect.width / 2))))),
-      y: Math.round(Math.max(0, Math.min(window.innerHeight - 1, rect.top + Math.min(18, Math.max(8, rect.height / 2)))))
-    };
-  };
-  const typeIntoTarget = (text) => {
-    const target = editableTarget();
+  const typeIntoTarget = (text, preferredTarget = null) => {
+    const target = editableTarget(preferredTarget);
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
       const start = target.selectionStart ?? target.value.length;
       const end = target.selectionEnd ?? target.value.length;
@@ -551,7 +563,12 @@ function createVisualActionScript(
     return { message: "Waited for the browser." };
   }
   if (action.kind === "click" || action.kind === "doubleClick") {
-    const point = requirePoint(action.x, action.y, "click");
+    const selectorTarget = targetFromSelector();
+    if (selectorTarget instanceof Element) {
+      selectorTarget.scrollIntoView?.({ block: "center", inline: "center" });
+      await sleep(80);
+    }
+    const point = selectorTarget ? pointForElement(selectorTarget) : requirePoint(action.x, action.y, "click");
     await moveCursor(point);
     const clickedTarget = await clickAt(point, 1);
     pulseCursor(point);
@@ -594,8 +611,13 @@ function createVisualActionScript(
     return { message: "Dragged in the browser." };
   }
   if (action.kind === "type") {
-    await moveCursor(pointForElement(document.activeElement));
-    typeIntoTarget(String(action.text || ""));
+    const selectorTarget = targetFromSelector();
+    if (selectorTarget instanceof Element) {
+      selectorTarget.scrollIntoView?.({ block: "center", inline: "center" });
+      await sleep(80);
+    }
+    await moveCursor(pointForElement(selectorTarget || document.activeElement));
+    typeIntoTarget(String(action.text || ""), selectorTarget);
     const target = document.activeElement;
     const targetName = target instanceof Element
       ? target.id
@@ -609,7 +631,13 @@ function createVisualActionScript(
     return { message: \`Typed into \${targetName}; value length \${valueLength}.\` };
   }
   if (action.kind === "press") {
-    await moveCursor(pointForElement(document.activeElement));
+    const selectorTarget = targetFromSelector();
+    if (selectorTarget instanceof Element) {
+      selectorTarget.scrollIntoView?.({ block: "center", inline: "center" });
+      focusTarget(selectorTarget);
+      await sleep(80);
+    }
+    await moveCursor(pointForElement(selectorTarget || document.activeElement));
     dispatchKey(String(action.key || "Enter"));
     return { message: \`Pressed \${action.key || "Enter"} in the browser.\` };
   }
