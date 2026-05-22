@@ -138,7 +138,11 @@ export function filterDatasets(
   },
 ): DatasetEntry[] {
   const normalizedQuery = options.searchQuery.trim().toLowerCase();
-  return datasets.filter((dataset) => {
+  const searchTokens = normalizedQuery
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 1);
+  const scopedDatasets = datasets.filter((dataset) => {
     if (options.activeArea !== ALL_AREAS_ID) {
       if (!dataset.topics.some((topic) => topic.area === options.activeArea)) {
         return false;
@@ -159,22 +163,45 @@ export function filterDatasets(
     ) {
       return false;
     }
-    if (!normalizedQuery) return true;
-    const hayStack = [
-      dataset.name,
-      dataset.description,
-      dataset.domain,
-      dataset.provider?.name ?? "",
-      dataset.sourcePaper?.title ?? "",
-      ...(dataset.sourcePaper?.authors ?? []),
-      ...dataset.keywords,
-      ...dataset.topics.map((topic) => topic.name),
-      ...dataset.topics.map((topic) => topic.slug),
-    ]
-      .join(" \n ")
-      .toLowerCase();
-    return hayStack.includes(normalizedQuery);
+    return true;
   });
+  if (!normalizedQuery) return scopedDatasets;
+  const scored = scopedDatasets
+    .map((dataset) => {
+      const highSignalText = [
+        dataset.name,
+        dataset.domain,
+        dataset.provider?.name ?? "",
+        ...dataset.keywords,
+        ...dataset.topics.map((topic) => topic.name),
+        ...dataset.topics.map((topic) => topic.slug),
+      ]
+        .join(" \n ")
+        .toLowerCase();
+      const broadText = [
+        highSignalText,
+        dataset.description,
+        dataset.sourcePaper?.title ?? "",
+        ...(dataset.sourcePaper?.authors ?? []),
+      ]
+        .join(" \n ")
+        .toLowerCase();
+      let score = broadText.includes(normalizedQuery) ? 100 : 0;
+      for (const token of searchTokens) {
+        if (highSignalText.includes(token)) {
+          score += 8;
+        } else if (broadText.includes(token)) {
+          score += 3;
+        }
+      }
+      return { dataset, score };
+    })
+    .filter(({ score }) => score > 0)
+    .toSorted((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.dataset.name.localeCompare(b.dataset.name);
+    });
+  return scored.map(({ dataset }) => dataset);
 }
 
 export type RightPaneState =
