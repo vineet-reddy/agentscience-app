@@ -12,8 +12,6 @@ import {
   PDFViewer,
 } from "pdfjs-dist/legacy/web/pdf_viewer";
 import {
-  CircleAlertIcon,
-  LoaderCircleIcon,
   MinusIcon,
   PlusIcon,
   RotateCcwIcon,
@@ -350,35 +348,49 @@ function PaperPreviewLoader() {
   return (
     <div className="paper-preview-overlay">
       <div className="paper-preview-pill">
-        <LoaderCircleIcon className="size-4 animate-spin" />
-        Loading paper preview...
+        Preparing paper preview...
       </div>
     </div>
   );
 }
 
-function PaperPreviewError({ message }: { message: string }) {
+function PaperPreviewError({
+  message,
+  onRenderAgain,
+}: {
+  message: string;
+  onRenderAgain?: () => void;
+}) {
   return (
     <div className="paper-preview-empty-state">
       <div>
-        <CircleAlertIcon className="mx-auto size-4 text-destructive" />
         <p className="mt-3 font-display text-[1.4rem] text-foreground">
-          Couldn&apos;t render the paper preview
+          That render slipped - let me look.
         </p>
         <p className="mt-2 max-w-[24rem] text-sm leading-relaxed text-muted-foreground">
-          {message}
+          {message || "That render didn't come through. The source is intact, so I can compile it again."}
         </p>
+        {onRenderAgain ? (
+          <button type="button" className="paper-preview-render-again" onClick={onRenderAgain}>
+            Render again
+          </button>
+        ) : null}
       </div>
     </div>
   );
 }
 
 interface PdfPreviewSurfaceProps {
+  onRenderAgain?: () => void;
   title: string;
   url: string;
 }
 
-export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
+export function PdfPreviewSurface({
+  onRenderAgain,
+  title,
+  url,
+}: PdfPreviewSurfaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerElementRef = useRef<HTMLDivElement | null>(null);
   const pdfViewerRef = useRef<PdfViewerInstance | null>(null);
@@ -393,7 +405,7 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
 
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoadingDocument, setIsLoadingDocument] = useState(true);
-  const [hasRenderedPages, setHasRenderedPages] = useState(false);
+  const [, setHasRenderedPages] = useState(false);
   const [scaleLabel, setScaleLabel] = useState("");
 
   const syncFitWidthScaleRatio = useCallback(() => {
@@ -810,12 +822,12 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
     };
   }, [applyResponsiveFitWidthScale]);
 
-  const showLoader = isLoadingDocument || (!loadError && !hasRenderedPages);
+  const showLoader = isLoadingDocument;
   const controlsDisabled = !!loadError || isLoadingDocument;
 
   return (
     <div
-      className="paper-preview-surface relative flex h-full min-h-0 flex-col overflow-hidden bg-muted/[0.18]"
+      className="paper-preview-surface relative flex h-full min-h-0 flex-col overflow-hidden"
       aria-label={`${title} preview`}
       style={{ minHeight: 1 }}
     >
@@ -828,7 +840,12 @@ export function PdfPreviewSurface({ title, url }: PdfPreviewSurfaceProps) {
       />
 
       {showLoader ? <PaperPreviewLoader /> : null}
-      {loadError ? <PaperPreviewError message={loadError} /> : null}
+      {loadError ? (
+        <PaperPreviewError
+          message={loadError}
+          {...(onRenderAgain ? { onRenderAgain } : {})}
+        />
+      ) : null}
 
       <div
         ref={containerRef}
