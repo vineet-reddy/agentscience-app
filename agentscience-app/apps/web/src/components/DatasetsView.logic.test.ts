@@ -397,6 +397,16 @@ describe("filterDatasets", () => {
     expect(out.map((d) => d.id)).toEqual(["a"]);
   });
 
+  it("matches broad multi-token searches without requiring one exact phrase", () => {
+    const out = filterDatasets(datasets, {
+      activeArea: ALL_AREAS_ID,
+      activeTopicSlug: ALL_TOPICS_ID,
+      activeProviderId: ALL_PROVIDERS_ID,
+      searchQuery: "pediatric neuroimaging cohort",
+    });
+    expect(out.map((d) => d.id)).toEqual(["a"]);
+  });
+
   it("combines area, provider filter, and a search query", () => {
     const out = filterDatasets(datasets, {
       activeArea: "LIFE_SCIENCES",
