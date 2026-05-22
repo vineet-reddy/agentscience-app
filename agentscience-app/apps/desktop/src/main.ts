@@ -15,7 +15,7 @@ import {
   protocol,
   shell,
 } from "electron";
-import type { MenuItemConstructorOptions } from "electron";
+import type { MenuItemConstructorOptions, WebPreferences } from "electron";
 import * as Effect from "effect/Effect";
 import type {
   DesktopTheme,
@@ -414,6 +414,18 @@ function getSafeExternalUrl(rawUrl: unknown): string | null {
   }
 
   return parsedUrl.toString();
+}
+
+function hardenAttachedWebviewPreferences(webPreferences: WebPreferences): void {
+  delete webPreferences.preload;
+  webPreferences.nodeIntegration = false;
+  webPreferences.nodeIntegrationInWorker = false;
+  webPreferences.nodeIntegrationInSubFrames = false;
+  webPreferences.contextIsolation = true;
+  webPreferences.sandbox = true;
+  webPreferences.webSecurity = true;
+  webPreferences.allowRunningInsecureContent = false;
+  webPreferences.javascript = true;
 }
 
 function getSafeTheme(rawTheme: unknown): DesktopTheme | null {
@@ -1882,6 +1894,7 @@ function createWindow(options?: { readonly loadAppImmediately?: boolean }): Brow
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
     },
   });
 
@@ -2020,6 +2033,40 @@ app.on("before-quit", () => {
   clearUpdatePollTimer();
   stopBackend();
   restoreStdIoCapture?.();
+});
+
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("will-attach-webview", (event, webPreferences, params) => {
+    if (!getSafeExternalUrl(params.src)) {
+      event.preventDefault();
+      return;
+    }
+    hardenAttachedWebviewPreferences(webPreferences);
+  });
+
+  contents.on("will-navigate", (event, url) => {
+    if (contents.getType() === "webview" && !getSafeExternalUrl(url)) {
+      event.preventDefault();
+    }
+  });
+
+  contents.on("will-redirect", (event, url) => {
+    if (contents.getType() === "webview" && !getSafeExternalUrl(url)) {
+      event.preventDefault();
+    }
+  });
+
+  contents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
+  });
+
+  contents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
 });
 
 if (hasSingleInstanceLock) {

@@ -103,7 +103,7 @@ export const ChatHeader = memo(function ChatHeader({
                   className="shrink-0"
                   pressed={paperReviewOpen}
                   onPressedChange={onTogglePaperReview}
-                  aria-label="Toggle paper review"
+                  aria-label="Toggle workspace canvas"
                   variant="outline"
                   size="xs"
                 >
@@ -112,7 +112,7 @@ export const ChatHeader = memo(function ChatHeader({
               }
             />
             <TooltipPopup side="bottom">
-              {paperReviewOpen ? "Hide paper review" : "Show paper review"}
+              {paperReviewOpen ? "Hide workspace canvas" : "Show workspace canvas"}
             </TooltipPopup>
           </Tooltip>
         )}

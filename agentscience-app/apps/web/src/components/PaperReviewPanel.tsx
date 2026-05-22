@@ -1,21 +1,23 @@
-import { type PaperReviewSnapshot, type ThreadId } from "@agentscience/contracts";
+import { type CanvasBrowserState, type PaperReviewSnapshot, type ThreadId } from "@agentscience/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCcwIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { fetchCanvasBrowserState } from "~/lib/canvasBrowser";
 import {
   compilePaperReview,
   fetchPaperReviewSnapshot,
   fetchPaperReviewText,
 } from "~/lib/paperReview";
 import { cn } from "~/lib/utils";
+import { CanvasBrowserSurface } from "./CanvasBrowserSurface";
 import ChatMarkdown from "./ChatMarkdown";
 import PdfPreviewSurface from "./PdfPreviewSurface";
 import { toastManager } from "./ui/toast";
 import "./PaperReviewCanvas.css";
 
-type PaperReviewTab = "preview" | "source";
-type CanvasState = "working" | "figure" | "paper" | "source" | "resting" | "miss";
+type PaperReviewTab = "browser" | "preview" | "source";
+type CanvasState = "working" | "browser" | "figure" | "paper" | "source" | "resting" | "miss";
 
 interface PaperReviewPanelProps {
   threadId: ThreadId;
@@ -48,17 +50,49 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
   });
 
   const snapshot = snapshotQuery.data;
+  const browserQuery = useQuery({
+    queryKey: ["canvas-browser", threadId],
+    queryFn: () => fetchCanvasBrowserState(threadId),
+    refetchInterval: (query) => {
+      const state = query.state.data;
+      return state?.requestedUrl || state?.currentUrl ? 1_500 : 3_000;
+    },
+  });
+  const browserState = browserQuery.data;
   const isWorking = snapshot?.compile.status === "compiling" || compileMutation.isPending;
   const hasPreview = Boolean(snapshot?.reviewRecommended);
   const hasSource = Boolean(snapshot?.source?.url);
+  const hasBrowser = Boolean(browserState?.requestedUrl || browserState?.currentUrl);
+  const browserIsNewest =
+    hasBrowser &&
+    (!snapshot?.preview.updatedAt ||
+      (browserState?.updatedAt ?? "") >= snapshot.preview.updatedAt);
   const activeTab: PaperReviewTab =
-    hasPreview && selectedTab !== "source" ? "preview" : hasSource ? "source" : "preview";
+    selectedTab === "browser" && hasBrowser
+      ? "browser"
+      : selectedTab === "source" && hasSource
+        ? "source"
+        : hasBrowser && browserIsNewest
+            ? "browser"
+            : hasPreview
+              ? "preview"
+              : hasBrowser
+                ? "browser"
+                : hasSource
+                  ? "source"
+                  : "preview";
 
   useEffect(() => {
-    if (!hasPreview) {
+    if (!hasPreview && selectedTab === "preview") {
       setSelectedTab(null);
     }
-  }, [hasPreview]);
+    if (!hasBrowser && selectedTab === "browser") {
+      setSelectedTab(null);
+    }
+    if (!hasSource && selectedTab === "source") {
+      setSelectedTab(null);
+    }
+  }, [hasBrowser, hasPreview, hasSource, selectedTab]);
 
   const sourceUrl = snapshot?.source?.url ?? null;
   const sourceQuery = useQuery({
@@ -77,7 +111,9 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
 
   const canvasState = resolveCanvasState({ activeTab, isWorking, snapshot });
   const voice = snapshot
-    ? getCanvasVoice({ activeTab, canvasState, snapshot })
+    ? getCanvasVoice({ activeTab, browserState, canvasState, snapshot })
+    : browserState && hasBrowser
+      ? getCanvasVoice({ activeTab, browserState, canvasState, snapshot: undefined })
     : snapshotQuery.isPending
       ? "Looking through the workspace."
       : "Ready when you are.";
@@ -93,10 +129,13 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
         snapshot?.preview.updatedAt,
         snapshot?.source?.relativePath,
         snapshot?.source?.updatedAt,
+        browserState?.requestedUrl,
+        browserState?.currentUrl,
+        browserState?.navigationSequence,
       ]
         .filter(Boolean)
         .join(":"),
-    [activeTab, canvasState, snapshot],
+    [activeTab, browserState, canvasState, snapshot],
   );
 
   const rebuild = () => {
@@ -112,6 +151,15 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
       <div className="paper-review-canvas__field" aria-hidden="true" />
       <header className="paper-review-canvas__top">
         <nav className="paper-review-canvas__view" aria-label="Workspace canvas view">
+          {hasBrowser ? (
+            <button
+              type="button"
+              className={cn(activeTab === "browser" && "paper-review-canvas__view-button--active")}
+              onClick={() => setSelectedTab("browser")}
+            >
+              Browser
+            </button>
+          ) : null}
           {hasPreview ? (
             <button
               type="button"
@@ -158,6 +206,7 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
             activeTab,
             artifactLabel,
             canvasState,
+            browserState,
             isLoadingSnapshot: snapshotQuery.isPending && !snapshot,
             isWorking,
             onRebuild: rebuild,
@@ -182,6 +231,7 @@ function renderCanvasArtifact({
   activeTab,
   artifactLabel,
   canvasState,
+  browserState,
   isLoadingSnapshot,
   isWorking,
   onRebuild,
@@ -197,6 +247,7 @@ function renderCanvasArtifact({
   activeTab: PaperReviewTab;
   artifactLabel: string;
   canvasState: CanvasState;
+  browserState: CanvasBrowserState | undefined;
   isLoadingSnapshot: boolean;
   isWorking: boolean;
   onRebuild: () => void;
@@ -209,6 +260,10 @@ function renderCanvasArtifact({
   sourceTextError: unknown;
   sourceTextPending: boolean;
 }) {
+  if (canvasState === "browser" && browserState) {
+    return <CanvasBrowserSurface state={browserState} threadId={snapshot?.threadId ?? browserState.threadId} />;
+  }
+
   if (isLoadingSnapshot || canvasState === "resting") {
     return <RestingCanvasLine text={isLoadingSnapshot ? "Looking through the workspace." : "Ready when you are."} />;
   }
@@ -296,6 +351,7 @@ function resolveCanvasState({
   isWorking: boolean;
   snapshot: PaperReviewSnapshot | undefined;
 }): CanvasState {
+  if (activeTab === "browser") return "browser";
   if (isWorking) return "working";
   if (!snapshot || !snapshot.reviewRecommended) return "resting";
   if (snapshot.compile.status === "error") return "miss";
@@ -309,20 +365,31 @@ function resolveCanvasState({
 
 function getCanvasVoice({
   activeTab,
+  browserState,
   canvasState,
   snapshot,
 }: {
   activeTab: PaperReviewTab;
+  browserState?: CanvasBrowserState | undefined;
   canvasState: CanvasState;
-  snapshot: PaperReviewSnapshot;
+  snapshot: PaperReviewSnapshot | undefined;
 }): string {
+  if (canvasState === "browser") {
+    const host = browserState?.currentUrl ?? browserState?.requestedUrl;
+    if (!host) return "I have the browser ready.";
+    try {
+      return `I'm looking at ${new URL(host).hostname.replace(/^www\./, "")}.`;
+    } catch {
+      return "I'm using the browser now.";
+    }
+  }
   if (canvasState === "working") {
     if (activeTab === "source") return "Updating the source view.";
-    if (snapshot.preview.kind === "image") return "Working on the paper now.";
+    if (snapshot?.preview.kind === "image") return "Working on the paper now.";
     return "Working on the paper now.";
   }
   if (canvasState === "figure") {
-    return `Here's ${formatArtifactName(snapshot.preview.relativePath ?? snapshot.figure?.relativePath ?? "the figure")}.`;
+    return `Here's ${formatArtifactName(snapshot?.preview.relativePath ?? snapshot?.figure?.relativePath ?? "the figure")}.`;
   }
   if (canvasState === "paper") return "The paper's compiled. Here it is.";
   if (canvasState === "source") return "This is the source it built from.";
