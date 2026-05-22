@@ -22,8 +22,13 @@ import { useDesktopFullScreen } from "../hooks/useDesktopFullScreen";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useSettings } from "../hooks/useSettings";
 import { useThreadActions } from "../hooks/useThreadActions";
+import {
+  describeAgentScienceRuntimeStatus,
+  shouldShowAgentScienceRuntimeNotice,
+} from "../lib/agentScienceRuntimeStatus";
 import { cn, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
+import { useServerConfig } from "../rpc/serverState";
 import { useStore } from "../store";
 import { formatRelativeTimeLabel, formatWorkingDuration } from "../timestampFormat";
 import { useUiStateStore } from "../uiStateStore";
@@ -210,6 +215,18 @@ export default function Sidebar() {
   );
   const setProjectExpanded = useUiStateStore((state) => state.setProjectExpanded);
   const settings = useSettings();
+  const serverConfig = useServerConfig();
+  const agentScienceRuntime = serverConfig?.runtime.agentScience ?? null;
+  const agentScienceRuntimeDescriptor =
+    describeAgentScienceRuntimeStatus(agentScienceRuntime);
+  const shouldShowRuntimeNotice =
+    shouldShowAgentScienceRuntimeNotice(agentScienceRuntime);
+  const runtimeVersionLabel =
+    agentScienceRuntime?.cli?.version && agentScienceRuntime.cli.latestVersion
+      ? `Installed ${agentScienceRuntime.cli.version} · Available ${agentScienceRuntime.cli.latestVersion}`
+      : agentScienceRuntime?.cli?.version
+        ? `Installed ${agentScienceRuntime.cli.version}`
+        : "Open Settings to update tools";
   const projectSortOrder = settings.sidebarProjectSortOrder;
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [contextMenu, setContextMenu] = useState<ThreadContextMenuState | null>(null);
@@ -1107,6 +1124,26 @@ export default function Sidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border px-2 py-1 group-data-[collapsible=icon]:items-center">
+        {shouldShowRuntimeNotice ? (
+          <button
+            type="button"
+            className="mb-1 flex w-full items-start gap-2 border-b border-sidebar-border px-2 py-2 text-left transition-colors hover:bg-sidebar-accent group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-b-0 group-data-[collapsible=icon]:p-0"
+            title={`${agentScienceRuntimeDescriptor.settingsTitle}. ${runtimeVersionLabel}`}
+            onClick={() => {
+              void navigate({ to: "/settings/general" });
+            }}
+          >
+            <SettingsIcon className="mt-0.5 size-4 shrink-0 text-sidebar-foreground/75 group-data-[collapsible=icon]:mt-0" />
+            <span className="min-w-0 group-data-[collapsible=icon]:hidden">
+              <span className="block truncate text-[0.75rem] font-medium text-sidebar-foreground">
+                {agentScienceRuntimeDescriptor.settingsTitle}
+              </span>
+              <span className="mt-0.5 block truncate text-[0.6875rem] text-sidebar-foreground/60">
+                {runtimeVersionLabel}
+              </span>
+            </span>
+          </button>
+        ) : null}
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

@@ -61,6 +61,27 @@ describe("agentScienceRuntimeStatus", () => {
     expect(shouldShowAgentScienceRuntimeNotice(status)).toBe(true);
   });
 
+  it("surfaces a notice when the runtime check fails", () => {
+    const status = {
+      state: "error" as const,
+      checkedAt: "2026-04-15T08:00:00.000Z",
+      ok: false,
+      updateAvailable: false,
+      refreshRecommended: false,
+      nextSteps: [],
+      message: "This AgentScience app build is missing its bundled paper compiler.",
+    };
+
+    expect(describeAgentScienceRuntimeStatus(status)).toEqual({
+      settingsTitle: "Runtime check failed",
+      settingsDescription:
+        "This AgentScience app build is missing its bundled paper compiler.",
+      noticeTitle: "Runtime check failed",
+      noticeDescription: "Open Settings to review the managed tools.",
+    });
+    expect(shouldShowAgentScienceRuntimeNotice(status)).toBe(true);
+  });
+
   it("shows no notice when startup checks are current", () => {
     const status = {
       state: "ready" as const,
