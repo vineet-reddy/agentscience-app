@@ -1427,6 +1427,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         ...(publishingIdentity !== undefined ? { publishingIdentity } : {}),
         runtimeMode: input.runtimeMode,
         binaryPath,
+        canvasBrowserUrl: `http://127.0.0.1:${config.port}/api/canvas-browser/${encodeURIComponent(input.threadId)}`,
         ...(homePath ? { homePath } : {}),
         ...(input.modelSelection?.provider === "codex"
           ? { model: input.modelSelection.model }

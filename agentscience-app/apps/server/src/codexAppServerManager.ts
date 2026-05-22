@@ -89,6 +89,7 @@ interface CodexUserInputAnswer {
 interface CodexSessionContext {
   session: ProviderSession;
   publishingIdentity?: AgentSciencePublishingIdentity;
+  canvasBrowserUrl?: string;
   account: CodexAccountSnapshot;
   child: ChildProcessWithoutNullStreams;
   output: readline.Interface;
@@ -153,6 +154,7 @@ export interface CodexAppServerStartSessionInput {
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly publishingIdentity?: AgentSciencePublishingIdentity;
+  readonly canvasBrowserUrl?: string;
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly runtimeMode: RuntimeMode;
@@ -524,11 +526,57 @@ When creating or updating a manuscript, write the author block with this publish
 export function buildCodexModeDeveloperInstructions(
   mode: "default" | "plan",
   publishingIdentity?: AgentSciencePublishingIdentity,
+  canvasBrowserUrl?: string,
 ): string {
-  return appendPublishingIdentityInstructions(
-    CODEX_MODE_DEVELOPER_INSTRUCTIONS[mode],
-    publishingIdentity,
+  return appendCanvasBrowserInstructions(
+    appendPublishingIdentityInstructions(
+      CODEX_MODE_DEVELOPER_INSTRUCTIONS[mode],
+      publishingIdentity,
+    ),
+    canvasBrowserUrl,
   );
+}
+
+function appendCanvasBrowserInstructions(instructions: string, canvasBrowserUrl?: string): string {
+  if (!canvasBrowserUrl?.trim()) {
+    return instructions;
+  }
+
+  return `${instructions}
+
+<agentscience_canvas_browser>
+AgentScience provides a live browser inside the workspace canvas when the task requires a real website, logged-in web app, hosted science tool, AlphaFold, Boltz/Bolts, notebooks, dashboards, or other interactive web UI.
+
+Use this browser only when a visible interactive website helps the user or the workflow. Do not open it for ordinary headless web searches, curl requests, or documentation lookups.
+
+Canvas browser endpoint for this thread:
+\`${canvasBrowserUrl.trim()}\`
+
+To show/navigate the browser in the canvas:
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/navigate" -H 'content-type: application/json' --data '{"url":"https://example.com"}'\`
+
+To read the latest page snapshot captured from the canvas:
+\`curl -s "$AGENTSCIENCE_CANVAS_BROWSER_URL"\`
+
+The snapshot includes visible text, a \`viewport\` with CSS dimensions plus \`screenshotWidth\`/\`screenshotHeight\`, and a \`screenshotUrl\` when the canvas has captured pixels. Use \`$AGENTSCIENCE_CANVAS_BROWSER_URL/screenshot\` as the primary observation when the page layout, images, molecular viewers, plots, or UI state matter.
+
+Control the visible page as a computer-use surface: inspect the screenshot and viewport, perform one coordinate-based action, then read the snapshot/screenshot again. Action coordinates are screenshot pixels relative to the top-left of the captured browser screenshot, matching \`viewport.screenshotWidth\` and \`viewport.screenshotHeight\`.
+
+Prefer \`/actions/perform\` because it waits until the visible canvas browser has executed the action, making it closest to normal computer use:
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/actions/perform" -H 'content-type: application/json' --data '{"kind":"click","x":420,"y":315}'\`
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/actions/perform" -H 'content-type: application/json' --data '{"kind":"doubleClick","x":420,"y":315}'\`
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/actions/perform" -H 'content-type: application/json' --data '{"kind":"type","text":"MTEITAAMVKELRESTGAGMMDCKNALSETQHEK"}'\`
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/actions/perform" -H 'content-type: application/json' --data '{"kind":"press","key":"Enter"}'\`
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/actions/perform" -H 'content-type: application/json' --data '{"kind":"scroll","x":600,"y":500,"deltaY":540}'\`
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/actions/perform" -H 'content-type: application/json' --data '{"kind":"drag","x":540,"y":420,"endX":760,"endY":420,"durationMs":500}'\`
+\`curl -s -X POST "$AGENTSCIENCE_CANVAS_BROWSER_URL/actions/perform" -H 'content-type: application/json' --data '{"kind":"wait","durationMs":1000}'\`
+
+\`/actions/perform\` returns HTTP 200 after the action result is recorded. If the canvas is hidden or unavailable it can return HTTP 202 with the action still pending; in that case ask the user to open/show the canvas or continue with another non-visual method.
+
+Only use selector/text actions as a fallback when visual coordinates are insufficient. The desired experience is a general visual browser workflow, not site-specific automation.
+
+After using the browser for the user's work, use the snapshot and any files/results you created to continue the chat. Never transmit credentials, private data, unpublished research data, or files to third-party sites unless the user clearly asked you to do that specific upload/login/workflow.
+</agentscience_canvas_browser>`;
 }
 
 export function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
@@ -673,6 +721,7 @@ function buildCodexCollaborationMode(input: {
   readonly effort?: string;
   readonly researchDepth?: ResearchDepth;
   readonly publishingIdentity?: AgentSciencePublishingIdentity;
+  readonly canvasBrowserUrl?: string;
 }):
   | {
       mode: "default" | "plan";
@@ -690,6 +739,7 @@ function buildCodexCollaborationMode(input: {
   const developerInstructions = buildCodexModeDeveloperInstructions(
     input.interactionMode,
     input.publishingIdentity,
+    input.canvasBrowserUrl,
   );
   return {
     mode: input.interactionMode,
@@ -817,7 +867,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
       const child = spawn(launchSpec.command, [...launchSpec.args], {
         cwd: launchSpec.cwd,
-        env: launchSpec.env,
+        env: {
+          ...launchSpec.env,
+          ...(input.canvasBrowserUrl
+            ? { AGENTSCIENCE_CANVAS_BROWSER_URL: input.canvasBrowserUrl }
+            : {}),
+        },
         stdio: ["pipe", "pipe", "pipe"],
         shell: launchSpec.shell,
       });
@@ -826,6 +881,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context = {
         session,
         ...(input.publishingIdentity ? { publishingIdentity: input.publishingIdentity } : {}),
+        ...(input.canvasBrowserUrl ? { canvasBrowserUrl: input.canvasBrowserUrl } : {}),
         account: {
           type: "unknown",
           planType: null,
@@ -1082,6 +1138,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...(context.publishingIdentity !== undefined
         ? { publishingIdentity: context.publishingIdentity }
         : {}),
+      ...(context.canvasBrowserUrl ? { canvasBrowserUrl: context.canvasBrowserUrl } : {}),
     });
     if (collaborationMode) {
       if (!turnStartParams.model) {
