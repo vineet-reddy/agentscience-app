@@ -143,6 +143,17 @@ function readOrigin(rawUrl: string | null | undefined): string | null {
   }
 }
 
+function normalizeHttpUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function sendInput(webview: WebviewElement, event: Record<string, unknown>) {
   if (!webview.sendInputEvent) {
     throw new Error("This browser surface does not support native input events.");
@@ -304,6 +315,73 @@ function createVisualActionScript(
   const dispatchMouse = (target, type, point, detail = 1) => {
     target.dispatchEvent(new MouseEvent(type, eventInit(point, detail)));
   };
+  const ensureCursor = () => {
+    let layer = document.getElementById("agentscience-canvas-browser-cursor-layer");
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.id = "agentscience-canvas-browser-cursor-layer";
+      layer.setAttribute("aria-hidden", "true");
+      layer.style.cssText = [
+        "position:fixed",
+        "left:0",
+        "top:0",
+        "width:0",
+        "height:0",
+        "z-index:2147483647",
+        "pointer-events:none",
+        "contain:layout style paint"
+      ].join(";");
+      const cursor = document.createElement("div");
+      cursor.id = "agentscience-canvas-browser-cursor";
+      cursor.style.cssText = [
+        "position:absolute",
+        "left:0",
+        "top:0",
+        "width:22px",
+        "height:28px",
+        "opacity:0",
+        "transform:translate3d(0,0,0)",
+        "transition:transform 140ms cubic-bezier(.2,.8,.2,1), opacity 120ms ease",
+        "filter:drop-shadow(0 1px 2px rgba(26,26,26,.28))"
+      ].join(";");
+      cursor.innerHTML = '<svg width="22" height="28" viewBox="0 0 22 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.2 2.8L18.8 16.3L11.8 17.3L8.1 25.1L3.2 2.8Z" fill="#F5F5F5" stroke="#1A1A1A" stroke-width="1.4" stroke-linejoin="round"/><path d="M10.6 16.2L13.2 22.6" stroke="#3B5BDB" stroke-width="1.4" stroke-linecap="round"/></svg>';
+      layer.appendChild(cursor);
+      document.documentElement.appendChild(layer);
+    }
+    return layer.firstElementChild;
+  };
+  const moveCursor = async (point, durationMs = 140) => {
+    const cursor = ensureCursor();
+    if (!(cursor instanceof HTMLElement)) return;
+    cursor.style.opacity = "1";
+    cursor.style.transform = \`translate3d(\${Math.round(point.x)}px, \${Math.round(point.y)}px, 0)\`;
+    await sleep(durationMs);
+  };
+  const pulseCursor = (point) => {
+    const layer = document.getElementById("agentscience-canvas-browser-cursor-layer");
+    if (!layer) return;
+    const pulse = document.createElement("div");
+    pulse.style.cssText = [
+      "position:absolute",
+      "left:0",
+      "top:0",
+      "width:22px",
+      "height:22px",
+      "margin-left:-7px",
+      "margin-top:-7px",
+      "border:1.5px solid #3B5BDB",
+      "border-radius:999px",
+      "opacity:.75",
+      \`transform:translate3d(\${Math.round(point.x)}px,\${Math.round(point.y)}px,0) scale(.45)\`,
+      "transition:transform 280ms ease, opacity 280ms ease"
+    ].join(";");
+    layer.appendChild(pulse);
+    window.requestAnimationFrame(() => {
+      pulse.style.transform = \`translate3d(\${Math.round(point.x)}px,\${Math.round(point.y)}px,0) scale(1.35)\`;
+      pulse.style.opacity = "0";
+    });
+    window.setTimeout(() => pulse.remove(), 320);
+  };
   const focusTarget = (target) => {
     if (target instanceof HTMLElement || target instanceof SVGElement) {
       target.focus?.({ preventScroll: true });
@@ -375,6 +453,16 @@ function createVisualActionScript(
       return active;
     }
     throw new Error("No editable browser element is focused.");
+  };
+  const pointForElement = (target) => {
+    if (!(target instanceof Element)) {
+      return { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) };
+    }
+    const rect = target.getBoundingClientRect();
+    return {
+      x: Math.round(Math.max(0, Math.min(window.innerWidth - 1, rect.left + Math.min(24, Math.max(8, rect.width / 2))))),
+      y: Math.round(Math.max(0, Math.min(window.innerHeight - 1, rect.top + Math.min(18, Math.max(8, rect.height / 2)))))
+    };
   };
   const typeIntoTarget = (text) => {
     const target = editableTarget();
@@ -464,10 +552,13 @@ function createVisualActionScript(
   }
   if (action.kind === "click" || action.kind === "doubleClick") {
     const point = requirePoint(action.x, action.y, "click");
+    await moveCursor(point);
     const clickedTarget = await clickAt(point, 1);
+    pulseCursor(point);
     if (action.kind === "doubleClick") {
       await sleep(45);
       await clickAt(point, 2);
+      pulseCursor(point);
       dispatchMouse(targetAt(point), "dblclick", point, 2);
     }
     const targetName = clickedTarget instanceof Element
@@ -483,6 +574,7 @@ function createVisualActionScript(
     const target = targetAt(start);
     const durationMs = Math.max(0, Math.min(10000, Number(action.durationMs || 450)));
     const steps = Math.max(6, Math.min(32, Math.round(durationMs / 24)));
+    await moveCursor(start);
     dispatchPointer(target, "pointerdown", start);
     dispatchMouse(target, "mousedown", start);
     focusTarget(target);
@@ -492,15 +584,17 @@ function createVisualActionScript(
         x: Math.round(start.x + (end.x - start.x) * progress),
         y: Math.round(start.y + (end.y - start.y) * progress)
       };
+      await moveCursor(point, Math.max(1, Math.round(durationMs / steps)));
       dispatchPointer(target, "pointermove", point);
       dispatchMouse(target, "mousemove", point);
-      await sleep(Math.max(1, Math.round(durationMs / steps)));
     }
     dispatchPointer(target, "pointerup", end);
     dispatchMouse(target, "mouseup", end);
+    pulseCursor(end);
     return { message: "Dragged in the browser." };
   }
   if (action.kind === "type") {
+    await moveCursor(pointForElement(document.activeElement));
     typeIntoTarget(String(action.text || ""));
     const target = document.activeElement;
     const targetName = target instanceof Element
@@ -515,6 +609,7 @@ function createVisualActionScript(
     return { message: \`Typed into \${targetName}; value length \${valueLength}.\` };
   }
   if (action.kind === "press") {
+    await moveCursor(pointForElement(document.activeElement));
     dispatchKey(String(action.key || "Enter"));
     return { message: \`Pressed \${action.key || "Enter"} in the browser.\` };
   }
@@ -523,6 +618,7 @@ function createVisualActionScript(
       Number.isFinite(Number(action.x)) && Number.isFinite(Number(action.y))
         ? requirePoint(action.x, action.y, "scroll")
         : { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) };
+    await moveCursor(point);
     scrollAt(point);
     return { message: "Scrolled the browser." };
   }
@@ -542,6 +638,30 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
       ? state.requestedUrl
       : state.currentUrl ?? state.requestedUrl;
   const webviewPartition = useMemo(() => `persist:agentscience-canvas-${threadId}`, [threadId]);
+  const loadInsideCanvas = useCallback(
+    (rawUrl: string | null | undefined): boolean => {
+      const url = normalizeHttpUrl(rawUrl);
+      const webview = webviewRef.current;
+      if (!url || !webview) return false;
+      lastSnapshotKeyRef.current = null;
+      webviewReadyRef.current = false;
+      setWebviewReady(false);
+      setLoadMessage("Loading page...");
+      if (webview.loadURL) {
+        webview.loadURL(url);
+      } else {
+        webview.setAttribute("src", url);
+      }
+      void recordCanvasBrowserSnapshot(threadId, {
+        currentUrl: url,
+        title: "Loading page...",
+        status: "loading",
+        message: "Loading page...",
+      }).catch(() => undefined);
+      return true;
+    },
+    [threadId],
+  );
 
   const captureSnapshot = useCallback(async () => {
     const webview = webviewRef.current;
@@ -633,7 +753,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
             : "Could not read page content.",
       }).catch(() => undefined);
     }
-  }, [state.screenshotUrl, state.status, state.title, targetUrl, threadId]);
+  }, [state.currentUrl, state.screenshotUrl, state.status, state.title, targetUrl, threadId]);
 
   useEffect(() => {
     webviewReadyRef.current = false;
@@ -676,18 +796,38 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
       setWebviewReady(false);
       setLoadMessage(detail.errorDescription ?? "Page load failed.");
     };
+    const onNewWindow = (event: Event) => {
+      const detail = event as Event & { url?: string; newURL?: string };
+      const candidate = detail.url ?? detail.newURL;
+      if (!normalizeHttpUrl(candidate)) return;
+      event.preventDefault();
+      loadInsideCanvas(candidate);
+    };
+    const onNavigation = () => {
+      window.setTimeout(() => {
+        void captureSnapshot();
+      }, 250);
+    };
 
     webview.addEventListener("did-start-loading", onStart);
     webview.addEventListener("did-stop-loading", onStop);
     webview.addEventListener("did-fail-load", onFail);
     webview.addEventListener("dom-ready", onDomReady);
+    webview.addEventListener("new-window", onNewWindow);
+    webview.addEventListener("did-navigate", onNavigation);
+    webview.addEventListener("did-navigate-in-page", onNavigation);
+    webview.addEventListener("page-title-updated", onNavigation);
     return () => {
       webview.removeEventListener("did-start-loading", onStart);
       webview.removeEventListener("did-stop-loading", onStop);
       webview.removeEventListener("did-fail-load", onFail);
       webview.removeEventListener("dom-ready", onDomReady);
+      webview.removeEventListener("new-window", onNewWindow);
+      webview.removeEventListener("did-navigate", onNavigation);
+      webview.removeEventListener("did-navigate-in-page", onNavigation);
+      webview.removeEventListener("page-title-updated", onNavigation);
     };
-  }, [captureSnapshot]);
+  }, [captureSnapshot, loadInsideCanvas]);
 
   useEffect(() => {
     const action = state.pendingAction;
@@ -729,7 +869,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
           message: error instanceof Error ? error.message : "Browser action failed.",
         });
       });
-  }, [captureSnapshot, state.pendingAction, state.viewport, threadId, webviewReady]);
+  }, [captureSnapshot, state.pendingAction, state.status, state.viewport, threadId, webviewReady]);
 
   const reload = () => {
     webviewRef.current?.reload?.();
@@ -768,6 +908,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
         src={targetUrl}
         partition={webviewPartition}
         allowpopups={true}
+        webpreferences="nativeWindowOpen=no"
       />
     </div>
   );
