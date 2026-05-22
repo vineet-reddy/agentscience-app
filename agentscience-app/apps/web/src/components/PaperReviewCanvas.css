@@ -27,7 +27,8 @@
 }
 
 .paper-review-canvas[data-state="figure"] .paper-review-canvas__field,
-.paper-review-canvas[data-state="paper"] .paper-review-canvas__field {
+.paper-review-canvas[data-state="paper"] .paper-review-canvas__field,
+.paper-review-canvas[data-state="browser"] .paper-review-canvas__field {
   opacity: 0.6;
 }
 
@@ -294,6 +295,94 @@
   border-radius: 8px;
   background: var(--surface-raised);
   padding: 20px 22px;
+}
+
+.canvas-browser-surface {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--snow-white);
+}
+
+.canvas-browser-surface__bar {
+  display: flex;
+  min-height: 42px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--rule);
+  padding: 7px 9px 7px 12px;
+}
+
+.canvas-browser-surface__location {
+  display: flex;
+  min-width: 0;
+  height: 28px;
+  flex: 1 1 auto;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: 0 10px;
+  color: var(--ink-light);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.canvas-browser-surface__location span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-browser-surface__bar button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-faint);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.canvas-browser-surface__bar button:hover {
+  background: var(--snow-white-dark);
+  color: var(--ink);
+}
+
+.canvas-browser-surface__bar svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.6;
+}
+
+.canvas-browser-surface__status {
+  border-bottom: 1px solid var(--rule);
+  padding: 7px 12px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.canvas-browser-surface__webview {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  flex: 1 1 auto;
 }
 
 .paper-review-canvas__muted-line {

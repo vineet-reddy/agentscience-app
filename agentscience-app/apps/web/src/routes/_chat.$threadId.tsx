@@ -29,6 +29,7 @@ import {
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { fetchPaperReviewSnapshot, paperReviewAutoOpenKey } from "../lib/paperReview";
+import { fetchCanvasBrowserState } from "../lib/canvasBrowser";
 import {
   PAPER_REVIEW_INLINE_DEFAULT_WIDTH,
   PAPER_REVIEW_INLINE_SIDEBAR_MIN_WIDTH,
@@ -312,12 +313,29 @@ function ChatThreadRouteView() {
       return false;
     },
   });
+  const canvasBrowserQuery = useQuery({
+    queryKey: ["canvas-browser", threadId],
+    queryFn: () => fetchCanvasBrowserState(threadId),
+    enabled: routeThreadExists,
+    refetchInterval: (query) => {
+      const state = query.state.data;
+      return state?.requestedUrl || state?.currentUrl ? 1_500 : 3_000;
+    },
+  });
   const reviewAutoOpenKey = paperReviewAutoOpenKey(
     paperReviewQuery.data,
     latestPaperPresentedActivityId,
   );
+  const browserAvailable = Boolean(
+    canvasBrowserQuery.data?.requestedUrl || canvasBrowserQuery.data?.currentUrl,
+  );
+  const canvasAutoOpenKey =
+    reviewAutoOpenKey ??
+    (browserAvailable
+      ? `browser:${canvasBrowserQuery.data?.requestedUrl ?? canvasBrowserQuery.data?.currentUrl}`
+      : null);
   const paperReviewAvailable = Boolean(
-    paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId,
+    paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId || browserAvailable,
   );
   const effectiveReviewOpen = reviewOpen && paperReviewAvailable;
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY) || effectiveReviewOpen;
@@ -342,9 +360,9 @@ function ChatThreadRouteView() {
     setReviewOpen(false);
     setDismissedReviewByThreadId((current) => ({
       ...current,
-      [threadId]: reviewAutoOpenKey ?? "__manual__",
+      [threadId]: canvasAutoOpenKey ?? "__manual__",
     }));
-  }, [reviewAutoOpenKey, threadId]);
+  }, [canvasAutoOpenKey, threadId]);
   const openReview = useCallback(() => {
     setReviewOpen(true);
     setOpenedReviewByThreadId((current) =>
@@ -379,22 +397,22 @@ function ChatThreadRouteView() {
   }, [latestPaperPresentedActivityId, queryClient, threadId]);
 
   useEffect(() => {
-    if (!paperReviewAvailable || !reviewAutoOpenKey) {
+    if (!paperReviewAvailable || !canvasAutoOpenKey) {
       return;
     }
-    if (dismissedReviewByThreadId[threadId] === reviewAutoOpenKey) {
+    if (dismissedReviewByThreadId[threadId] === canvasAutoOpenKey) {
       return;
     }
 
     if (
-      lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] === reviewAutoOpenKey
+      lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] === canvasAutoOpenKey
     ) {
       return;
     }
 
-    lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] = reviewAutoOpenKey;
+    lastAutoOpenedPaperReviewByThreadIdRef.current[threadId] = canvasAutoOpenKey;
     openReview();
-  }, [dismissedReviewByThreadId, openReview, paperReviewAvailable, reviewAutoOpenKey, threadId]);
+  }, [canvasAutoOpenKey, dismissedReviewByThreadId, openReview, paperReviewAvailable, threadId]);
 
   useEffect(() => {
     const previousUpdatedAt = lastObservedThreadUpdatedAtByThreadIdRef.current[threadId];
