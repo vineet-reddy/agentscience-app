@@ -47,9 +47,12 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  type ChangeEvent,
   type ClipboardEventHandler,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   type Ref,
+  type SyntheticEvent,
 } from "react";
 
 import {
@@ -800,6 +803,190 @@ interface ComposerPromptEditorInnerProps extends ComposerPromptEditorProps {
   editorRef: Ref<ComposerPromptEditorHandle>;
 }
 
+function ComposerPromptTextArea({
+  value,
+  cursor,
+  disabled,
+  placeholder,
+  className,
+  onChange,
+  onCommandKeyDown,
+  onPaste,
+  editorRef,
+}: Omit<ComposerPromptEditorInnerProps, "terminalContexts" | "onRemoveTerminalContext">) {
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const onChangeRef = useRef(onChange);
+  const lastValuePropRef = useRef(value);
+  const snapshotRef = useRef({
+    value,
+    cursor: clampCollapsedComposerCursor(value, cursor),
+    expandedCursor: clampExpandedCursor(value, cursor),
+    terminalContextIds: [] as string[],
+  });
+
+  const resizeToContent = useCallback(() => {
+    const textArea = textAreaRef.current;
+    if (!textArea) return;
+    textArea.style.height = "auto";
+    textArea.style.height = `${Math.min(200, Math.max(70, textArea.scrollHeight))}px`;
+  }, []);
+
+  const readSelectionCursor = useCallback(
+    (textArea: HTMLTextAreaElement): number =>
+      clampCollapsedComposerCursor(textArea.value, textArea.selectionStart ?? textArea.value.length),
+    [],
+  );
+
+  const publishSnapshot = useCallback(
+    (textArea: HTMLTextAreaElement) => {
+      const nextValue = textArea.value;
+      const nextCursor = readSelectionCursor(textArea);
+      const previous = snapshotRef.current;
+      if (previous.value === nextValue && previous.cursor === nextCursor) {
+        return;
+      }
+      const nextSnapshot = {
+        value: nextValue,
+        cursor: nextCursor,
+        expandedCursor: nextCursor,
+        terminalContextIds: [] as string[],
+      };
+      snapshotRef.current = nextSnapshot;
+      onChangeRef.current(nextValue, nextCursor, nextCursor, false, []);
+    },
+    [readSelectionCursor],
+  );
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useLayoutEffect(() => {
+    const textArea = textAreaRef.current;
+    const normalizedCursor = clampCollapsedComposerCursor(value, cursor);
+    const isFocused = textArea !== null && document.activeElement === textArea;
+    const valuePropChanged = lastValuePropRef.current !== value;
+    lastValuePropRef.current = value;
+    if (textArea && snapshotRef.current.value !== value) {
+      if (isFocused && !disabled && !valuePropChanged) {
+        resizeToContent();
+        return;
+      }
+      textArea.value = value;
+      if (isFocused) {
+        textArea.setSelectionRange(normalizedCursor, normalizedCursor);
+      }
+    } else if (textArea && !isFocused) {
+      textArea.setSelectionRange(normalizedCursor, normalizedCursor);
+    }
+    snapshotRef.current = {
+      value,
+      cursor: normalizedCursor,
+      expandedCursor: normalizedCursor,
+      terminalContextIds: [],
+    };
+    resizeToContent();
+  }, [cursor, disabled, resizeToContent, value]);
+
+  useImperativeHandle(
+    editorRef,
+    () => ({
+      focus: () => {
+        textAreaRef.current?.focus({ preventScroll: true });
+      },
+      focusAt: (nextCursor: number) => {
+        const textArea = textAreaRef.current;
+        if (!textArea) return;
+        const boundedCursor = clampCollapsedComposerCursor(textArea.value, nextCursor);
+        textArea.focus({ preventScroll: true });
+        textArea.setSelectionRange(boundedCursor, boundedCursor);
+        publishSnapshot(textArea);
+      },
+      focusAtEnd: () => {
+        const textArea = textAreaRef.current;
+        if (!textArea) return;
+        const end = textArea.value.length;
+        textArea.focus({ preventScroll: true });
+        textArea.setSelectionRange(end, end);
+        publishSnapshot(textArea);
+      },
+      readSnapshot: () => {
+        const textArea = textAreaRef.current;
+        if (!textArea) {
+          return snapshotRef.current;
+        }
+        const nextCursor = readSelectionCursor(textArea);
+        const nextSnapshot = {
+          value: textArea.value,
+          cursor: nextCursor,
+          expandedCursor: nextCursor,
+          terminalContextIds: [] as string[],
+        };
+        snapshotRef.current = nextSnapshot;
+        return nextSnapshot;
+      },
+    }),
+    [publishSnapshot, readSelectionCursor],
+  );
+
+  const handleChange = useCallback(
+    (event: ChangeEvent<HTMLTextAreaElement>) => {
+      resizeToContent();
+      publishSnapshot(event.currentTarget);
+    },
+    [publishSnapshot, resizeToContent],
+  );
+
+  const handleSelectionChange = useCallback(
+    (event: ReactKeyboardEvent<HTMLTextAreaElement> | SyntheticEvent<HTMLTextAreaElement>) => {
+      publishSnapshot(event.currentTarget);
+    },
+    [publishSnapshot],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+      if (
+        event.key === "ArrowDown" ||
+        event.key === "ArrowUp" ||
+        event.key === "Enter" ||
+        event.key === "Tab"
+      ) {
+        const handled = onCommandKeyDown?.(event.key, event.nativeEvent);
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+      handleSelectionChange(event);
+    },
+    [handleSelectionChange, onCommandKeyDown],
+  );
+
+  return (
+    <textarea
+      ref={textAreaRef}
+      defaultValue={value}
+      disabled={disabled}
+      placeholder={placeholder}
+      data-testid="composer-editor"
+      aria-label={placeholder}
+      rows={1}
+      className={cn(
+        "block max-h-[200px] min-h-17.5 w-full resize-none overflow-y-auto bg-transparent text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground/35 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60",
+        className,
+      )}
+      onChange={handleChange}
+      onClick={handleSelectionChange}
+      onKeyDown={handleKeyDown}
+      onKeyUp={handleSelectionChange}
+      onSelect={handleSelectionChange}
+      onPaste={onPaste}
+    />
+  );
+}
+
 function ComposerCommandKeyPlugin(props: {
   onCommandKeyDown?: (
     key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
@@ -1089,6 +1276,11 @@ function ComposerPromptEditorInner({
     const normalizedCursor = clampCollapsedComposerCursor(value, cursor);
     const previousSnapshot = snapshotRef.current;
     const contextsChanged = terminalContextsSignatureRef.current !== terminalContextsSignature;
+    const rootElement = editor.getRootElement();
+    const isFocused = Boolean(rootElement && document.activeElement === rootElement);
+    if (!contextsChanged && isFocused && !disabled) {
+      return;
+    }
     if (
       previousSnapshot.value === value &&
       previousSnapshot.cursor === normalizedCursor &&
@@ -1105,8 +1297,6 @@ function ComposerPromptEditorInner({
     };
     terminalContextsSignatureRef.current = terminalContextsSignature;
 
-    const rootElement = editor.getRootElement();
-    const isFocused = Boolean(rootElement && document.activeElement === rootElement);
     if (previousSnapshot.value === value && !contextsChanged && !isFocused) {
       return;
     }
@@ -1124,7 +1314,7 @@ function ComposerPromptEditorInner({
     queueMicrotask(() => {
       isApplyingControlledUpdateRef.current = false;
     });
-  }, [cursor, editor, terminalContexts, terminalContextsSignature, value]);
+  }, [cursor, disabled, editor, terminalContexts, terminalContextsSignature, value]);
 
   const focusAt = useCallback(
     (nextCursor: number) => {
@@ -1292,10 +1482,7 @@ function ComposerPromptEditorInner({
   );
 }
 
-export const ComposerPromptEditor = forwardRef<
-  ComposerPromptEditorHandle,
-  ComposerPromptEditorProps
->(function ComposerPromptEditor(
+function ComposerPromptLexical(
   {
     value,
     cursor,
@@ -1307,9 +1494,8 @@ export const ComposerPromptEditor = forwardRef<
     onChange,
     onCommandKeyDown,
     onPaste,
-  },
-  ref,
-) {
+    editorRef,
+}: ComposerPromptEditorInnerProps) {
   const initialValueRef = useRef(value);
   const initialTerminalContextsRef = useRef(terminalContexts);
   const initialConfig = useMemo<InitialConfigType>(
@@ -1338,10 +1524,61 @@ export const ComposerPromptEditor = forwardRef<
         onRemoveTerminalContext={onRemoveTerminalContext}
         onChange={onChange}
         onPaste={onPaste}
-        editorRef={ref}
+        editorRef={editorRef}
         {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
         {...(className ? { className } : {})}
       />
     </LexicalComposer>
+  );
+}
+
+export const ComposerPromptEditor = forwardRef<
+  ComposerPromptEditorHandle,
+  ComposerPromptEditorProps
+>(function ComposerPromptEditor(
+  {
+    value,
+    cursor,
+    terminalContexts,
+    disabled,
+    placeholder,
+    className,
+    onRemoveTerminalContext,
+    onChange,
+    onCommandKeyDown,
+    onPaste,
+  },
+  ref,
+) {
+  if (terminalContexts.length === 0) {
+    return (
+      <ComposerPromptTextArea
+        value={value}
+        cursor={cursor}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={onChange}
+        onPaste={onPaste}
+        editorRef={ref}
+        {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
+        {...(className ? { className } : {})}
+      />
+    );
+  }
+
+  return (
+    <ComposerPromptLexical
+      value={value}
+      cursor={cursor}
+      terminalContexts={terminalContexts}
+      disabled={disabled}
+      placeholder={placeholder}
+      onRemoveTerminalContext={onRemoveTerminalContext}
+      onChange={onChange}
+      onPaste={onPaste}
+      editorRef={ref}
+      {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
+      {...(className ? { className } : {})}
+    />
   );
 });
