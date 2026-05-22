@@ -218,6 +218,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
         provider: "codex",
         threadId: asThreadId("thread-1"),
         binaryPath: "codex",
+        canvasBrowserUrl: "http://127.0.0.1:0/api/canvas-browser/thread-1",
         model: "gpt-5.3-codex",
         serviceTier: "fast",
         runtimeMode: "full-access",
