@@ -954,6 +954,23 @@ describe("buildSidebarThreadEntries", () => {
       },
     ]);
   });
+
+  it("uses an agent-specific fallback title for empty draft agents", () => {
+    const threadId = ThreadId.makeUnsafe("thread-agent-draft");
+    const entries = buildSidebarThreadEntries({
+      visibleThreads: [],
+      draftThreadsByThreadId: {
+        [threadId]: {
+          projectId: null,
+          createdAt: "2026-03-09T10:11:00.000Z",
+          kind: "agent",
+        },
+      },
+      draftTitleByThreadId: {},
+    });
+
+    expect(entries.get(null)?.[0]?.title).toBe("New Agent");
+  });
 });
 
 describe("getFallbackThreadIdAfterDelete", () => {

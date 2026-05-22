@@ -573,6 +573,7 @@ export function buildSidebarThreadEntries<
   TDraft extends {
     projectId: string | null;
     createdAt: string;
+    kind?: "paper" | "agent";
   },
 >(input: {
   visibleThreads: readonly TThread[];
@@ -609,7 +610,9 @@ export function buildSidebarThreadEntries<
       projectId: draftThread.projectId,
       isDraft: true,
       timestamp: draftThread.createdAt,
-      title: input.draftTitleByThreadId[threadId] ?? "New Paper",
+      title:
+        input.draftTitleByThreadId[threadId] ??
+        (draftThread.kind === "agent" ? "New Agent" : "New Paper"),
     });
     entries.set(
       draftThread.projectId,
