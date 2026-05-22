@@ -1,7 +1,7 @@
-import { type ThreadId } from "@agentscience/contracts";
+import { type PaperReviewSnapshot, type ThreadId } from "@agentscience/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { CircleAlertIcon, LoaderCircleIcon, RefreshCcwIcon } from "lucide-react";
+import { RefreshCcwIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   compilePaperReview,
@@ -9,12 +9,13 @@ import {
   fetchPaperReviewText,
 } from "~/lib/paperReview";
 import { cn } from "~/lib/utils";
-import { Button } from "./ui/button";
-import { toastManager } from "./ui/toast";
-import PdfPreviewSurface from "./PdfPreviewSurface";
 import ChatMarkdown from "./ChatMarkdown";
+import PdfPreviewSurface from "./PdfPreviewSurface";
+import { toastManager } from "./ui/toast";
+import "./PaperReviewCanvas.css";
 
 type PaperReviewTab = "preview" | "source";
+type CanvasState = "working" | "figure" | "paper" | "source" | "resting" | "miss";
 
 interface PaperReviewPanelProps {
   threadId: ThreadId;
@@ -27,7 +28,7 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
   const snapshotQuery = useQuery({
     queryKey: ["paper-review", threadId],
     queryFn: () => fetchPaperReviewSnapshot(threadId),
-    refetchInterval: (query) => (query.state.data?.compile.status === "compiling" ? 1_000 : 5_000),
+    refetchInterval: (query) => (query.state.data?.compile.status === "compiling" ? 1_000 : false),
   });
 
   const compileMutation = useMutation({
@@ -47,22 +48,25 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
   });
 
   const snapshot = snapshotQuery.data;
-  const showPreviewTab =
-    snapshot?.preview.kind === "pdf" ||
-    snapshot?.preview.kind === "markdown" ||
-    snapshot?.preview.kind === "image";
+  const isWorking = snapshot?.compile.status === "compiling" || compileMutation.isPending;
+  const hasPreview = Boolean(snapshot?.reviewRecommended);
+  const hasSource = Boolean(snapshot?.source?.url);
+  const activeTab: PaperReviewTab =
+    hasPreview && selectedTab !== "source" ? "preview" : hasSource ? "source" : "preview";
+
+  useEffect(() => {
+    if (!hasPreview) {
+      setSelectedTab(null);
+    }
+  }, [hasPreview]);
+
   const sourceUrl = snapshot?.source?.url ?? null;
-  const showSourceTab = sourceUrl !== null;
-  const activeTab: PaperReviewTab = showPreviewTab
-    ? selectedTab === "source" && showSourceTab
-      ? "source"
-      : "preview"
-    : "source";
   const sourceQuery = useQuery({
     queryKey: ["paper-review", threadId, "source", sourceUrl],
     queryFn: () => fetchPaperReviewText(sourceUrl as string),
     enabled: sourceUrl !== null && activeTab === "source",
   });
+
   const previewTextUrl =
     snapshot?.preview.kind === "markdown" && snapshot.preview.url ? snapshot.preview.url : null;
   const previewTextQuery = useQuery({
@@ -71,203 +75,434 @@ export function PaperReviewPanel({ threadId }: PaperReviewPanelProps) {
     enabled: previewTextUrl !== null && activeTab === "preview",
   });
 
-  useEffect(() => {
-    if (!showPreviewTab) {
-      setSelectedTab(null);
-    }
-  }, [showPreviewTab]);
+  const canvasState = resolveCanvasState({ activeTab, isWorking, snapshot });
+  const voice = snapshot
+    ? getCanvasVoice({ activeTab, canvasState, snapshot })
+    : snapshotQuery.isPending
+      ? "Looking through the workspace."
+      : "Ready when you are.";
+  const artifactLabel = snapshot ? getPreviewArtifactLabel(snapshot).toLowerCase() : "";
+  const sourceLabel = snapshot?.source?.relativePath?.toLowerCase() ?? "paper.tex";
+  const transitionKey = useMemo(
+    () =>
+      [
+        canvasState,
+        activeTab,
+        snapshot?.preview.kind,
+        snapshot?.preview.relativePath,
+        snapshot?.preview.updatedAt,
+        snapshot?.source?.relativePath,
+        snapshot?.source?.updatedAt,
+      ]
+        .filter(Boolean)
+        .join(":"),
+    [activeTab, canvasState, snapshot],
+  );
 
-  const isBusy = snapshotQuery.isPending && !snapshot;
-  const isCompiling = snapshot?.compile.status === "compiling" || compileMutation.isPending;
-  const statusLabel = (() => {
-    if (!snapshot) {
-      return null;
-    }
-    switch (snapshot.compile.status) {
-      case "error":
-        return "Build failed";
-      case "unavailable":
-        return "Preview unavailable";
-      default:
-        return null;
-    }
-  })();
-
-  const showRebuildControl = Boolean(snapshot?.compile.canCompile);
-  const sourceLabel = snapshot?.source?.relativePath ?? "Source";
+  const rebuild = () => {
+    if (!snapshot?.compile.canCompile || isWorking) return;
+    compileMutation.mutate();
+  };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      <header className="h-[52px] shrink-0 border-b border-border/80 px-5">
-        <div className="flex h-full items-center justify-between gap-3">
-          <div className="inline-flex rounded-full border border-border/70 p-0.5">
-            {showPreviewTab ? (
-              <button
-                type="button"
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-xs transition-colors",
-                  activeTab === "preview"
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground/80 hover:text-foreground",
-                )}
-                onClick={() => setSelectedTab("preview")}
-              >
-                Preview
-              </button>
-            ) : null}
-            {showSourceTab ? (
-              <button
-                type="button"
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-xs transition-colors",
-                  activeTab === "source"
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground/80 hover:text-foreground",
-                )}
-                onClick={() => setSelectedTab(showPreviewTab ? "source" : null)}
-              >
-                Source
-              </button>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-1.5">
-            {statusLabel ? (
-              <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
-                {statusLabel}
-              </div>
-            ) : null}
-            {showRebuildControl ? (
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                className="px-1.5 text-muted-foreground/85 hover:text-foreground"
-                onClick={() => compileMutation.mutate()}
-                disabled={isCompiling}
-              >
-                {isCompiling ? (
-                  <LoaderCircleIcon className="size-3.5 animate-spin" />
-                ) : (
-                  <RefreshCcwIcon className="size-3.5" />
-                )}
-                {isCompiling ? "Updating" : "Rebuild"}
-              </Button>
-            ) : null}
-          </div>
-        </div>
+    <section
+      className="paper-review-canvas flex h-full min-h-0 flex-col text-foreground"
+      data-state={canvasState}
+    >
+      <div className="paper-review-canvas__field" aria-hidden="true" />
+      <header className="paper-review-canvas__top">
+        <nav className="paper-review-canvas__view" aria-label="Workspace canvas view">
+          {hasPreview ? (
+            <button
+              type="button"
+              className={cn(activeTab === "preview" && "paper-review-canvas__view-button--active")}
+              onClick={() => setSelectedTab("preview")}
+            >
+              Preview
+            </button>
+          ) : null}
+          {hasSource ? (
+            <button
+              type="button"
+              className={cn(activeTab === "source" && "paper-review-canvas__view-button--active")}
+              onClick={() => setSelectedTab("source")}
+            >
+              Source
+            </button>
+          ) : null}
+        </nav>
+        {snapshot?.compile.canCompile ? (
+          <button
+            type="button"
+            className="paper-review-canvas__rebuild"
+            onClick={rebuild}
+            disabled={isWorking}
+            aria-label="Rebuild paper preview"
+            title="Rebuild"
+          >
+            <RefreshCcwIcon aria-hidden />
+          </button>
+        ) : null}
       </header>
 
-      {snapshot?.compile.status === "error" && snapshot.compile.lastError ? (
-        <div className="border-b border-border bg-destructive/5 px-4 py-3 text-sm text-foreground sm:px-5">
-          <div className="flex items-start gap-2">
-            <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
-            <div className="min-w-0">
-              <p className="font-medium">Preview build failed</p>
-              <p className="mt-1 text-muted-foreground">{snapshot.compile.lastError}</p>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {snapshot?.compile.status === "unavailable" &&
-      (snapshot?.source?.kind === "latex" || snapshot?.source?.kind === "markdown") ? (
-        <div className="border-b border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground sm:px-5">
-          No paper engine was detected, so the source is shown directly. Once a paper engine is
-          available, the PDF preview will populate automatically.
-        </div>
-      ) : null}
-
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {isBusy ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Loading paper review...
-          </div>
-        ) : snapshot?.reviewRecommended ? (
-          activeTab === "preview" && snapshot.preview.kind === "pdf" && snapshot.preview.url ? (
-            <PdfPreviewSurface title={snapshot.threadTitle} url={snapshot.preview.url} />
-          ) : activeTab === "preview" &&
-            snapshot.preview.kind === "image" &&
-            snapshot.preview.url ? (
-            <div className="flex h-full flex-col overflow-y-auto bg-background">
-              <div className="border-b border-border/80 px-5 py-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                {snapshot.preview.relativePath ?? "Figure"}
-              </div>
-              <div className="flex min-h-0 flex-1 items-center justify-center p-5">
-                <img
-                  src={snapshot.preview.url}
-                  alt={snapshot.preview.relativePath ?? "Workspace figure"}
-                  className="max-h-full max-w-full border border-border/80 bg-card object-contain"
-                />
-              </div>
-            </div>
-          ) : activeTab === "preview" && snapshot.preview.kind === "markdown" ? (
-            <div className="h-full overflow-y-auto px-5 py-5">
-              <div className="mx-auto max-w-[46rem]">
-                <div className="mb-4 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                  {snapshot.preview.relativePath ?? "Markdown preview"}
-                </div>
-                {previewTextQuery.isPending ? (
-                  <div className="text-sm text-muted-foreground">Loading workspace document...</div>
-                ) : previewTextQuery.data ? (
-                  <ChatMarkdown
-                    text={previewTextQuery.data}
-                    cwd={snapshot.workspaceRoot ?? undefined}
-                    isStreaming={false}
-                  />
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    {previewTextQuery.error instanceof Error
-                      ? previewTextQuery.error.message
-                      : "The workspace document is not available yet."}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="h-full overflow-y-auto px-4 py-4 sm:px-5">
-              <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                {sourceLabel}
-              </div>
-              {sourceQuery.isPending ? (
-                <div className="text-sm text-muted-foreground">Loading manuscript source...</div>
-              ) : sourceQuery.data ? (
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words border border-border/80 bg-card px-4 py-4 font-mono text-[12px] leading-6 text-foreground">
-                  {sourceQuery.data}
-                </pre>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  {sourceQuery.error instanceof Error
-                    ? sourceQuery.error.message
-                    : "The manuscript source is not available yet."}
-                </div>
-              )}
-
-              {snapshot.compile.outputExcerpt ? (
-                <div className="mt-5 border-t border-border pt-4">
-                  <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                    Latest build output
-                  </div>
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-words border border-border/80 bg-card px-4 py-4 font-mono text-[12px] leading-6 text-muted-foreground">
-                    {snapshot.compile.outputExcerpt}
-                  </pre>
-                </div>
-              ) : null}
-            </div>
-          )
-        ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center">
-            <div>
-              <p className="font-display text-[1.65rem] text-foreground">No manuscript yet</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                Once the agent writes `paper.tex`, `paper.md`, or a compiled PDF in this paper
-                workspace, it will appear here automatically.
-              </p>
-            </div>
-          </div>
-        )}
+      <div className="paper-review-canvas__voice">
+        <ConstellationPresence key={transitionKey} isWorking={canvasState === "working"} />
+        <p key={voice} className="paper-review-canvas__voice-line">
+          {voice}
+        </p>
       </div>
-    </div>
+
+      <div className="paper-review-canvas__stage">
+        <div key={transitionKey} className="paper-review-canvas__artifact">
+          {renderCanvasArtifact({
+            activeTab,
+            artifactLabel,
+            canvasState,
+            isLoadingSnapshot: snapshotQuery.isPending && !snapshot,
+            isWorking,
+            onRebuild: rebuild,
+            previewText: previewTextQuery.data,
+            previewTextError: previewTextQuery.error,
+            previewTextPending: previewTextQuery.isPending,
+            snapshot,
+            sourceLabel,
+            sourceText: sourceQuery.data,
+            sourceTextError: sourceQuery.error,
+            sourceTextPending: sourceQuery.isPending,
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 
 export default PaperReviewPanel;
+
+function renderCanvasArtifact({
+  activeTab,
+  artifactLabel,
+  canvasState,
+  isLoadingSnapshot,
+  isWorking,
+  onRebuild,
+  previewText,
+  previewTextError,
+  previewTextPending,
+  snapshot,
+  sourceLabel,
+  sourceText,
+  sourceTextError,
+  sourceTextPending,
+}: {
+  activeTab: PaperReviewTab;
+  artifactLabel: string;
+  canvasState: CanvasState;
+  isLoadingSnapshot: boolean;
+  isWorking: boolean;
+  onRebuild: () => void;
+  previewText: string | undefined;
+  previewTextError: unknown;
+  previewTextPending: boolean;
+  snapshot: PaperReviewSnapshot | undefined;
+  sourceLabel: string;
+  sourceText: string | undefined;
+  sourceTextError: unknown;
+  sourceTextPending: boolean;
+}) {
+  if (isLoadingSnapshot || canvasState === "resting") {
+    return <RestingCanvasLine text={isLoadingSnapshot ? "Looking through the workspace." : "Ready when you are."} />;
+  }
+
+  if (!snapshot) {
+    return <RestingCanvasLine text="Ready when you are." />;
+  }
+
+  if (canvasState === "miss") {
+    return (
+      <CanvasMiss
+        canRebuild={snapshot.compile.canCompile && !isWorking}
+        onRebuild={onRebuild}
+      />
+    );
+  }
+
+  if (activeTab === "source") {
+    return (
+      <SourceArtifact
+        error={sourceTextError}
+        isPending={sourceTextPending}
+        label={sourceLabel}
+        outputExcerpt={snapshot.compile.outputExcerpt}
+        text={sourceText}
+      />
+    );
+  }
+
+  if (snapshot.preview.kind === "pdf" && snapshot.preview.url) {
+    return (
+      <PdfPreviewSurface
+        title={snapshot.threadTitle}
+        url={snapshot.preview.url}
+        {...(snapshot.compile.canCompile ? { onRenderAgain: onRebuild } : {})}
+      />
+    );
+  }
+
+  if (snapshot.preview.kind === "image" && snapshot.preview.url) {
+    return (
+      <FigureArtifact
+        alt={snapshot.preview.relativePath ?? "Workspace figure"}
+        label={artifactLabel}
+        url={snapshot.preview.url}
+      />
+    );
+  }
+
+  if (snapshot.preview.kind === "markdown") {
+    return (
+      <MarkdownArtifact
+        cwd={snapshot.workspaceRoot ?? undefined}
+        error={previewTextError}
+        isPending={previewTextPending}
+        label={artifactLabel}
+        text={previewText}
+      />
+    );
+  }
+
+  if (snapshot.source) {
+    return (
+      <CanvasPending
+        canRebuild={snapshot.compile.canCompile && !isWorking}
+        onRebuild={onRebuild}
+        text={
+          isWorking
+            ? ""
+            : "That render didn't come through. The source is intact, so I can compile it again."
+        }
+      />
+    );
+  }
+
+  return <RestingCanvasLine text="Ready when you are." />;
+}
+
+function resolveCanvasState({
+  activeTab,
+  isWorking,
+  snapshot,
+}: {
+  activeTab: PaperReviewTab;
+  isWorking: boolean;
+  snapshot: PaperReviewSnapshot | undefined;
+}): CanvasState {
+  if (isWorking) return "working";
+  if (!snapshot || !snapshot.reviewRecommended) return "resting";
+  if (snapshot.compile.status === "error") return "miss";
+  if (activeTab === "source") return "source";
+  if (snapshot.preview.kind === "pdf") return "paper";
+  if (snapshot.preview.kind === "image") return "figure";
+  if (snapshot.preview.kind === "markdown") return "paper";
+  if (snapshot.preview.kind === "latex" || snapshot.preview.kind === "empty") return "miss";
+  return "resting";
+}
+
+function getCanvasVoice({
+  activeTab,
+  canvasState,
+  snapshot,
+}: {
+  activeTab: PaperReviewTab;
+  canvasState: CanvasState;
+  snapshot: PaperReviewSnapshot;
+}): string {
+  if (canvasState === "working") {
+    if (activeTab === "source") return "Updating the source view.";
+    if (snapshot.preview.kind === "image") return "Working on the paper now.";
+    return "Working on the paper now.";
+  }
+  if (canvasState === "figure") {
+    return `Here's ${formatArtifactName(snapshot.preview.relativePath ?? snapshot.figure?.relativePath ?? "the figure")}.`;
+  }
+  if (canvasState === "paper") return "The paper's compiled. Here it is.";
+  if (canvasState === "source") return "This is the source it built from.";
+  if (canvasState === "miss") return "That render slipped - let me look.";
+  return "Ready when you are.";
+}
+
+function formatArtifactName(path: string): string {
+  const rawName = path.split("/").pop()?.replace(/\.[^.]+$/, "") || "the figure";
+  const clean = rawName
+    .replace(/^figure[-_\s]*/i, "")
+    .replace(/[-_]+/g, " ")
+    .trim()
+    .toLowerCase();
+  return clean.length > 0 ? `the ${clean} figure` : "the figure";
+}
+
+function getPreviewArtifactLabel(snapshot: PaperReviewSnapshot): string {
+  if (snapshot.preview.relativePath) return snapshot.preview.relativePath;
+  switch (snapshot.preview.kind) {
+    case "pdf":
+      return "paper.pdf";
+    case "image":
+      return snapshot.figure?.relativePath ?? "figure";
+    case "markdown":
+      return "document.md";
+    case "latex":
+      return snapshot.source?.relativePath ?? "paper.tex";
+    case "empty":
+      return snapshot.source?.relativePath ?? "workspace";
+    default:
+      return "workspace";
+  }
+}
+
+function ConstellationPresence({ isWorking }: { isWorking: boolean }) {
+  return (
+    <span
+      className={cn(
+        "paper-review-canvas__presence-constellation",
+        isWorking && "paper-review-canvas__presence-constellation--working",
+      )}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 30 30">
+        <g className="paper-review-canvas__constellation-group">
+          <line className="paper-review-canvas__constellation-edge" x1="7" y1="9" x2="15" y2="5" />
+          <line className="paper-review-canvas__constellation-edge" x1="15" y1="5" x2="22" y2="11" />
+          <line className="paper-review-canvas__constellation-edge" x1="7" y1="9" x2="12" y2="18" />
+          <line className="paper-review-canvas__constellation-edge" x1="12" y1="18" x2="20" y2="21" />
+          <line className="paper-review-canvas__constellation-edge" x1="22" y1="11" x2="20" y2="21" />
+          <circle className="paper-review-canvas__constellation-node" cx="7" cy="9" r="1.5" />
+          <circle className="paper-review-canvas__constellation-node paper-review-canvas__constellation-lead" cx="15" cy="5" r="2" />
+          <circle className="paper-review-canvas__constellation-node" cx="22" cy="11" r="1.6" />
+          <circle className="paper-review-canvas__constellation-node" cx="12" cy="18" r="1.4" />
+          <circle className="paper-review-canvas__constellation-node" cx="20" cy="21" r="1.7" />
+        </g>
+      </svg>
+    </span>
+  );
+}
+
+function FigureArtifact({ alt, label, url }: { alt: string; label: string; url: string }) {
+  return (
+    <figure className="paper-review-canvas__figure-artifact">
+      <div className="paper-review-canvas__figure-frame">
+        <img src={url} alt={alt} />
+      </div>
+      <figcaption>{label}</figcaption>
+    </figure>
+  );
+}
+
+function SourceArtifact({
+  error,
+  isPending,
+  label,
+  outputExcerpt,
+  text,
+}: {
+  error: unknown;
+  isPending: boolean;
+  label: string;
+  outputExcerpt: string | null;
+  text: string | undefined;
+}) {
+  return (
+    <div className="paper-review-canvas__source-artifact">
+      <p className="paper-review-canvas__source-label">{label}</p>
+      <pre className="paper-review-canvas__source-code">
+        {isPending
+          ? "Loading manuscript source..."
+          : text ||
+            (error instanceof Error ? error.message : "The manuscript source is not available yet.")}
+      </pre>
+      {outputExcerpt ? (
+        <>
+          <p className="paper-review-canvas__source-label paper-review-canvas__source-label--output">
+            build output
+          </p>
+          <pre className="paper-review-canvas__source-code paper-review-canvas__source-code--output">
+            {outputExcerpt}
+          </pre>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function MarkdownArtifact({
+  cwd,
+  error,
+  isPending,
+  label,
+  text,
+}: {
+  cwd: string | undefined;
+  error: unknown;
+  isPending: boolean;
+  label: string;
+  text: string | undefined;
+}) {
+  return (
+    <article className="paper-review-canvas__markdown-artifact">
+      <p className="paper-review-canvas__source-label">{label}</p>
+      {isPending ? (
+        <p className="paper-review-canvas__muted-line">Loading workspace document...</p>
+      ) : text ? (
+        <ChatMarkdown text={text} cwd={cwd} isStreaming={false} />
+      ) : (
+        <p className="paper-review-canvas__muted-line">
+          {error instanceof Error ? error.message : "The workspace document is not available yet."}
+        </p>
+      )}
+    </article>
+  );
+}
+
+function RestingCanvasLine({ text }: { text: string }) {
+  return (
+    <div className="paper-review-canvas__resting">
+      <p>{text}</p>
+    </div>
+  );
+}
+
+function CanvasMiss({
+  canRebuild,
+  onRebuild,
+}: {
+  canRebuild: boolean;
+  onRebuild: () => void;
+}) {
+  return (
+    <div className="paper-review-canvas__miss">
+      <p>That render didn't come through. The source is intact, so I can compile it again.</p>
+      <button type="button" onClick={onRebuild} disabled={!canRebuild}>
+        Render again
+      </button>
+    </div>
+  );
+}
+
+function CanvasPending({
+  canRebuild,
+  onRebuild,
+  text,
+}: {
+  canRebuild: boolean;
+  onRebuild: () => void;
+  text: string;
+}) {
+  return (
+    <div className="paper-review-canvas__miss">
+      {text ? <p>{text}</p> : null}
+      {canRebuild ? (
+        <button type="button" onClick={onRebuild}>
+          Render again
+        </button>
+      ) : null}
+    </div>
+  );
+}

@@ -20,6 +20,6 @@ it("renders the preview shell without violating hook order", async () => {
 
   const screen = await render(<PdfPreviewSurface title="Test paper" url="/api/paper-review/test/files/paper.pdf" />);
 
-  await expect.element(screen.getByText("Loading paper preview...")).toBeVisible();
+  await expect.element(screen.getByText("Preparing paper preview...")).toBeVisible();
   await expect.element(screen.getByLabelText("Test paper preview")).toBeVisible();
 });

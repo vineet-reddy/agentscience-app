@@ -305,7 +305,12 @@ function ChatThreadRouteView() {
     queryKey: ["paper-review", threadId],
     queryFn: () => fetchPaperReviewSnapshot(threadId),
     enabled: routeThreadExists,
-    refetchInterval: 5_000,
+    refetchInterval: (query) => {
+      if (query.state.data?.compile.status === "compiling") {
+        return 1_000;
+      }
+      return false;
+    },
   });
   const reviewAutoOpenKey = paperReviewAutoOpenKey(
     paperReviewQuery.data,
@@ -314,7 +319,8 @@ function ChatThreadRouteView() {
   const paperReviewAvailable = Boolean(
     paperReviewQuery.data?.reviewRecommended || latestPaperPresentedActivityId,
   );
-  const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY) || reviewOpen;
+  const effectiveReviewOpen = reviewOpen && paperReviewAvailable;
+  const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY) || effectiveReviewOpen;
   const closeDiff = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -395,7 +401,7 @@ function ChatThreadRouteView() {
     lastObservedThreadUpdatedAtByThreadIdRef.current[threadId] = threadUpdatedAt;
 
     if (
-      !reviewOpen ||
+      !effectiveReviewOpen ||
       !paperReviewAvailable ||
       !threadUpdatedAt ||
       previousUpdatedAt === undefined ||
@@ -411,7 +417,7 @@ function ChatThreadRouteView() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [paperReviewAvailable, queryClient, reviewOpen, threadId, threadUpdatedAt]);
+  }, [effectiveReviewOpen, paperReviewAvailable, queryClient, threadId, threadUpdatedAt]);
 
   useEffect(() => {
     if (diffOpen) {
@@ -448,7 +454,8 @@ function ChatThreadRouteView() {
   }
 
   const shouldRenderDiffContent = diffOpen || Boolean(openedDiffByThreadId[threadId]);
-  const shouldRenderReviewContent = reviewOpen || Boolean(openedReviewByThreadId[threadId]);
+  const shouldRenderReviewContent =
+    effectiveReviewOpen || (paperReviewAvailable && Boolean(openedReviewByThreadId[threadId]));
 
   return (
     <>
@@ -456,12 +463,13 @@ function ChatThreadRouteView() {
         <ChatView
           threadId={threadId}
           paperReviewAvailable={paperReviewAvailable}
-          paperReviewOpen={reviewOpen}
-          onTogglePaperReview={reviewOpen ? closeReview : openReview}
+          paperReviewOpen={effectiveReviewOpen}
+          onTogglePaperReview={effectiveReviewOpen ? closeReview : openReview}
         />
       </SidebarInset>
       <PaperReviewInlineSidebar
-        reviewOpen={reviewOpen}
+        key={threadId}
+        reviewOpen={effectiveReviewOpen}
         onCloseReview={closeReview}
         onOpenReview={openReview}
         renderReviewContent={shouldRenderReviewContent}
