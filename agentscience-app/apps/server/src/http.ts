@@ -24,14 +24,25 @@ import { ServerConfig } from "./config.ts";
 import { decodeOtlpTraceRecords } from "./observability/TraceRecord.ts";
 import { BrowserTraceCollector } from "./observability/Services/BrowserTraceCollector.ts";
 import {
+  CANVAS_BROWSER_ROUTE_PREFIX,
   LOCAL_PAPERS_ROUTE_PREFIX,
   PAPER_REVIEW_ROUTE_PREFIX,
   ThreadId,
+  type CanvasBrowserActionInput,
   type LocalPapersListResponse,
   type LocalPaperPublishedResolveResponse,
   type LocalPaperPublishResponse,
   type LocalPaperSmartPublishResponse,
 } from "@agentscience/contracts";
+import {
+  getCanvasBrowserState,
+  getCanvasBrowserScreenshot,
+  recordCanvasBrowserActionResult,
+  recordCanvasBrowserSnapshot,
+  requestCanvasBrowserAction,
+  requestCanvasBrowserNavigation,
+  waitForCanvasBrowserActionResult,
+} from "./canvasBrowser.ts";
 import { LocalPapersService } from "./localPapers.ts";
 import { PaperReviewService } from "./paperReview.ts";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver.ts";
@@ -158,9 +169,147 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function decodeCanvasBrowserSegments(rawPathname: string): string[] {
+  return rawPathname
+    .slice(CANVAS_BROWSER_ROUTE_PREFIX.length)
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => decodeURIComponent(segment));
+}
+
+function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function readNonEmptyString(record: Record<string, unknown>, key: string): string | null {
+  const value = readOptionalString(record, key)?.trim();
+  return value && value.length > 0 ? value : null;
+}
+
+function readOptionalNumber(record: Record<string, unknown>, key: string): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost" || normalized === "::1" || normalized.startsWith("127.");
+}
+
+function isTrustedCanvasBrowserOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol === "agentscience:" && parsed.hostname === "app") {
+      return true;
+    }
+    if ((parsed.protocol === "http:" || parsed.protocol === "https:") && isLoopbackHostname(parsed.hostname)) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function getCanvasBrowserResponseHeaders(request: HttpServerRequest.HttpServerRequest) {
+  const origin = request.headers.origin;
+  return {
+    "Cache-Control": "no-store",
+    ...(origin && isTrustedCanvasBrowserOrigin(origin)
+      ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" }
+      : {}),
+  };
+}
+
+function rejectUntrustedCanvasBrowserOrigin(
+  request: HttpServerRequest.HttpServerRequest,
+): HttpServerResponse.HttpServerResponse | null {
+  return isTrustedCanvasBrowserOrigin(request.headers.origin)
+    ? null
+    : HttpServerResponse.text("Forbidden", { status: 403 });
+}
+
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function parseCanvasBrowserActionInput(
+  bodyJson: Record<string, unknown>,
+): CanvasBrowserActionInput | null {
+  const kind = readOptionalString(bodyJson, "kind");
+  if (
+    kind !== "click" &&
+    kind !== "doubleClick" &&
+    kind !== "drag" &&
+    kind !== "type" &&
+    kind !== "press" &&
+    kind !== "scroll" &&
+    kind !== "wait"
+  ) {
+    return null;
+  }
+  const direction = readOptionalString(bodyJson, "direction");
+  if (
+    direction !== undefined &&
+    direction !== "up" &&
+    direction !== "down" &&
+    direction !== "left" &&
+    direction !== "right"
+  ) {
+    return null;
+  }
+  const button = readOptionalString(bodyJson, "button");
+  if (
+    button !== undefined &&
+    button !== "left" &&
+    button !== "middle" &&
+    button !== "right"
+  ) {
+    return null;
+  }
+  const modifiers = normalizeStringArray(bodyJson.modifiers);
+  return {
+    kind,
+    ...(readOptionalNumber(bodyJson, "x") !== undefined
+      ? { x: readOptionalNumber(bodyJson, "x") }
+      : {}),
+    ...(readOptionalNumber(bodyJson, "y") !== undefined
+      ? { y: readOptionalNumber(bodyJson, "y") }
+      : {}),
+    ...(readOptionalNumber(bodyJson, "endX") !== undefined
+      ? { endX: readOptionalNumber(bodyJson, "endX") }
+      : {}),
+    ...(readOptionalNumber(bodyJson, "endY") !== undefined
+      ? { endY: readOptionalNumber(bodyJson, "endY") }
+      : {}),
+    ...(readOptionalNumber(bodyJson, "deltaX") !== undefined
+      ? { deltaX: readOptionalNumber(bodyJson, "deltaX") }
+      : {}),
+    ...(readOptionalNumber(bodyJson, "deltaY") !== undefined
+      ? { deltaY: readOptionalNumber(bodyJson, "deltaY") }
+      : {}),
+    ...(button !== undefined ? { button } : {}),
+    ...(modifiers.length > 0 ? { modifiers } : {}),
+    ...(readOptionalString(bodyJson, "selector") !== undefined
+      ? { selector: readOptionalString(bodyJson, "selector") }
+      : {}),
+    ...(readOptionalString(bodyJson, "text") !== undefined
+      ? { text: readOptionalString(bodyJson, "text") }
+      : {}),
+    ...(readOptionalString(bodyJson, "key") !== undefined
+      ? { key: readOptionalString(bodyJson, "key") }
+      : {}),
+    ...(direction !== undefined ? { direction } : {}),
+    ...(readOptionalNumber(bodyJson, "pages") !== undefined
+      ? { pages: readOptionalNumber(bodyJson, "pages") }
+      : {}),
+    ...(readOptionalNumber(bodyJson, "durationMs") !== undefined
+      ? { durationMs: readOptionalNumber(bodyJson, "durationMs") }
+      : {}),
+  };
 }
 
 function normalizeDatasetUrl(value: string): string {
@@ -1418,6 +1567,211 @@ export const paperReviewCompileRouteLayer = HttpRouter.add(
       const paperReview = yield* PaperReviewService;
       const snapshot = yield* paperReview.compile(ThreadId.makeUnsafe(threadIdSegment));
       return yield* HttpServerResponse.json(snapshot);
+    }
+
+    return HttpServerResponse.text("Not Found", { status: 404 });
+  }),
+);
+
+export const canvasBrowserRouteLayer = HttpRouter.add(
+  "GET",
+  `${CANVAS_BROWSER_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const originRejection = rejectUntrustedCanvasBrowserOrigin(request);
+    if (originRejection) return originRejection;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const segments = decodeCanvasBrowserSegments(url.value.pathname);
+    const threadIdSegment = segments[0];
+    if (segments.length === 1 && threadIdSegment) {
+      return yield* HttpServerResponse.json(
+        getCanvasBrowserState(ThreadId.makeUnsafe(threadIdSegment)),
+        {
+          headers: getCanvasBrowserResponseHeaders(request),
+        },
+      );
+    }
+
+    if (segments.length === 2 && threadIdSegment && segments[1] === "screenshot") {
+      const screenshot = getCanvasBrowserScreenshot(ThreadId.makeUnsafe(threadIdSegment));
+      if (!screenshot) {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
+      return HttpServerResponse.uint8Array(screenshot.bytes, {
+        status: 200,
+        contentType: screenshot.contentType,
+        headers: getCanvasBrowserResponseHeaders(request),
+      });
+    }
+
+    return HttpServerResponse.text("Not Found", { status: 404 });
+  }),
+);
+
+export const canvasBrowserOptionsRouteLayer = HttpRouter.add(
+  "OPTIONS",
+  `${CANVAS_BROWSER_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const originRejection = rejectUntrustedCanvasBrowserOrigin(request);
+    if (originRejection) return originRejection;
+    return HttpServerResponse.text("", {
+      status: 204,
+      headers: {
+        ...getCanvasBrowserResponseHeaders(request),
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "content-type",
+      },
+    });
+  }),
+);
+
+export const canvasBrowserMutationRouteLayer = HttpRouter.add(
+  "POST",
+  `${CANVAS_BROWSER_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const originRejection = rejectUntrustedCanvasBrowserOrigin(request);
+    if (originRejection) return originRejection;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const segments = decodeCanvasBrowserSegments(url.value.pathname);
+    const threadIdSegment = segments[0];
+    if (!threadIdSegment) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    const bodyJson = yield* request.json;
+    const threadId = ThreadId.makeUnsafe(threadIdSegment);
+    if (!isRecord(bodyJson)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    if (segments.length === 2 && segments[1] === "navigate") {
+      const url = readNonEmptyString(bodyJson, "url");
+      if (!url) {
+        return HttpServerResponse.text("Bad Request", { status: 400 });
+      }
+      return yield* HttpServerResponse.json(
+        requestCanvasBrowserNavigation(threadId, {
+          url,
+          ...(readOptionalString(bodyJson, "title") !== undefined
+            ? { title: readOptionalString(bodyJson, "title") }
+            : {}),
+        }),
+        {
+          headers: getCanvasBrowserResponseHeaders(request),
+        },
+      );
+    }
+
+    if (segments.length === 2 && segments[1] === "snapshot") {
+      const currentUrl = readNonEmptyString(bodyJson, "currentUrl");
+      if (!currentUrl) {
+        return HttpServerResponse.text("Bad Request", { status: 400 });
+      }
+      const status = readOptionalString(bodyJson, "status");
+      const viewport = isRecord(bodyJson.viewport)
+        ? {
+            width: readOptionalNumber(bodyJson.viewport, "width") ?? 0,
+            height: readOptionalNumber(bodyJson.viewport, "height") ?? 0,
+            screenshotWidth: readOptionalNumber(bodyJson.viewport, "screenshotWidth") ?? 0,
+            screenshotHeight: readOptionalNumber(bodyJson.viewport, "screenshotHeight") ?? 0,
+            deviceScaleFactor: readOptionalNumber(bodyJson.viewport, "deviceScaleFactor") ?? 1,
+            scrollX: readOptionalNumber(bodyJson.viewport, "scrollX") ?? 0,
+            scrollY: readOptionalNumber(bodyJson.viewport, "scrollY") ?? 0,
+          }
+        : undefined;
+      return yield* HttpServerResponse.json(
+        recordCanvasBrowserSnapshot(threadId, {
+          currentUrl,
+          ...(readOptionalString(bodyJson, "title") !== undefined
+            ? { title: readOptionalString(bodyJson, "title") }
+            : {}),
+          ...(readOptionalString(bodyJson, "text") !== undefined
+            ? { text: readOptionalString(bodyJson, "text") }
+            : {}),
+          ...(readOptionalString(bodyJson, "screenshotDataUrl") !== undefined
+            ? { screenshotDataUrl: readOptionalString(bodyJson, "screenshotDataUrl") }
+            : {}),
+          ...(viewport && viewport.width > 0 && viewport.height > 0 ? { viewport } : {}),
+          ...(status === "idle" ||
+          status === "requested" ||
+          status === "loading" ||
+          status === "ready" ||
+          status === "error"
+            ? { status }
+            : {}),
+          ...(readOptionalString(bodyJson, "message") !== undefined
+            ? { message: readOptionalString(bodyJson, "message") }
+            : {}),
+        }),
+        {
+          headers: getCanvasBrowserResponseHeaders(request),
+        },
+      );
+    }
+
+    if (segments.length === 3 && segments[1] === "actions" && segments[2] === "perform") {
+      const actionInput = parseCanvasBrowserActionInput(bodyJson);
+      if (!actionInput) {
+        return HttpServerResponse.text("Bad Request", { status: 400 });
+      }
+      const actionState = requestCanvasBrowserAction(threadId, actionInput);
+      const actionId = actionState.pendingAction?.id;
+      if (!actionId) {
+        return HttpServerResponse.text("Bad Request", { status: 400 });
+      }
+      const waitMs = readOptionalNumber(bodyJson, "waitMs") ?? 15_000;
+      const result = yield* Effect.promise(() =>
+        waitForCanvasBrowserActionResult(threadId, actionId, waitMs),
+      );
+      return yield* HttpServerResponse.json(
+        result.state,
+        {
+          status: result.completed ? 200 : 202,
+          headers: getCanvasBrowserResponseHeaders(request),
+        },
+      );
+    }
+
+    if (segments.length === 2 && segments[1] === "actions") {
+      const actionInput = parseCanvasBrowserActionInput(bodyJson);
+      if (!actionInput) {
+        return HttpServerResponse.text("Bad Request", { status: 400 });
+      }
+      return yield* HttpServerResponse.json(
+        requestCanvasBrowserAction(threadId, actionInput),
+        {
+          headers: getCanvasBrowserResponseHeaders(request),
+        },
+      );
+    }
+
+    if (segments.length === 4 && segments[1] === "actions" && segments[3] === "result") {
+      const actionId = segments[2];
+      const status = readOptionalString(bodyJson, "status");
+      if (!actionId || (status !== "success" && status !== "error")) {
+        return HttpServerResponse.text("Bad Request", { status: 400 });
+      }
+      return yield* HttpServerResponse.json(
+        recordCanvasBrowserActionResult(threadId, actionId, {
+          status,
+          ...(readOptionalString(bodyJson, "message") !== undefined
+            ? { message: readOptionalString(bodyJson, "message") }
+            : {}),
+        }),
+        {
+          headers: getCanvasBrowserResponseHeaders(request),
+        },
+      );
     }
 
     return HttpServerResponse.text("Not Found", { status: 404 });

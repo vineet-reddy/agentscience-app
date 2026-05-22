@@ -4,6 +4,9 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
+  canvasBrowserMutationRouteLayer,
+  canvasBrowserOptionsRouteLayer,
+  canvasBrowserRouteLayer,
   desktopReadyRouteLayer,
   datasetProvidersRouteLayer,
   datasetRegistryCheckRouteLayer,
@@ -304,6 +307,9 @@ export const makeRoutesLayer = Layer.mergeAll(
   datasetRegistryCreateRouteLayer,
   datasetRegistryRouteLayer,
   otlpTracesProxyRouteLayer,
+  canvasBrowserOptionsRouteLayer,
+  canvasBrowserRouteLayer,
+  canvasBrowserMutationRouteLayer,
   paperReviewSnapshotRouteLayer,
   paperReviewCompileRouteLayer,
   localPapersRouteLayer,

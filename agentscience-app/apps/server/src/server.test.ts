@@ -8,7 +8,10 @@ import {
   GitCommandError,
   MessageId,
   OpenError,
+  type CanvasBrowserState,
   type PaperReviewSnapshot,
+  canvasBrowserRoutePath,
+  canvasBrowserScreenshotRoutePath,
   paperReviewCompileRoutePath,
   paperReviewFileRoutePath,
   paperReviewSnapshotRoutePath,
@@ -1109,6 +1112,265 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const response = yield* HttpClient.get(paperReviewFileRoutePath(defaultThreadId, "paper.md"));
       assert.equal(response.status, 200);
       assert.equal(yield* response.text, "# Draft\n\nPaper review file route");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("records canvas browser navigation and snapshots", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.makeUnsafe("thread-canvas-browser");
+
+      yield* buildAppUnderTest();
+
+      const initialResponse = yield* HttpClient.get(canvasBrowserRoutePath(threadId));
+      assert.equal(initialResponse.status, 200);
+      assert.deepStrictEqual(yield* initialResponse.json, {
+        threadId,
+        requestedUrl: null,
+        currentUrl: null,
+        title: null,
+        text: null,
+        screenshotUrl: null,
+        screenshotCapturedAt: null,
+        viewport: null,
+        status: "idle",
+        message: null,
+        pendingAction: null,
+        lastActionResult: null,
+        navigationSequence: 0,
+        sequence: 0,
+        updatedAt: null,
+      });
+
+      const navigationResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/navigate`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(JSON.stringify({ url: "https://alphafoldserver.com/" }), "application/json"),
+      });
+      assert.equal(navigationResponse.status, 200);
+      const navigationJson = (yield* navigationResponse.json) as CanvasBrowserState;
+      assert.equal(navigationJson.requestedUrl, "https://alphafoldserver.com/");
+      assert.equal(navigationJson.status, "requested");
+      assert.equal(navigationJson.navigationSequence, 1);
+
+      const snapshotResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/snapshot`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(
+          JSON.stringify({
+            currentUrl: "https://alphafoldserver.com/welcome",
+            title: "AlphaFold Server",
+            text: "AlphaFold Server page text",
+            screenshotDataUrl:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+            viewport: {
+              width: 1280,
+              height: 720,
+              screenshotWidth: 2560,
+              screenshotHeight: 1440,
+              deviceScaleFactor: 2,
+              scrollX: 0,
+              scrollY: 120,
+            },
+            status: "ready",
+          }),
+          "application/json",
+        ),
+      });
+      assert.equal(snapshotResponse.status, 200);
+
+      const finalResponse = yield* HttpClient.get(canvasBrowserRoutePath(threadId));
+      assert.equal(finalResponse.status, 200);
+      const finalJson = (yield* finalResponse.json) as CanvasBrowserState;
+      assert.equal(finalJson.requestedUrl, "https://alphafoldserver.com/welcome");
+      assert.equal(finalJson.currentUrl, "https://alphafoldserver.com/welcome");
+      assert.equal(finalJson.title, "AlphaFold Server");
+      assert.equal(finalJson.text, "AlphaFold Server page text");
+      assert.equal(finalJson.screenshotUrl, canvasBrowserScreenshotRoutePath(threadId));
+      assertTrue(finalJson.screenshotCapturedAt !== null);
+      assert.deepStrictEqual(finalJson.viewport, {
+        width: 1280,
+        height: 720,
+        screenshotWidth: 2560,
+        screenshotHeight: 1440,
+        deviceScaleFactor: 2,
+        scrollX: 0,
+        scrollY: 120,
+      });
+      assert.equal(finalJson.status, "ready");
+
+      const staleNavigationResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/navigate`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(JSON.stringify({ url: "https://alphafoldserver.com/search" }), "application/json"),
+      });
+      assert.equal(staleNavigationResponse.status, 200);
+
+      const staleSnapshotResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/snapshot`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(
+          JSON.stringify({
+            currentUrl: "https://alphafoldserver.com/welcome",
+            title: "Stale AlphaFold page",
+            text: "This stale same-origin snapshot should not win the navigation race.",
+            status: "ready",
+          }),
+          "application/json",
+        ),
+      });
+      assert.equal(staleSnapshotResponse.status, 200);
+      const staleSnapshotJson = (yield* staleSnapshotResponse.json) as CanvasBrowserState;
+      assert.equal(staleSnapshotJson.requestedUrl, "https://alphafoldserver.com/search");
+      assert.equal(staleSnapshotJson.status, "requested");
+
+      const searchedSnapshotResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/snapshot`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(
+          JSON.stringify({
+            currentUrl: "https://alphafoldserver.com/search",
+            title: "AlphaFold Search",
+            text: "New AlphaFold page text",
+            screenshotDataUrl:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+            status: "ready",
+          }),
+          "application/json",
+        ),
+      });
+      assert.equal(searchedSnapshotResponse.status, 200);
+      const searchedSnapshotJson = (yield* searchedSnapshotResponse.json) as CanvasBrowserState;
+      assert.equal(searchedSnapshotJson.requestedUrl, "https://alphafoldserver.com/search");
+      assert.equal(searchedSnapshotJson.currentUrl, "https://alphafoldserver.com/search");
+      assert.equal(searchedSnapshotJson.title, "AlphaFold Search");
+
+      const screenshotResponse = yield* HttpClient.get(canvasBrowserScreenshotRoutePath(threadId));
+      assert.equal(screenshotResponse.status, 200);
+      assert.equal(screenshotResponse.headers["content-type"], "image/png");
+      assertTrue((yield* screenshotResponse.arrayBuffer).byteLength > 0);
+
+      const actionResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/actions`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(
+          JSON.stringify({ kind: "click", x: 180, y: 42 }),
+          "application/json",
+        ),
+      });
+      assert.equal(actionResponse.status, 200);
+      const actionJson = (yield* actionResponse.json) as CanvasBrowserState;
+      assert.equal(actionJson.pendingAction?.kind, "click");
+      assert.equal(actionJson.pendingAction?.x, 180);
+      assert.equal(actionJson.pendingAction?.y, 42);
+
+      const actionResultResponse = yield* HttpClient.post(
+        `${canvasBrowserRoutePath(threadId)}/actions/${actionJson.pendingAction?.id ?? ""}/result`,
+        {
+          headers: {
+            "content-type": "application/json",
+          },
+          body: HttpBody.text(
+            JSON.stringify({ status: "success", message: "Clicked browser element." }),
+            "application/json",
+          ),
+        },
+      );
+      assert.equal(actionResultResponse.status, 200);
+      const actionResultJson = (yield* actionResultResponse.json) as CanvasBrowserState;
+      assert.equal(actionResultJson.pendingAction, null);
+      assert.equal(actionResultJson.lastActionResult?.status, "success");
+
+      const canvasBrowserUrl = yield* getHttpServerUrl(canvasBrowserRoutePath(threadId));
+      yield* Effect.promise(async () => {
+        const performResponsePromise = fetch(`${canvasBrowserUrl}/actions/perform`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            kind: "type",
+            text: "MTEITAAMVKELRESTGAGMMDCKNALSETQHEK",
+            waitMs: 3_000,
+          }),
+        });
+
+        let pendingActionId: string | null = null;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const stateResponse = await fetch(canvasBrowserUrl);
+          const stateJson = (await stateResponse.json()) as CanvasBrowserState;
+          pendingActionId = stateJson.pendingAction?.id ?? null;
+          if (pendingActionId) break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        assertTrue(pendingActionId !== null);
+
+        const resultResponse = await fetch(
+          `${canvasBrowserUrl}/actions/${encodeURIComponent(pendingActionId)}/result`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              status: "success",
+              message: "Typed sequence into browser field.",
+            }),
+          },
+        );
+        assert.equal(resultResponse.status, 200);
+
+        const performResponse = await performResponsePromise;
+        assert.equal(performResponse.status, 200);
+        const performJson = (await performResponse.json()) as CanvasBrowserState;
+        assert.equal(performJson.pendingAction, null);
+        assert.equal(performJson.lastActionResult?.actionId, pendingActionId);
+        assert.equal(performJson.lastActionResult?.message, "Typed sequence into browser field.");
+      });
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("restricts canvas browser CORS to the app and loopback origins", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.makeUnsafe("thread-canvas-browser-cors");
+
+      yield* buildAppUnderTest();
+
+      const url = yield* getHttpServerUrl(canvasBrowserRoutePath(threadId));
+      const loopbackPreflightResponse = yield* Effect.promise(() =>
+        fetch(`${url}/snapshot`, {
+          method: "OPTIONS",
+          headers: {
+            origin: "http://localhost:5173",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+          },
+        }),
+      );
+      assert.equal(loopbackPreflightResponse.status, 204);
+
+      const loopbackResponse = yield* Effect.promise(() =>
+        fetch(url, {
+          headers: {
+            origin: "http://127.0.0.1:5173",
+          },
+        }),
+      );
+      assert.equal(loopbackResponse.status, 200);
+
+      const untrustedResponse = yield* Effect.promise(() =>
+        fetch(url, {
+          headers: {
+            origin: "https://example.com",
+          },
+        }),
+      );
+      assert.equal(untrustedResponse.status, 403);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
