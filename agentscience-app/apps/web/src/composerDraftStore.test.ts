@@ -23,7 +23,7 @@ import {
   insertInlineTerminalContextPlaceholder,
   type TerminalContextDraft,
 } from "./lib/terminalContext";
-import { createDebouncedStorage } from "./lib/storage";
+import { createDebouncedJsonPersistStorage, createDebouncedStorage } from "./lib/storage";
 
 function makeImage(input: {
   id: string;
@@ -1205,5 +1205,67 @@ describe("createDebouncedStorage", () => {
     vi.advanceTimersByTime(300);
     expect(base.setItem).toHaveBeenCalledTimes(1);
     expect(base.setItem).toHaveBeenCalledWith("key", "v2");
+  });
+});
+
+describe("createDebouncedJsonPersistStorage", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("defers JSON serialization until the debounce fires", () => {
+    const base = createMockStorage();
+    const storage = createDebouncedJsonPersistStorage<{ prompt: string }>(base);
+    const stringify = vi.spyOn(JSON, "stringify");
+
+    storage.setItem("key", { state: { prompt: "v1" }, version: 1 });
+    storage.setItem("key", { state: { prompt: "v2" }, version: 1 });
+
+    expect(stringify).not.toHaveBeenCalled();
+    expect(base.setItem).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(300);
+
+    expect(stringify).toHaveBeenCalledTimes(1);
+    expect(base.setItem).toHaveBeenCalledWith(
+      "key",
+      '{"state":{"prompt":"v2"},"version":1}',
+    );
+  });
+
+  it("reads legacy keys when the current key is empty", () => {
+    const base = createMockStorage();
+    base.setItem("legacy-key", '{"state":{"prompt":"legacy"},"version":1}');
+    const storage = createDebouncedJsonPersistStorage<{ prompt: string }>(base, 300, {
+      legacyKeys: ["legacy-key"],
+    });
+
+    expect(storage.getItem("key")).toEqual({
+      state: { prompt: "legacy" },
+      version: 1,
+    });
+  });
+
+  it("removes legacy keys after the debounced current-key write", () => {
+    const base = createMockStorage();
+    const storage = createDebouncedJsonPersistStorage<{ prompt: string }>(base, 300, {
+      legacyKeys: ["legacy-key"],
+    });
+
+    storage.setItem("key", { state: { prompt: "current" }, version: 1 });
+    expect(base.removeItem).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(300);
+
+    expect(base.setItem).toHaveBeenCalledWith(
+      "key",
+      '{"state":{"prompt":"current"},"version":1}',
+    );
+    expect(base.removeItem).toHaveBeenCalledWith("legacy-key");
   });
 });

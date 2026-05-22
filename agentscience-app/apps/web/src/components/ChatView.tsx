@@ -878,6 +878,7 @@ export default function ChatView({
   const [composerCursor, setComposerCursor] = useState(() =>
     collapseExpandedComposerCursor(prompt, prompt.length),
   );
+  const composerCursorRef = useRef(composerCursor);
   const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger | null>(() =>
     detectComposerTrigger(prompt, prompt.length),
   );
@@ -958,12 +959,54 @@ export default function ChatView({
   );
   const [mountedTerminalThreadIds, setMountedTerminalThreadIds] = useState<ThreadId[]>([]);
 
+  const promptPersistTimeoutRef = useRef<number | null>(null);
+  const pendingPromptPersistRef = useRef<string | null>(null);
+  const clearScheduledPromptPersist = useCallback(() => {
+    if (promptPersistTimeoutRef.current !== null) {
+      window.clearTimeout(promptPersistTimeoutRef.current);
+      promptPersistTimeoutRef.current = null;
+    }
+    pendingPromptPersistRef.current = null;
+  }, []);
   const setPrompt = useCallback(
     (nextPrompt: string) => {
+      clearScheduledPromptPersist();
       setComposerDraftPrompt(threadId, nextPrompt);
+    },
+    [clearScheduledPromptPersist, setComposerDraftPrompt, threadId],
+  );
+  const flushScheduledPromptPersist = useCallback(() => {
+    const pendingPrompt = pendingPromptPersistRef.current;
+    if (promptPersistTimeoutRef.current !== null) {
+      window.clearTimeout(promptPersistTimeoutRef.current);
+      promptPersistTimeoutRef.current = null;
+    }
+    pendingPromptPersistRef.current = null;
+    if (pendingPrompt !== null) {
+      setComposerDraftPrompt(threadId, pendingPrompt);
+    }
+  }, [setComposerDraftPrompt, threadId]);
+  const schedulePromptPersist = useCallback(
+    (nextPrompt: string) => {
+      pendingPromptPersistRef.current = nextPrompt;
+      if (promptPersistTimeoutRef.current !== null) {
+        window.clearTimeout(promptPersistTimeoutRef.current);
+      }
+      promptPersistTimeoutRef.current = window.setTimeout(() => {
+        promptPersistTimeoutRef.current = null;
+        const pendingPrompt = pendingPromptPersistRef.current;
+        pendingPromptPersistRef.current = null;
+        if (pendingPrompt !== null) {
+          setComposerDraftPrompt(threadId, pendingPrompt);
+        }
+      }, 120);
     },
     [setComposerDraftPrompt, threadId],
   );
+  useEffect(() => () => flushScheduledPromptPersist(), [flushScheduledPromptPersist]);
+  useEffect(() => {
+    composerCursorRef.current = composerCursor;
+  }, [composerCursor]);
   const addComposerImage = useCallback(
     (image: ComposerImageAttachment) => {
       addComposerDraftImage(threadId, image);
@@ -1902,8 +1945,8 @@ export default function ChatView({
       }
       const snapshot = composerEditorRef.current?.readSnapshot() ?? {
         value: promptRef.current,
-        cursor: composerCursor,
-        expandedCursor: expandCollapsedComposerCursor(promptRef.current, composerCursor),
+        cursor: composerCursorRef.current,
+        expandedCursor: expandCollapsedComposerCursor(promptRef.current, composerCursorRef.current),
         terminalContextIds: composerTerminalContexts.map((context) => context.id),
       };
       const insertion = insertInlineTerminalContextPlaceholder(
@@ -1935,7 +1978,7 @@ export default function ChatView({
         composerEditorRef.current?.focusAt(nextCollapsedCursor);
       });
     },
-    [activeThread, composerCursor, composerTerminalContexts, insertComposerDraftTerminalContext],
+    [activeThread, composerTerminalContexts, insertComposerDraftTerminalContext],
   );
   const setTerminalOpen = useCallback(
     (open: boolean) => {
@@ -2498,7 +2541,11 @@ export default function ChatView({
 
   useEffect(() => {
     promptRef.current = prompt;
-    setComposerCursor((existing) => clampCollapsedComposerCursor(prompt, existing));
+    setComposerCursor((existing) => {
+      const nextCursor = clampCollapsedComposerCursor(prompt, existing);
+      composerCursorRef.current = nextCursor;
+      return nextCursor;
+    });
   }, [prompt]);
 
   useEffect(() => {
@@ -3069,6 +3116,7 @@ export default function ChatView({
       onAdvanceActivePendingUserInput();
       return;
     }
+    flushScheduledPromptPersist();
     const promptForSend = promptRef.current;
     const {
       trimmedPrompt: trimmed,
@@ -3963,11 +4011,11 @@ export default function ChatView({
     }
     return {
       value: promptRef.current,
-      cursor: composerCursor,
-      expandedCursor: expandCollapsedComposerCursor(promptRef.current, composerCursor),
+      cursor: composerCursorRef.current,
+      expandedCursor: expandCollapsedComposerCursor(promptRef.current, composerCursorRef.current),
       terminalContextIds: composerTerminalContexts.map((context) => context.id),
     };
-  }, [composerCursor, composerTerminalContexts]);
+  }, [composerTerminalContexts]);
 
   const resolveActiveComposerTrigger = useCallback((): {
     snapshot: { value: string; cursor: number; expandedCursor: number };
@@ -4162,24 +4210,29 @@ export default function ChatView({
         return;
       }
       promptRef.current = nextPrompt;
-      setPrompt(nextPrompt);
+      composerCursorRef.current = nextCursor;
+      schedulePromptPersist(nextPrompt);
       if (!terminalContextIdListsEqual(composerTerminalContexts, terminalContextIds)) {
         setComposerDraftTerminalContexts(
           threadId,
           syncTerminalContextsByIds(composerTerminalContexts, terminalContextIds),
         );
       }
-      setComposerCursor(nextCursor);
-      setComposerTrigger(
-        cursorAdjacentToMention ? null : detectComposerTrigger(nextPrompt, expandedCursor),
-      );
+      const nextTrigger = cursorAdjacentToMention
+        ? null
+        : detectComposerTrigger(nextPrompt, expandedCursor);
+      if (composerTrigger !== null || nextTrigger !== null) {
+        setComposerCursor(nextCursor);
+        setComposerTrigger(nextTrigger);
+      }
     },
     [
       activePendingProgress?.activeQuestion,
       activePendingUserInput,
+      composerTrigger,
       composerTerminalContexts,
       onChangeActivePendingUserInputCustomAnswer,
-      setPrompt,
+      schedulePromptPersist,
       setComposerDraftTerminalContexts,
       threadId,
     ],
