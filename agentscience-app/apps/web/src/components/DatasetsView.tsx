@@ -1232,103 +1232,117 @@ function DatasetSidebar({
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-1 flex-col">
-      <div className="flex flex-col gap-4 border-b border-border px-4 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="font-display text-[1.0625rem] text-ink">Dataset registry</p>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="text-[11px] uppercase tracking-[0.16em] text-ink-faint">
-              {isLoading ? "Loading" : `${displayCount} of ${totalCount}`}
-            </span>
-            <Button
-              size="xs"
-              variant="outline"
-              className="h-6 px-2"
-              onClick={onAddDataset}
-              title="Add dataset instructions"
-            >
-              <PlusIcon className="size-3" />
-              New
-            </Button>
-          </div>
-        </div>
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-faint" />
-          <Input
-            size="sm"
-            type="search"
-            placeholder={
-              inOverview
-                ? 'Search datasets e.g. "pediatric cancer"'
-                : `Search within ${activeAreaMeta?.name ?? "this field"}`
-            }
-            value={searchQuery}
-            onChange={(event) => onSearchQueryChange(event.target.value)}
-            className="pl-8"
-          />
-        </div>
+      <ResizablePanelGroup
+        direction="vertical"
+        autoSaveId="datasets-sidebar-sections"
+        className="min-h-0 flex-1"
+      >
+        <ResizablePanel defaultSize={55} minSize={22} maxSize={78}>
+          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-display text-[1.0625rem] text-ink">
+                Dataset registry
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-[11px] uppercase tracking-[0.16em] text-ink-faint">
+                  {isLoading ? "Loading" : `${displayCount} of ${totalCount}`}
+                </span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  className="h-6 px-2"
+                  onClick={onAddDataset}
+                  title="Add dataset instructions"
+                >
+                  <PlusIcon className="size-3" />
+                  New
+                </Button>
+              </div>
+            </div>
+            <div className="relative">
+              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-ink-faint" />
+              <Input
+                size="sm"
+                type="search"
+                placeholder={
+                  inOverview
+                    ? 'Search datasets e.g. "pediatric cancer"'
+                    : `Search within ${activeAreaMeta?.name ?? "this field"}`
+                }
+                value={searchQuery}
+                onChange={(event) => onSearchQueryChange(event.target.value)}
+                className="pl-8"
+              />
+            </div>
 
-        {inOverview ? (
-          <AreaList
-            areas={areas}
-            areaCounts={areaCounts}
-            onSelect={(key) => onSelectArea(key)}
-          />
-        ) : (
-          <AreaDrilldownHeader
-            area={activeAreaMeta}
-            onClear={() => onSelectArea(ALL_AREAS_ID)}
-            topicOptions={topicOptions}
-            activeTopicSlug={activeTopicSlug}
-            onSelectTopic={onSelectTopic}
-            providerOptions={providerOptions}
-            unassignedCount={unassignedCount}
-            activeProviderId={activeProviderId}
-            onSelectProvider={onActiveProviderChange}
-          />
-        )}
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {errorMessage ? (
-          <div className="px-4 py-6 text-[0.8125rem] text-ink-light">{errorMessage}</div>
-        ) : isLoading ? (
-          <div className="px-4 py-6 text-[0.8125rem] text-ink-light">
-            Loading datasets…
-          </div>
-        ) : datasets.length === 0 ? (
-          <EmptyListState
-            totalCount={totalCount}
-            hasQuery={searchQuery.trim().length > 0}
-            activeAreaMeta={activeAreaMeta}
-            onClearArea={() => onSelectArea(ALL_AREAS_ID)}
-          />
-        ) : (
-          <ul>
-            {!inOverview ? (
-              <li>
-                <DatasetListHeading
-                  count={displayCount}
-                  areaName={activeAreaMeta?.name ?? null}
-                />
-              </li>
+            {inOverview ? (
+              <AreaList
+                areas={areas}
+                areaCounts={areaCounts}
+                onSelect={(key) => onSelectArea(key)}
+              />
             ) : (
-              <li>
-                <DatasetListHeading count={displayCount} areaName={null} />
-              </li>
+              <AreaDrilldownHeader
+                area={activeAreaMeta}
+                onClear={() => onSelectArea(ALL_AREAS_ID)}
+                topicOptions={topicOptions}
+                activeTopicSlug={activeTopicSlug}
+                onSelectTopic={onSelectTopic}
+                providerOptions={providerOptions}
+                unassignedCount={unassignedCount}
+                activeProviderId={activeProviderId}
+                onSelectProvider={onActiveProviderChange}
+              />
             )}
-            {datasets.map((dataset) => (
-              <li key={dataset.id}>
-                <DatasetListRow
-                  dataset={dataset}
-                  isActive={dataset.id === selectedDatasetId}
-                  mode={inOverview ? "overview" : "area"}
-                  onSelect={onSelectDataset}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          </div>
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel defaultSize={45} minSize={20}>
+          <div className="h-full min-h-0 overflow-y-auto">
+            {errorMessage ? (
+              <div className="px-4 py-6 text-[0.8125rem] text-ink-light">
+                {errorMessage}
+              </div>
+            ) : isLoading ? (
+              <div className="px-4 py-6 text-[0.8125rem] text-ink-light">
+                Loading datasets…
+              </div>
+            ) : datasets.length === 0 ? (
+              <EmptyListState
+                totalCount={totalCount}
+                hasQuery={searchQuery.trim().length > 0}
+                activeAreaMeta={activeAreaMeta}
+                onClearArea={() => onSelectArea(ALL_AREAS_ID)}
+              />
+            ) : (
+              <ul>
+                {!inOverview ? (
+                  <li>
+                    <DatasetListHeading
+                      count={displayCount}
+                      areaName={activeAreaMeta?.name ?? null}
+                    />
+                  </li>
+                ) : (
+                  <li>
+                    <DatasetListHeading count={displayCount} areaName={null} />
+                  </li>
+                )}
+                {datasets.map((dataset) => (
+                  <li key={dataset.id}>
+                    <DatasetListRow
+                      dataset={dataset}
+                      isActive={dataset.id === selectedDatasetId}
+                      mode={inOverview ? "overview" : "area"}
+                      onSelect={onSelectDataset}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </aside>
   );
 }
