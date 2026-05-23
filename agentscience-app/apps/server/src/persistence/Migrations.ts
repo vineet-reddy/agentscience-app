@@ -38,6 +38,7 @@ import Migration0022 from "./Migrations/022_NullableThreadProjectIds.ts";
 import Migration0023 from "./Migrations/023_WorkspaceRefactor.ts";
 import Migration0024 from "./Migrations/024_NullableThreadProjectIds.ts";
 import Migration0025 from "./Migrations/025_ProjectionThreadsStageState.ts";
+import Migration0026 from "./Migrations/026_ProjectionThreadMessageSuggestedActions.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -75,6 +76,7 @@ export const migrationEntries = [
   [23, "WorkspaceRefactor", Migration0023],
   [24, "NullableThreadProjectIds", Migration0024],
   [25, "ProjectionThreadsStageState", Migration0025],
+  [26, "ProjectionThreadMessageSuggestedActions", Migration0026],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

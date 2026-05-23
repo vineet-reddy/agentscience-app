@@ -151,6 +151,17 @@ const UploadChatAttachment = Schema.Union([
 ]);
 export type UploadChatAttachment = typeof UploadChatAttachment.Type;
 
+export const SuggestedActionKind = Schema.Literals(["send", "compose"]);
+export type SuggestedActionKind = typeof SuggestedActionKind.Type;
+
+export const SuggestedAction = Schema.Struct({
+  id: TrimmedNonEmptyString.check(Schema.isMaxLength(80)),
+  label: TrimmedNonEmptyString.check(Schema.isMaxLength(140)),
+  description: TrimmedNonEmptyString.check(Schema.isMaxLength(220)),
+  kind: SuggestedActionKind,
+});
+export type SuggestedAction = typeof SuggestedAction.Type;
+
 export const ProjectScriptIcon = Schema.Literals([
   "play",
   "test",
@@ -190,6 +201,7 @@ export const OrchestrationMessage = Schema.Struct({
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  suggestedActions: Schema.optional(Schema.Array(SuggestedAction)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
@@ -639,6 +651,7 @@ const ThreadMessageAssistantDeltaCommand = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
   delta: Schema.String,
+  suggestedActions: Schema.optional(Schema.Array(SuggestedAction)),
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -648,6 +661,7 @@ const ThreadMessageAssistantCompleteCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   messageId: MessageId,
+  suggestedActions: Schema.optional(Schema.Array(SuggestedAction)),
   turnId: Schema.optional(TurnId),
   createdAt: IsoDateTime,
 });
@@ -846,6 +860,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
+  suggestedActions: Schema.optional(Schema.Array(SuggestedAction)),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,

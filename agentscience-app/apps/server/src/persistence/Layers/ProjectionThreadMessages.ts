@@ -1,7 +1,7 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
-import { ChatAttachment } from "@agentscience/contracts";
+import { ChatAttachment, SuggestedAction } from "@agentscience/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -17,6 +17,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   Struct.assign({
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+    suggestedActions: Schema.NullOr(Schema.fromJsonString(Schema.Array(SuggestedAction))),
   }),
 );
 
@@ -33,6 +34,7 @@ function toProjectionThreadMessage(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ...(row.attachments !== null ? { attachments: row.attachments } : {}),
+    ...(row.suggestedActions !== null ? { suggestedActions: row.suggestedActions } : {}),
   };
 }
 
@@ -44,6 +46,8 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
     execute: (row) => {
       const nextAttachmentsJson =
         row.attachments !== undefined ? JSON.stringify(row.attachments) : null;
+      const nextSuggestedActionsJson =
+        row.suggestedActions !== undefined ? JSON.stringify(row.suggestedActions) : null;
       return sql`
         INSERT INTO projection_thread_messages (
           message_id,
@@ -52,6 +56,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           role,
           text,
           attachments_json,
+          suggested_actions_json,
           is_streaming,
           created_at,
           updated_at
@@ -70,6 +75,14 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
               WHERE message_id = ${row.messageId}
             )
           ),
+          COALESCE(
+            ${nextSuggestedActionsJson},
+            (
+              SELECT suggested_actions_json
+              FROM projection_thread_messages
+              WHERE message_id = ${row.messageId}
+            )
+          ),
           ${row.isStreaming ? 1 : 0},
           ${row.createdAt},
           ${row.updatedAt}
@@ -83,6 +96,10 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           attachments_json = COALESCE(
             excluded.attachments_json,
             projection_thread_messages.attachments_json
+          ),
+          suggested_actions_json = COALESCE(
+            excluded.suggested_actions_json,
+            projection_thread_messages.suggested_actions_json
           ),
           is_streaming = excluded.is_streaming,
           created_at = excluded.created_at,
@@ -103,6 +120,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          suggested_actions_json AS "suggestedActions",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -124,6 +142,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          suggested_actions_json AS "suggestedActions",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"

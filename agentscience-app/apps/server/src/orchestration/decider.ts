@@ -670,6 +670,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           messageId: command.messageId,
           role: "assistant",
           text: command.delta,
+          ...(command.suggestedActions !== undefined
+            ? { suggestedActions: command.suggestedActions }
+            : {}),
           turnId: command.turnId ?? null,
           streaming: true,
           createdAt: command.createdAt,
@@ -697,6 +700,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           messageId: command.messageId,
           role: "assistant",
           text: "",
+          ...(command.suggestedActions !== undefined
+            ? { suggestedActions: command.suggestedActions }
+            : {}),
           turnId: command.turnId ?? null,
           streaming: false,
           createdAt: command.createdAt,

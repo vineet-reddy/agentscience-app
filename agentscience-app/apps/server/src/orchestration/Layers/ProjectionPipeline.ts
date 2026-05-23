@@ -3,6 +3,7 @@ import {
   ApprovalRequestId,
   type ChatAttachment,
   type OrchestrationEvent,
+  type SuggestedAction,
   type WorkspaceKind,
 } from "@agentscience/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
@@ -470,6 +471,7 @@ function collectThreadAttachmentRelativePaths(
 interface AgentScienceMessageMetadata {
   readonly turnId: string | null;
   readonly attachments?: ReadonlyArray<ChatAttachment>;
+  readonly suggestedActions?: ReadonlyArray<SuggestedAction>;
   readonly updatedAt: string;
   readonly streaming: boolean;
 }
@@ -483,12 +485,16 @@ function parseAgentScienceMessageMetadata(valueJson: string): AgentScienceMessag
     const attachments = Array.isArray(value.attachments)
       ? (value.attachments as ReadonlyArray<ChatAttachment>)
       : undefined;
+    const suggestedActions = Array.isArray(value.suggestedActions)
+      ? (value.suggestedActions as ReadonlyArray<SuggestedAction>)
+      : undefined;
     if (updatedAt === null) {
       return null;
     }
     return {
       turnId,
       ...(attachments !== undefined ? { attachments } : {}),
+      ...(suggestedActions !== undefined ? { suggestedActions } : {}),
       updatedAt,
       streaming,
     };
@@ -821,6 +827,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       readonly messageId: string;
       readonly turnId: string | null;
       readonly attachments?: ReadonlyArray<ChatAttachment>;
+      readonly suggestedActions?: ReadonlyArray<SuggestedAction>;
       readonly updatedAt: string;
       readonly streaming: boolean;
     }) {
@@ -829,6 +836,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         valueJson: JSON.stringify({
           turnId: input.turnId,
           ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+          ...(input.suggestedActions !== undefined
+            ? { suggestedActions: input.suggestedActions }
+            : {}),
           updatedAt: input.updatedAt,
           streaming: input.streaming,
         }),
@@ -1117,6 +1127,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       readonly text: string;
       readonly turnId: string | null;
       readonly attachments?: ReadonlyArray<ChatAttachment>;
+      readonly suggestedActions?: ReadonlyArray<SuggestedAction>;
       readonly streaming: boolean;
       readonly createdAt: string;
       readonly updatedAt: string;
@@ -1163,6 +1174,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ? existingMessage.contentMarkdown
               : input.text;
       const nextAttachments = input.attachments ?? previousMetadata?.attachments;
+      const nextSuggestedActions =
+        input.suggestedActions ?? previousMetadata?.suggestedActions;
       const nextSequenceNo =
         existingMessage?.sequenceNo ??
         (yield* sql<{
@@ -1211,6 +1224,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           ${JSON.stringify({
             turnId: input.turnId,
             ...(nextAttachments !== undefined ? { attachments: nextAttachments } : {}),
+            ...(nextSuggestedActions !== undefined
+              ? { suggestedActions: nextSuggestedActions }
+              : {}),
             updatedAt: input.updatedAt,
             streaming: input.streaming,
           })}
@@ -1227,6 +1243,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         messageId: input.messageId,
         turnId: input.turnId,
         ...(nextAttachments !== undefined ? { attachments: nextAttachments } : {}),
+        ...(nextSuggestedActions !== undefined
+          ? { suggestedActions: nextSuggestedActions }
+          : {}),
         updatedAt: input.updatedAt,
         streaming: input.streaming,
       });
@@ -1988,6 +2007,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               ...(event.payload.attachments !== undefined
                 ? { attachments: event.payload.attachments }
                 : {}),
+              ...(event.payload.suggestedActions !== undefined
+                ? { suggestedActions: event.payload.suggestedActions }
+                : {}),
               streaming: event.payload.streaming,
               createdAt: event.payload.createdAt,
               updatedAt: event.payload.updatedAt,
@@ -2014,6 +2036,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                     attachments: event.payload.attachments,
                   })
                 : previousMessage?.attachments;
+            const nextSuggestedActions =
+              event.payload.suggestedActions !== undefined
+                ? event.payload.suggestedActions
+                : previousMessage?.suggestedActions;
             yield* projectionThreadMessageRepository.upsert({
               messageId: event.payload.messageId,
               threadId: event.payload.threadId,
@@ -2021,6 +2047,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               role: event.payload.role,
               text: nextText,
               ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
+              ...(nextSuggestedActions !== undefined
+                ? { suggestedActions: [...nextSuggestedActions] }
+                : {}),
               isStreaming: event.payload.streaming,
               createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
               updatedAt: event.payload.updatedAt,

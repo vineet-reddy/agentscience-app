@@ -27,6 +27,7 @@ import {
   extractPresentedManuscriptFromText,
   PAPER_PRESENTED_ACTIVITY_KIND,
 } from "../../paperPresentation.ts";
+import { extractSuggestedActionsFromText } from "../../suggestedActions.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -668,13 +669,16 @@ const make = Effect.fn("make")(function* () {
     const manuscriptPresentation = extractPresentedManuscriptFromText({
       text: rawText,
     });
+    const suggestedActionExtraction = extractSuggestedActionsFromText({
+      text: manuscriptPresentation.sanitizedText,
+    });
     const fallbackPresentation =
       !manuscriptPresentation.presentation && input.presentationFallbackText
         ? extractPresentedManuscriptFromText({
             text: input.presentationFallbackText,
           }).presentation
         : null;
-    const text = manuscriptPresentation.sanitizedText;
+    const text = suggestedActionExtraction.sanitizedText;
 
     if (text.length > 0) {
       yield* orchestrationEngine.dispatch({
@@ -683,6 +687,9 @@ const make = Effect.fn("make")(function* () {
         threadId: input.threadId,
         messageId: input.messageId,
         delta: text,
+        ...(suggestedActionExtraction.suggestedActions
+          ? { suggestedActions: suggestedActionExtraction.suggestedActions }
+          : {}),
         ...(input.turnId ? { turnId: input.turnId } : {}),
         createdAt: input.createdAt,
       });
@@ -693,6 +700,9 @@ const make = Effect.fn("make")(function* () {
       commandId: providerCommandId(input.event, input.commandTag),
       threadId: input.threadId,
       messageId: input.messageId,
+      ...(suggestedActionExtraction.suggestedActions
+        ? { suggestedActions: suggestedActionExtraction.suggestedActions }
+        : {}),
       ...(input.turnId ? { turnId: input.turnId } : {}),
       createdAt: input.createdAt,
     });

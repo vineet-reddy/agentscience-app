@@ -147,6 +147,9 @@ function mergeThreadMessage(existingMessage: ChatMessage, nextMessage: ChatMessa
         ? { completedAt: nextMessage.completedAt }
         : {}),
     ...(nextMessage.attachments !== undefined ? { attachments: nextMessage.attachments } : {}),
+    ...(nextMessage.suggestedActions !== undefined
+      ? { suggestedActions: nextMessage.suggestedActions }
+      : {}),
   };
 }
 
@@ -231,6 +234,9 @@ function mapMessage(message: OrchestrationMessage): ChatMessage {
     streaming: message.streaming,
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(message.suggestedActions && message.suggestedActions.length > 0
+      ? { suggestedActions: message.suggestedActions }
+      : {}),
   };
 }
 
@@ -1199,6 +1205,9 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         text: event.payload.text,
         ...(event.payload.attachments !== undefined
           ? { attachments: event.payload.attachments }
+          : {}),
+        ...(event.payload.suggestedActions !== undefined
+          ? { suggestedActions: event.payload.suggestedActions }
           : {}),
         turnId: event.payload.turnId,
         streaming: event.payload.streaming,
