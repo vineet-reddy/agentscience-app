@@ -289,14 +289,166 @@ function createVisualActionScript(
   const buttonNumber = action.button === "right" ? 2 : action.button === "middle" ? 1 : 0;
   const buttonsNumber = action.button === "right" ? 2 : action.button === "middle" ? 4 : 1;
   const targetAt = (point) => document.elementFromPoint(point.x, point.y) || document.body || document.documentElement;
-  const targetFromSelector = () => {
+  const isVisible = (element) => {
+    if (!(element instanceof Element)) return false;
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+  };
+  const isTextEntryInput = (element) => {
+    if (element instanceof HTMLTextAreaElement) return !element.disabled && !element.readOnly;
+    if (element instanceof HTMLInputElement) {
+      if (element.disabled || element.readOnly) return false;
+      return !["button", "checkbox", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(element.type);
+    }
+    return element instanceof HTMLElement && element.isContentEditable;
+  };
+  const queryDeep = (selector) => {
+    const matches = [];
+    const roots = [document];
+    const seenRoots = new Set();
+    while (roots.length > 0 && matches.length < 400) {
+      const root = roots.shift();
+      if (!root || seenRoots.has(root)) continue;
+      seenRoots.add(root);
+      try {
+        matches.push(...Array.from(root.querySelectorAll(selector)));
+      } catch {
+        return [];
+      }
+      const elements = root instanceof Document || root instanceof ShadowRoot
+        ? Array.from(root.querySelectorAll("*")).slice(0, 800)
+        : [];
+      for (const element of elements) {
+        if (element.shadowRoot) roots.push(element.shadowRoot);
+      }
+    }
+    return matches;
+  };
+  const editableDescendant = (element) => {
+    if (!(element instanceof Element)) return null;
+    if (isTextEntryInput(element) && isVisible(element)) return element;
+    const roots = [element, element.shadowRoot].filter(Boolean);
+    const seenRoots = new Set();
+    while (roots.length > 0) {
+      const root = roots.shift();
+      if (!root || seenRoots.has(root)) continue;
+      seenRoots.add(root);
+      const candidates = Array.from(root.querySelectorAll('input, textarea, [contenteditable="true"], [role="textbox"], [role="searchbox"]'));
+      for (const candidate of candidates) {
+        if (isTextEntryInput(candidate) && isVisible(candidate)) return candidate;
+      }
+      for (const candidate of Array.from(root.querySelectorAll("*")).slice(0, 400)) {
+        if (candidate.shadowRoot) roots.push(candidate.shadowRoot);
+      }
+    }
+    return null;
+  };
+  const readElementLabel = (element) => {
+    if (!(element instanceof Element)) return "";
+    const parts = [];
+    const add = (value) => {
+      const normalized = String(value || "").replace(/\\s+/g, " ").trim();
+      if (normalized) parts.push(normalized.slice(0, 160));
+    };
+    add(element.getAttribute("aria-label"));
+    add(element.getAttribute("placeholder"));
+    add(element.getAttribute("name"));
+    add(element.getAttribute("id"));
+    add(element.getAttribute("title"));
+    add(element.getAttribute("role"));
+    const labelledBy = element.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      for (const id of labelledBy.split(/\\s+/)) {
+        add(document.getElementById(id)?.textContent);
+      }
+    }
+    if ("labels" in element && element.labels) {
+      for (const label of Array.from(element.labels)) add(label.textContent);
+    }
+    if (element instanceof HTMLButtonElement || element instanceof HTMLAnchorElement) {
+      add(element.innerText || element.textContent);
+    }
+    const closestLabel = element.closest("label");
+    if (closestLabel) add(closestLabel.textContent);
+    const parentText = element.parentElement?.innerText || element.parentElement?.textContent;
+    if (parentText && parentText.length <= 240) add(parentText);
+    return parts.join(" ").toLowerCase();
+  };
+  const isEditableElement = (element) => {
+    if (!(element instanceof Element) || !isVisible(element)) return false;
+    if (isTextEntryInput(element)) return true;
+    if (element instanceof HTMLSelectElement) return !element.disabled;
+    if (element instanceof HTMLElement && element.isContentEditable) return true;
+    const role = element.getAttribute("role");
+    return (role === "textbox" || role === "searchbox" || role === "combobox") && editableDescendant(element) !== null;
+  };
+  const isActivatableElement = (element) => (
+    element instanceof HTMLAnchorElement ||
+    element instanceof HTMLButtonElement ||
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLLabelElement ||
+    element instanceof HTMLElement && (
+      element.isContentEditable ||
+      ["button", "link", "menuitem", "option", "searchbox", "textbox", "combobox"].includes(element.getAttribute("role") || "")
+    )
+  );
+  const findSemanticTarget = (selector) => {
+    const selectorText = selector.toLowerCase();
+    const wantsEditable =
+      action.kind === "type" ||
+      action.kind === "press" ||
+      /input|textarea|select|search|query|term|textbox|searchbox|combobox|placeholder|name=|\\bq\\b/.test(selectorText);
+    const wantsSearch = /search|query|term|find|searchbox|\\bq\\b/.test(selectorText);
+    const candidates = queryDeep(
+      wantsEditable
+        ? 'input, textarea, select, [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"]'
+        : 'a[href], button, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="option"]'
+    );
+    let best = null;
+    let bestScore = 0;
+    for (const candidate of candidates) {
+      if (wantsEditable ? !isEditableElement(candidate) : !isVisible(candidate) || !isActivatableElement(candidate)) {
+        continue;
+      }
+      const label = readElementLabel(candidate);
+      let score = wantsEditable ? 10 : 4;
+      if (candidate instanceof HTMLInputElement && candidate.type === "search") score += 35;
+      if (candidate.getAttribute("role") === "searchbox") score += 35;
+      if (candidate.closest('form[role="search"], [role="search"]')) score += 20;
+      if (/search|query|find/.test(label)) score += 28;
+      if (/gene|variant|disease|dataset|compound|protein|paper|article|trial|species|resource/.test(label)) score += 8;
+      if (wantsSearch && !/search|query|find|term|q\\b|gene|variant|disease|dataset|compound|protein|paper|article|trial|species|resource/.test(label)) {
+        score -= 12;
+      }
+      if (candidate instanceof HTMLInputElement && candidate.value) score -= 2;
+      if (score > bestScore) {
+        best = wantsEditable ? editableDescendant(candidate) || candidate : candidate;
+        bestScore = score;
+      }
+    }
+    return bestScore > 0 ? best : null;
+  };
+  const describeTargets = () =>
+    queryDeep('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"], button, a[href]')
+      .filter(isVisible)
+      .slice(0, 8)
+      .map((element) => readElementLabel(element) || element.tagName.toLowerCase())
+      .filter(Boolean)
+      .join("; ");
+  const targetFromSelector = (options = {}) => {
     const selector = typeof action.selector === "string" ? action.selector.trim() : "";
     if (!selector) return null;
-    const target = document.querySelector(selector);
-    if (!target) {
-      throw new Error(\`No browser element matched selector: \${selector}\`);
-    }
-    return target;
+    const target = queryDeep(selector).find(isVisible) ?? null;
+    if (target) return target;
+    const semanticTarget = findSemanticTarget(selector);
+    if (semanticTarget) return semanticTarget;
+    if (options.required === false) return null;
+    const available = describeTargets();
+    throw new Error(\`No browser element matched selector: \${selector}\${available ? \`. Visible controls: \${available}\` : ""}\`);
   };
   const pointForElement = (target) => {
     if (!(target instanceof Element)) {
@@ -466,13 +618,28 @@ function createVisualActionScript(
     if (preferredTarget instanceof HTMLElement || preferredTarget instanceof SVGElement) {
       preferredTarget.focus?.({ preventScroll: false });
     }
-    const active = preferredTarget || document.activeElement;
+    const descendant = editableDescendant(preferredTarget);
+    if (descendant) {
+      descendant.focus?.({ preventScroll: false });
+      return descendant;
+    }
+    const active = document.activeElement;
     if (
       active instanceof HTMLInputElement ||
       active instanceof HTMLTextAreaElement ||
-      active?.isContentEditable
+      (
+        active instanceof HTMLElement &&
+        active.isContentEditable &&
+        (!preferredTarget || (active !== document.body && active !== document.documentElement))
+      )
     ) {
       return active;
+    }
+    if (preferredTarget instanceof HTMLInputElement || preferredTarget instanceof HTMLTextAreaElement) {
+      return preferredTarget;
+    }
+    if (preferredTarget instanceof HTMLElement && preferredTarget.isContentEditable) {
+      return preferredTarget;
     }
     throw new Error("No editable browser element is focused.");
   };
@@ -484,9 +651,10 @@ function createVisualActionScript(
       target.setRangeText(text, start, end, "end");
       target.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: text }));
       target.dispatchEvent(new Event("change", { bubbles: true }));
-      return;
+      return target;
     }
     document.execCommand("insertText", false, text);
+    return target;
   };
   const dispatchKey = (key) => {
     const target = document.activeElement || document.body || document.documentElement;
@@ -617,8 +785,7 @@ function createVisualActionScript(
       await sleep(80);
     }
     await moveCursor(pointForElement(selectorTarget || document.activeElement));
-    typeIntoTarget(String(action.text || ""), selectorTarget);
-    const target = document.activeElement;
+    const target = typeIntoTarget(String(action.text || ""), selectorTarget);
     const targetName = target instanceof Element
       ? target.id
         ? \`\${target.tagName.toLowerCase()}#\${target.id}\`
@@ -634,7 +801,7 @@ function createVisualActionScript(
     const selectorTarget = targetFromSelector();
     if (selectorTarget instanceof Element) {
       selectorTarget.scrollIntoView?.({ block: "center", inline: "center" });
-      focusTarget(selectorTarget);
+      focusTarget(editableDescendant(selectorTarget) || selectorTarget);
       await sleep(80);
     }
     await moveCursor(pointForElement(selectorTarget || document.activeElement));
@@ -808,9 +975,9 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
     };
     const onStop = () => {
       setLoadMessage(null);
-      if (webviewReadyRef.current) {
-        void captureSnapshot();
-      }
+      webviewReadyRef.current = true;
+      setWebviewReady(true);
+      void captureSnapshot();
     };
     const onDomReady = () => {
       webviewReadyRef.current = true;
@@ -839,6 +1006,8 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
 
     webview.addEventListener("did-start-loading", onStart);
     webview.addEventListener("did-stop-loading", onStop);
+    webview.addEventListener("did-finish-load", onDomReady);
+    webview.addEventListener("did-frame-finish-load", onDomReady);
     webview.addEventListener("did-fail-load", onFail);
     webview.addEventListener("dom-ready", onDomReady);
     webview.addEventListener("new-window", onNewWindow);
@@ -848,6 +1017,8 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
     return () => {
       webview.removeEventListener("did-start-loading", onStart);
       webview.removeEventListener("did-stop-loading", onStop);
+      webview.removeEventListener("did-finish-load", onDomReady);
+      webview.removeEventListener("did-frame-finish-load", onDomReady);
       webview.removeEventListener("did-fail-load", onFail);
       webview.removeEventListener("dom-ready", onDomReady);
       webview.removeEventListener("new-window", onNewWindow);
@@ -863,7 +1034,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
     const handledAction = handledActionRef.current;
     if (handledAction?.actionId === action.id && Date.now() - handledAction.attemptedAt < 10_000) return;
     const webview = webviewRef.current;
-    if ((!webviewReady && state.status !== "ready") || !webview?.executeJavaScript) return;
+    if (!webviewReadyRef.current || !webview?.executeJavaScript) return;
     handledActionRef.current = { actionId: action.id, attemptedAt: Date.now() };
     let actionPromise: Promise<string | { message?: unknown }>;
     try {
