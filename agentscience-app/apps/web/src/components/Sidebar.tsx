@@ -16,6 +16,7 @@ import {
 import { type DragEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "./BrandMark";
 import { APP_SESSION_BOOT_AT } from "../appSession";
+import { useAgentIntakeStore } from "../agentIntakeStore";
 import { type DraftThreadKind, useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
 import { useDesktopFullScreen } from "../hooks/useDesktopFullScreen";
@@ -325,6 +326,7 @@ export default function Sidebar() {
     if (!routeThreadId) return;
     if (!activeThreadStageState) {
       setPaperWorkflowMode(routeThreadId, mode);
+      useAgentIntakeStore.getState().clearContext(routeThreadId);
       return;
     }
     const api = readNativeApi();
@@ -697,8 +699,10 @@ export default function Sidebar() {
           <Button
             variant="outline"
             className="w-full justify-start gap-2 group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:px-0"
-            onClick={() => {
-              void handleNewThread(null, { kind: "agent" });
+            onClick={async () => {
+              const threadId = await handleNewThread(null, { kind: "agent" });
+              setPaperWorkflowMode(threadId, null);
+              useAgentIntakeStore.getState().clearContext(threadId);
             }}
             title="New agent"
           >

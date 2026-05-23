@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ThreadId } from "@agentscience/contracts";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeftIcon,
   BookOpenTextIcon,
   CheckIcon,
   ClipboardIcon,
@@ -85,6 +86,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   );
   const setPaperWorkflowMode = useUiStateStore((store) => store.setPaperWorkflowMode);
   const addFiles = useComposerDraftStore((store) => store.addFiles);
+  const clearAgentIntakeContext = useAgentIntakeStore((store) => store.clearContext);
 
   const onboardingProfile = useOnboardingStore((store) => store.profile);
   const welcomeGreetingConsumed = useOnboardingStore((store) => store.welcomeGreetingConsumed);
@@ -297,6 +299,9 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   };
 
   const handleModeSelect = (mode: PaperWorkflowMode | null) => {
+    if (mode !== selectedPaperMode) {
+      clearAgentIntakeContext(threadId);
+    }
     setPaperWorkflowMode(threadId, mode);
     requestComposerFocus({ threadId });
   };
@@ -423,6 +428,11 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
           onPickFolder={pickFolder}
           onImportDroppedFiles={importDroppedFiles}
           onBrowseDatasets={() => void navigate({ to: "/datasets" })}
+          onBackToAgentPicker={() => {
+            setPaperWorkflowMode(threadId, null);
+            clearAgentIntakeContext(threadId);
+            requestComposerFocus({ threadId });
+          }}
         />
       );
     }
@@ -432,6 +442,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
         onSelectMode={handleModeSelect}
         onSkip={() => {
           setPaperWorkflowMode(threadId, null);
+          clearAgentIntakeContext(threadId);
           requestComposerFocus({ threadId });
         }}
       />
@@ -603,6 +614,7 @@ interface AgentWorkflowStartSurfaceProps {
   onPickFolder: () => Promise<string | null>;
   onImportDroppedFiles: (files: File[]) => Promise<ChatFileAttachment[]>;
   onBrowseDatasets: () => void;
+  onBackToAgentPicker: () => void;
 }
 
 const AGENT_START_COPY: Record<
@@ -654,6 +666,7 @@ function AgentWorkflowStartSurface({
   onPickFolder,
   onImportDroppedFiles,
   onBrowseDatasets,
+  onBackToAgentPicker,
 }: AgentWorkflowStartSurfaceProps) {
   const modeOption = AGENT_WORKFLOW_MODES.find((entry) => entry.id === mode);
   const copy = AGENT_START_COPY[mode];
@@ -661,6 +674,16 @@ function AgentWorkflowStartSurface({
   return (
     <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-40 pt-10 sm:pb-44 sm:pt-14">
       <div className="w-full max-w-[720px]">
+        <div className="mb-8 flex">
+          <button
+            type="button"
+            onClick={onBackToAgentPicker}
+            className="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-ink-light transition-colors duration-150 hover:text-ink"
+          >
+            <ArrowLeftIcon className="size-3.5" />
+            All agents
+          </button>
+        </div>
         <header className="text-center">
           <div className="flex items-center justify-center gap-2 text-[0.8125rem] font-medium text-ink-light">
             <span
