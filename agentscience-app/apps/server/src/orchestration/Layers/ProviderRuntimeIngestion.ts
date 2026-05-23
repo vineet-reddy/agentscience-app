@@ -27,7 +27,13 @@ import {
   extractPresentedManuscriptFromText,
   PAPER_PRESENTED_ACTIVITY_KIND,
 } from "../../paperPresentation.ts";
-import { extractSuggestedActionsFromText } from "../../suggestedActions.ts";
+import {
+  emptySuggestedActionsTextStreamFilterState,
+  filterSuggestedActionsStreamingText,
+  flushSuggestedActionsStreamingText,
+  extractSuggestedActionsFromText,
+  type SuggestedActionsTextStreamFilterState,
+} from "../../suggestedActions.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -42,6 +48,8 @@ const TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY = 10_000;
 const TURN_MESSAGE_IDS_BY_TURN_TTL = Duration.minutes(120);
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY = 20_000;
 const BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL = Duration.minutes(120);
+const STREAMING_TEXT_FILTER_BY_MESSAGE_ID_CACHE_CAPACITY = 20_000;
+const STREAMING_TEXT_FILTER_BY_MESSAGE_ID_TTL = Duration.minutes(120);
 const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
@@ -525,6 +533,15 @@ const make = Effect.fn("make")(function* () {
     lookup: () => Effect.succeed(""),
   });
 
+  const streamingTextFilterByMessageId = yield* Cache.make<
+    MessageId,
+    SuggestedActionsTextStreamFilterState
+  >({
+    capacity: STREAMING_TEXT_FILTER_BY_MESSAGE_ID_CACHE_CAPACITY,
+    timeToLive: STREAMING_TEXT_FILTER_BY_MESSAGE_ID_TTL,
+    lookup: () => Effect.succeed(emptySuggestedActionsTextStreamFilterState),
+  });
+
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
     capacity: BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
     timeToLive: BUFFERED_PROPOSED_PLAN_BY_ID_TTL,
@@ -621,6 +638,36 @@ const make = Effect.fn("make")(function* () {
   const clearBufferedAssistantText = (messageId: MessageId) =>
     Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
 
+  const filterStreamingAssistantText = (messageId: MessageId, delta: string) =>
+    Cache.getOption(streamingTextFilterByMessageId, messageId).pipe(
+      Effect.flatMap((existingState) =>
+        Effect.gen(function* () {
+          const result = filterSuggestedActionsStreamingText({
+            state: Option.getOrElse(
+              existingState,
+              () => emptySuggestedActionsTextStreamFilterState,
+            ),
+            delta,
+          });
+          yield* Cache.set(streamingTextFilterByMessageId, messageId, result.state);
+          return result.visibleDelta;
+        }),
+      ),
+    );
+
+  const flushStreamingAssistantText = (messageId: MessageId) =>
+    Cache.getOption(streamingTextFilterByMessageId, messageId).pipe(
+      Effect.flatMap((existingState) =>
+        Cache.invalidate(streamingTextFilterByMessageId, messageId).pipe(
+          Effect.as(
+            flushSuggestedActionsStreamingText(
+              Option.getOrElse(existingState, () => emptySuggestedActionsTextStreamFilterState),
+            ),
+          ),
+        ),
+      ),
+    );
+
   const appendBufferedProposedPlan = (planId: string, delta: string, createdAt: string) =>
     Cache.getOption(bufferedProposedPlanById, planId).pipe(
       Effect.flatMap((existingEntry) => {
@@ -645,8 +692,12 @@ const make = Effect.fn("make")(function* () {
   const clearBufferedProposedPlan = (planId: string) =>
     Cache.invalidate(bufferedProposedPlanById, planId);
 
-  const clearAssistantMessageState = (messageId: MessageId) =>
-    clearBufferedAssistantText(messageId);
+  const clearAssistantMessageState = Effect.fn("clearAssistantMessageState")(function* (
+    messageId: MessageId,
+  ) {
+    yield* clearBufferedAssistantText(messageId);
+    yield* Cache.invalidate(streamingTextFilterByMessageId, messageId);
+  });
 
   const finalizeAssistantMessage = Effect.fn("finalizeAssistantMessage")(function* (input: {
     event: ProviderRuntimeEvent;
@@ -658,7 +709,9 @@ const make = Effect.fn("make")(function* () {
     finalDeltaCommandTag: string;
     fallbackText?: string;
     presentationFallbackText?: string;
+    emitFinalDelta?: boolean;
   }) {
+    const emitFinalDelta = input.emitFinalDelta ?? true;
     const bufferedText = yield* takeBufferedAssistantText(input.messageId);
     const rawText =
       bufferedText.length > 0
@@ -680,7 +733,7 @@ const make = Effect.fn("make")(function* () {
         : null;
     const text = suggestedActionExtraction.sanitizedText;
 
-    if (text.length > 0) {
+    if (emitFinalDelta && text.length > 0) {
       yield* orchestrationEngine.dispatch({
         type: "thread.message.assistant.delta",
         commandId: providerCommandId(input.event, input.finalDeltaCommandTag),
@@ -693,6 +746,19 @@ const make = Effect.fn("make")(function* () {
         ...(input.turnId ? { turnId: input.turnId } : {}),
         createdAt: input.createdAt,
       });
+    } else if (!emitFinalDelta) {
+      const finalVisibleDelta = yield* flushStreamingAssistantText(input.messageId);
+      if (finalVisibleDelta.length > 0) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.message.assistant.delta",
+          commandId: providerCommandId(input.event, input.finalDeltaCommandTag),
+          threadId: input.threadId,
+          messageId: input.messageId,
+          delta: finalVisibleDelta,
+          ...(input.turnId ? { turnId: input.turnId } : {}),
+          createdAt: input.createdAt,
+        });
+      }
     }
 
     yield* orchestrationEngine.dispatch({
@@ -1072,15 +1138,19 @@ const make = Effect.fn("make")(function* () {
           });
         }
       } else {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.message.assistant.delta",
-          commandId: providerCommandId(event, "assistant-delta"),
-          threadId: thread.id,
-          messageId: assistantMessageId,
-          delta: assistantDelta,
-          ...(turnId ? { turnId } : {}),
-          createdAt: now,
-        });
+        yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
+        const visibleDelta = yield* filterStreamingAssistantText(assistantMessageId, assistantDelta);
+        if (visibleDelta.length > 0) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.assistant.delta",
+            commandId: providerCommandId(event, "assistant-delta"),
+            threadId: thread.id,
+            messageId: assistantMessageId,
+            delta: visibleDelta,
+            ...(turnId ? { turnId } : {}),
+            createdAt: now,
+          });
+        }
       }
     }
 
@@ -1118,6 +1188,10 @@ const make = Effect.fn("make")(function* () {
       if (turnId) {
         yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
       }
+      const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
+        serverSettingsService.getSettings,
+        (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
+      );
 
       yield* finalizeAssistantMessage({
         event,
@@ -1133,6 +1207,7 @@ const make = Effect.fn("make")(function* () {
         ...(assistantCompletion.fallbackText !== undefined
           ? { presentationFallbackText: assistantCompletion.fallbackText }
           : {}),
+        emitFinalDelta: assistantDeliveryMode === "buffered" || shouldApplyFallbackCompletionText,
       });
 
       if (turnId) {
@@ -1155,6 +1230,10 @@ const make = Effect.fn("make")(function* () {
     if (event.type === "turn.completed") {
       const turnId = toTurnId(event.turnId);
       if (turnId) {
+        const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
+          serverSettingsService.getSettings,
+          (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
+        );
         const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
         yield* Effect.forEach(
           assistantMessageIds,
@@ -1167,6 +1246,7 @@ const make = Effect.fn("make")(function* () {
               createdAt: now,
               commandTag: "assistant-complete-finalize",
               finalDeltaCommandTag: "assistant-delta-finalize-fallback",
+              emitFinalDelta: assistantDeliveryMode === "buffered",
             }),
           { concurrency: 1 },
         ).pipe(Effect.asVoid);
