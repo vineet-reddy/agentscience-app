@@ -13,6 +13,7 @@ import {
   OrchestrationSessionStatus,
   OrchestrationThreadActivityTone,
   ProjectStageState,
+  SuggestedAction,
   type OrchestrationThread,
   ProjectScript,
   ProjectId,
@@ -101,6 +102,7 @@ const ProjectionMessageRowSchema = Schema.Struct({
   role: OrchestrationMessageRole,
   text: Schema.String,
   attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
+  suggestedActions: Schema.NullOr(Schema.fromJsonString(Schema.Array(SuggestedAction))),
   isStreaming: Schema.Number,
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -419,6 +421,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           role,
           text,
           attachments_json AS "attachments",
+          suggested_actions_json AS "suggestedActions",
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -430,6 +433,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             role,
             text,
             attachments_json,
+            suggested_actions_json,
             is_streaming,
             created_at,
             updated_at,
@@ -759,6 +763,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               text: row.text,
               ...(row.attachments !== null && row.attachments.length > 0
                 ? { attachments: row.attachments }
+                : {}),
+              ...(row.suggestedActions !== null && row.suggestedActions.length > 0
+                ? { suggestedActions: row.suggestedActions }
                 : {}),
               turnId: row.turnId,
               streaming: row.isStreaming !== 0,

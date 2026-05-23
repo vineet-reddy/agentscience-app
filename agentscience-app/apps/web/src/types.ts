@@ -14,6 +14,7 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  SuggestedAction,
   WorkspaceKind,
 } from "@agentscience/contracts";
 
@@ -57,6 +58,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   text: string;
   attachments?: ChatAttachment[];
+  suggestedActions?: ReadonlyArray<SuggestedAction>;
   turnId?: TurnId | null;
   createdAt: string;
   completedAt?: string | undefined;
