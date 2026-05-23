@@ -19,6 +19,7 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
+  type SuggestedAction,
 } from "@agentscience/contracts";
 import { normalizeModelSlug } from "@agentscience/shared/model";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@agentscience/shared/projectScripts";
@@ -196,6 +197,7 @@ import { ComposerPrimaryActions } from "./chat/ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
+import { SuggestedActionsPanel } from "./chat/SuggestedActionsPanel";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -873,6 +875,9 @@ export default function ChatView({
   );
   const [attachmentPreviewHandoffByMessageId, setAttachmentPreviewHandoffByMessageId] = useState<
     Record<string, string[]>
+  >({});
+  const [dismissedSuggestedActionsByMessageId, setDismissedSuggestedActionsByMessageId] = useState<
+    Record<string, true>
   >({});
   const [composerCursor, setComposerCursor] = useState(() =>
     collapseExpandedComposerCursor(prompt, prompt.length),
@@ -1574,6 +1579,30 @@ export default function ChatView({
       deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
     [activeThread?.proposedPlans, timelineMessages, workLogEntries],
   );
+  const activeSuggestedActionsMessage = useMemo(() => {
+    for (let index = timelineMessages.length - 1; index >= 0; index -= 1) {
+      const message = timelineMessages[index];
+      if (!message) {
+        continue;
+      }
+      if (message.role === "user") {
+        return null;
+      }
+      if (message.role !== "assistant") {
+        continue;
+      }
+      if (
+        message.streaming ||
+        !message.suggestedActions ||
+        message.suggestedActions.length === 0 ||
+        dismissedSuggestedActionsByMessageId[message.id]
+      ) {
+        return null;
+      }
+      return message;
+    }
+    return null;
+  }, [dismissedSuggestedActionsByMessageId, timelineMessages]);
   const agentComposerPlaceholder =
     timelineEntries.length === 0 ? initialAgentComposerPlaceholder(activeWorkflowMode) : null;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
@@ -3103,6 +3132,129 @@ export default function ChatView({
     [activeThread, isConnecting, isRevertingCheckpoint, isSendBusy, phase, setThreadError],
   );
 
+  const onSelectSuggestedAction = useCallback(
+    async (action: SuggestedAction) => {
+      if (!activeSuggestedActionsMessage) {
+        return;
+      }
+      setDismissedSuggestedActionsByMessageId((current) => ({
+        ...current,
+        [activeSuggestedActionsMessage.id]: true,
+      }));
+
+      if (action.kind === "compose") {
+        scheduleComposerFocus();
+        return;
+      }
+
+      const api = readNativeApi();
+      if (
+        !api ||
+        !activeThread ||
+        !isServerThread ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        return;
+      }
+
+      const text = action.label.trim();
+      if (!text) {
+        return;
+      }
+
+      const threadIdForSend = activeThread.id;
+      const messageIdForSend = newMessageId();
+      const messageCreatedAt = new Date().toISOString();
+      const outgoingMessageText = formatOutgoingPrompt({
+        provider: selectedProvider,
+        model: selectedModel,
+        models: selectedProviderModels,
+        effort: selectedPromptEffort,
+        text,
+      });
+
+      sendInFlightRef.current = true;
+      beginLocalDispatch({ preparingWorktree: false });
+      setThreadError(threadIdForSend, null);
+      updateOptimisticUserMessages(threadIdForSend, (existing) => [
+        ...existing,
+        {
+          id: messageIdForSend,
+          role: "user",
+          text: outgoingMessageText,
+          createdAt: messageCreatedAt,
+          streaming: false,
+        },
+      ]);
+      shouldAutoScrollRef.current = true;
+      forceStickToBottom();
+
+      try {
+        await persistThreadSettingsForNextTurn({
+          threadId: threadIdForSend,
+          createdAt: messageCreatedAt,
+          modelSelection: selectedModelSelection,
+          runtimeMode,
+          interactionMode,
+        });
+
+        await api.orchestration.dispatchCommand({
+          type: "thread.turn.start",
+          commandId: newCommandId(),
+          threadId: threadIdForSend,
+          message: {
+            messageId: messageIdForSend,
+            role: "user",
+            text: outgoingMessageText,
+            providerText: outgoingMessageText,
+            attachments: [],
+          },
+          modelSelection: selectedModelSelection,
+          titleSeed: activeThread.title,
+          runtimeMode,
+          interactionMode,
+          researchDepth,
+          createdAt: messageCreatedAt,
+        });
+        sendInFlightRef.current = false;
+      } catch (err) {
+        updateOptimisticUserMessages(threadIdForSend, (existing) =>
+          existing.filter((message) => message.id !== messageIdForSend),
+        );
+        setThreadError(
+          threadIdForSend,
+          err instanceof Error ? err.message : "Failed to send suggested action.",
+        );
+        sendInFlightRef.current = false;
+        resetLocalDispatch();
+      }
+    },
+    [
+      activeSuggestedActionsMessage,
+      activeThread,
+      beginLocalDispatch,
+      forceStickToBottom,
+      interactionMode,
+      isConnecting,
+      isSendBusy,
+      isServerThread,
+      persistThreadSettingsForNextTurn,
+      researchDepth,
+      resetLocalDispatch,
+      runtimeMode,
+      scheduleComposerFocus,
+      selectedModel,
+      selectedModelSelection,
+      selectedPromptEffort,
+      selectedProvider,
+      selectedProviderModels,
+      setThreadError,
+      updateOptimisticUserMessages,
+    ],
+  );
+
   const onSend = async (e?: { preventDefault: () => void }) => {
     e?.preventDefault();
     const api = readNativeApi();
@@ -4430,6 +4582,21 @@ export default function ChatView({
 
           {/* Input bar */}
           <div className={cn("px-3 pt-1.5 sm:px-5 sm:pt-2", isGitRepo ? "pb-1" : "pb-3 sm:pb-4")}>
+            {activeSuggestedActionsMessage?.suggestedActions ? (
+              <div className="pb-3">
+                <SuggestedActionsPanel
+                  actions={activeSuggestedActionsMessage.suggestedActions}
+                  disabled={
+                    isConnecting ||
+                    isSendBusy ||
+                    phase === "running" ||
+                    pendingApprovals.length > 0 ||
+                    pendingUserInputs.length > 0
+                  }
+                  onSelect={onSelectSuggestedAction}
+                />
+              </div>
+            ) : null}
             <form
               ref={composerFormRef}
               onSubmit={onSend}
