@@ -25,6 +25,8 @@ export const SuggestedActionsPanel = memo(function SuggestedActionsPanel({
   onSelect,
 }: SuggestedActionsPanelProps) {
   const visibleActions = useMemo(() => actions.slice(0, 3), [actions]);
+  const shortcutHint =
+    visibleActions.length === 1 ? "press 1 or click" : `press 1-${visibleActions.length} or click`;
 
   useEffect(() => {
     if (disabled || visibleActions.length === 0) {
@@ -64,7 +66,7 @@ export const SuggestedActionsPanel = memo(function SuggestedActionsPanel({
     >
       <div className="flex items-center justify-between gap-3 py-2 text-[0.75rem] text-ink-faint">
         <span>Suggested next steps</span>
-        <span className="hidden font-mono sm:inline">press 1-3 or click</span>
+        <span className="hidden font-mono sm:inline">{shortcutHint}</span>
       </div>
       <div className="border-t border-rule">
         {visibleActions.map((action, index) => {

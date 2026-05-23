@@ -3143,6 +3143,14 @@ export default function ChatView({
       }));
 
       if (action.kind === "compose") {
+        clearScheduledPromptPersist();
+        if (activeThread) {
+          clearComposerDraftContent(activeThread.id);
+          clearComposerDatasetMentions(activeThread.id);
+        }
+        setComposerHighlightedItemId(null);
+        setComposerCursor(0);
+        setComposerTrigger(null);
         scheduleComposerFocus();
         return;
       }
@@ -3235,6 +3243,9 @@ export default function ChatView({
       activeSuggestedActionsMessage,
       activeThread,
       beginLocalDispatch,
+      clearComposerDatasetMentions,
+      clearComposerDraftContent,
+      clearScheduledPromptPersist,
       forceStickToBottom,
       interactionMode,
       isConnecting,
