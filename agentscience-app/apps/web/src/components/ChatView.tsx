@@ -227,6 +227,7 @@ import {
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useServerAvailableEditors, useServerConfig } from "~/rpc/serverState";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
+import { AGENT_CONFIG_BY_MODE, isSpecialistAgentMode } from "../agentRegistry";
 
 const PlanSidebar = lazy(() => import("./PlanSidebar"));
 const ThreadTerminalDrawer = lazy(() => import("./ThreadTerminalDrawer"));
@@ -300,18 +301,9 @@ function derivePaperWorkStatusLabel(entries: ReturnType<typeof deriveWorkLogEntr
 }
 
 function initialAgentComposerPlaceholder(workflowMode: string): string | null {
-  switch (workflowMode) {
-    case "literature-review":
-      return "Describe what you want to review, or paste papers above";
-    case "experimental-design":
-      return "Describe the question you want to test, or attach existing work above";
-    case "data-analysis":
-      return "Describe what you want to find in the data, or connect a dataset above";
-    case "grant-writing":
-      return "Describe what you're applying for, or add the funding call above";
-    default:
-      return null;
-  }
+  return isSpecialistAgentMode(workflowMode)
+    ? AGENT_CONFIG_BY_MODE[workflowMode].composerPlaceholder
+    : null;
 }
 
 const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
