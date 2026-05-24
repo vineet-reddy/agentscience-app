@@ -35,11 +35,15 @@ import { formatRelativeTimeLabel, formatWorkingDuration } from "../timestampForm
 import { useUiStateStore } from "../uiStateStore";
 import { nextWorkspaceSlug } from "../workspaceSlugs";
 import {
-  AGENT_WORKFLOW_MODES,
-  PAPER_WORKFLOW_MODE_BY_ID,
   type PaperWorkflowMode,
-  type PaperWorkflowModeOption,
 } from "../paperWorkflowModes";
+import {
+  AGENT_CONFIGS,
+  AGENT_CONFIG_BY_MODE,
+  AgentGlyph,
+  isSpecialistAgentMode,
+  type AgentConfig,
+} from "../agentRegistry";
 import {
   buildSidebarThreadEntries,
   type SidebarThreadEntryRecord,
@@ -118,12 +122,12 @@ function deriveDraftTitle(prompt: string | undefined, kind: DraftThreadKind): st
 
 function SidebarPaperModePill({
   collapsed,
-  mode,
+  agent,
   onChangeMode,
   detailLabel,
 }: {
   collapsed: boolean;
-  mode: PaperWorkflowModeOption;
+  agent: AgentConfig;
   onChangeMode: (mode: PaperWorkflowMode) => void;
   detailLabel: string;
 }) {
@@ -134,12 +138,12 @@ function SidebarPaperModePill({
           "mt-1 inline-flex items-center rounded-[8px] border border-sidebar-border bg-sidebar px-2 text-left text-sidebar-foreground transition-colors duration-150 ease-linear hover:bg-sidebar-accent",
           collapsed ? "size-8 justify-center p-0" : "h-8 w-full justify-between gap-2",
         )}
-        title={`${mode.label} · ${detailLabel}`}
+        title={`${agent.name} · ${detailLabel}`}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span aria-hidden className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)} />
+          <AgentGlyph agent={agent} active className="size-4" />
           {!collapsed ? (
-            <span className="min-w-0 truncate text-[0.8125rem] font-medium">{mode.label}</span>
+            <span className="min-w-0 truncate text-[0.8125rem] font-medium">{agent.name}</span>
           ) : null}
         </span>
         {!collapsed ? (
@@ -155,11 +159,8 @@ function SidebarPaperModePill({
         <div className="space-y-3">
           <div>
             <div className="flex items-center gap-2 text-[0.875rem] font-medium text-ink">
-              <span
-                aria-hidden
-                className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)}
-              />
-              {mode.label}
+              <AgentGlyph agent={agent} active className="size-4" />
+              {agent.name}
             </div>
             <div className="mt-1 text-[0.75rem] text-ink-light">{detailLabel}</div>
           </div>
@@ -168,22 +169,19 @@ function SidebarPaperModePill({
               Change mode
             </div>
             <div className="space-y-0.5">
-              {AGENT_WORKFLOW_MODES.map((option) => (
+              {AGENT_CONFIGS.map((option) => (
                 <button
                   key={option.id}
                   type="button"
-                  aria-pressed={option.id === mode.id}
+                  aria-pressed={option.id === agent.id}
                   onClick={() => onChangeMode(option.id)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-[0.8125rem] text-ink-light transition-colors duration-150 ease-linear hover:bg-accent hover:text-ink",
-                    option.id === mode.id && "bg-accent text-ink",
+                    "group flex w-full items-center gap-2 rounded-[4px] px-2 py-1.5 text-left text-[0.8125rem] text-ink-light transition-colors duration-150 ease-linear hover:bg-accent hover:text-ink",
+                    option.id === agent.id && "bg-accent text-ink",
                   )}
                 >
-                  <span
-                    aria-hidden
-                    className={cn("size-2 shrink-0 rounded-full", option.dotClassName)}
-                  />
-                  <span className="truncate">{option.label}</span>
+                  <AgentGlyph agent={option} active={option.id === agent.id} className="size-4" />
+                  <span className="truncate">{option.name}</span>
                 </button>
               ))}
             </div>
@@ -319,8 +317,10 @@ export default function Sidebar() {
       : routeThreadId && activeDraftKind === "agent"
         ? (paperWorkflowModeByThreadId[routeThreadId] ?? null)
         : null;
-  const activePaperMode = activePaperModeId ? PAPER_WORKFLOW_MODE_BY_ID[activePaperModeId] : null;
-  const activeModeDetail = activePaperMode?.description ?? "Research agent";
+  const activeAgent = isSpecialistAgentMode(activePaperModeId)
+    ? AGENT_CONFIG_BY_MODE[activePaperModeId]
+    : null;
+  const activeModeDetail = activeAgent?.chooserDesc ?? "Research agent";
 
   const changeActivePaperWorkflowMode = async (mode: PaperWorkflowMode) => {
     if (!routeThreadId) return;
@@ -1193,10 +1193,10 @@ export default function Sidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        {activePaperMode && routeThreadId ? (
+        {activeAgent && routeThreadId ? (
           <SidebarPaperModePill
             collapsed={sidebar.state === "collapsed" && !sidebar.isMobile}
-            mode={activePaperMode}
+            agent={activeAgent}
             detailLabel={activeModeDetail}
             onChangeMode={changeActivePaperWorkflowMode}
           />

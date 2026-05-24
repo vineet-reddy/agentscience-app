@@ -361,8 +361,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPendingApprovals) {
     return {
       label: "Pending Approval",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      colorClass: "text-ink-light",
+      dotClass: "bg-ink-faint",
       pulse: false,
     };
   }
@@ -370,8 +370,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPendingUserInput) {
     return {
       label: "Awaiting Input",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      colorClass: "text-ink-light",
+      dotClass: "bg-ink-faint",
       pulse: false,
     };
   }
@@ -379,8 +379,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "running") {
     return {
       label: "Working",
-      colorClass: "text-orange-600 dark:text-orange-300/80",
-      dotClass: "bg-orange-500 dark:bg-orange-300/80",
+      colorClass: "text-ink-light",
+      dotClass: "bg-ink-faint",
       pulse: true,
       // Present-tense state: render a live duration ("Working · 6m 28s")
       // rather than stamping a misleading "Xm ago" on something still
@@ -394,8 +394,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "connecting") {
     return {
       label: "Connecting",
-      colorClass: "text-orange-600 dark:text-orange-300/80",
-      dotClass: "bg-orange-500 dark:bg-orange-300/80",
+      colorClass: "text-ink-light",
+      dotClass: "bg-ink-faint",
       pulse: true,
     };
   }
@@ -409,8 +409,8 @@ export function resolveThreadStatusPill(input: {
   if (hasPlanReadyPrompt) {
     return {
       label: "Plan Ready",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      colorClass: "text-ink-light",
+      dotClass: "bg-ink-faint",
       pulse: false,
     };
   }
@@ -421,8 +421,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPublishedPaper) {
     return {
       label: "Completed",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      colorClass: "text-ink-light",
+      dotClass: "bg-ink-faint",
       pulse: false,
     };
   }
@@ -433,8 +433,8 @@ export function resolveThreadStatusPill(input: {
   ) {
     return {
       label: "Awaiting Input",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      colorClass: "text-ink-light",
+      dotClass: "bg-ink-faint",
       pulse: false,
     };
   }

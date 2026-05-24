@@ -620,14 +620,14 @@ describe("resolveProjectStatusIndicator", () => {
       resolveProjectStatusIndicator([
         {
           label: "Completed",
-          colorClass: "text-emerald-600",
-          dotClass: "bg-emerald-500",
+          colorClass: "text-ink-light",
+          dotClass: "bg-ink-faint",
           pulse: false,
         },
         {
           label: "Pending Approval",
-          colorClass: "text-violet-600",
-          dotClass: "bg-violet-500",
+          colorClass: "text-ink-light",
+          dotClass: "bg-ink-faint",
           pulse: false,
         },
         {
@@ -638,8 +638,8 @@ describe("resolveProjectStatusIndicator", () => {
         },
         {
           label: "Working",
-          colorClass: "text-orange-600",
-          dotClass: "bg-orange-500",
+          colorClass: "text-ink-light",
+          dotClass: "bg-ink-faint",
           pulse: true,
         },
       ]),
@@ -651,18 +651,18 @@ describe("resolveProjectStatusIndicator", () => {
       resolveProjectStatusIndicator([
         {
           label: "Completed",
-          colorClass: "text-emerald-600",
-          dotClass: "bg-emerald-500",
+          colorClass: "text-ink-light",
+          dotClass: "bg-ink-faint",
           pulse: false,
         },
         {
           label: "Plan Ready",
-          colorClass: "text-violet-600",
-          dotClass: "bg-violet-500",
+          colorClass: "text-ink-light",
+          dotClass: "bg-ink-faint",
           pulse: false,
         },
       ]),
-    ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
+    ).toMatchObject({ label: "Plan Ready", dotClass: "bg-ink-faint" });
   });
 });
 

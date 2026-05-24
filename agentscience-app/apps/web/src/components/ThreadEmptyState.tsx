@@ -15,7 +15,9 @@ import type { ThreadId } from "@agentscience/contracts";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeftIcon,
+  ArrowRightIcon,
   BookOpenTextIcon,
+  Code2Icon,
   CheckIcon,
   ClipboardIcon,
   DatabaseIcon,
@@ -44,7 +46,15 @@ import {
 } from "../lib/datasetRegistry";
 import { useStore } from "../store";
 import { cn } from "../lib/utils";
-import { AGENT_WORKFLOW_MODES, type PaperWorkflowMode } from "../paperWorkflowModes";
+import type { PaperWorkflowMode } from "../paperWorkflowModes";
+import {
+  AGENT_CONFIGS,
+  AGENT_CONFIG_BY_MODE,
+  AgentGlyph,
+  isSpecialistAgentMode,
+  type AgentConfig,
+  type SpecialistAgentMode,
+} from "../agentRegistry";
 import { useUiStateStore } from "../uiStateStore";
 import { readNativeApi } from "../nativeApi";
 import { toastManager } from "./ui/toast";
@@ -412,12 +422,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
   };
 
   if (isDraftThread && draftThreadKind === "agent") {
-    if (
-      selectedPaperMode === "literature-review" ||
-      selectedPaperMode === "experimental-design" ||
-      selectedPaperMode === "data-analysis" ||
-      selectedPaperMode === "grant-writing"
-    ) {
+    if (isSpecialistAgentMode(selectedPaperMode)) {
       return (
         <AgentWorkflowStartSurface
           threadId={threadId}
@@ -473,7 +478,7 @@ export function ThreadEmptyState({ threadId }: ThreadEmptyStateProps) {
                 setPrompt(threadId, seed);
                 requestComposerFocus({ threadId, seedPrompt: seed });
               }}
-              className="inline-flex items-center rounded-[4px] border border-ink bg-ink px-4 py-2 text-[0.8125rem] font-medium text-snow-white transition-colors duration-150 ease-linear hover:bg-[#333]"
+              className="inline-flex items-center rounded-[4px] border border-ink bg-ink px-4 py-2 text-[0.8125rem] font-medium text-snow-white transition-colors duration-150 ease-linear hover:bg-ink/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               Help me narrow down
             </button>
@@ -607,7 +612,7 @@ function NewPaperDraftEmptyState() {
 
 interface AgentWorkflowStartSurfaceProps {
   threadId: ThreadId;
-  mode: Exclude<PaperWorkflowMode, "general-agent" | "open">;
+  mode: SpecialistAgentMode;
   onSeedPrompt: (seed: string) => void;
   onSubmitPrompt: (seed: string) => void;
   onPickFiles: () => Promise<ChatFileAttachment[]>;
@@ -616,46 +621,6 @@ interface AgentWorkflowStartSurfaceProps {
   onBrowseDatasets: () => void;
   onBackToAgentPicker: () => void;
 }
-
-const AGENT_START_COPY: Record<
-  AgentWorkflowStartSurfaceProps["mode"],
-  {
-    title: string;
-    subtitle: string;
-    composerHint: string;
-    startLabel: string;
-    startPrompt: string;
-  }
-> = {
-  "literature-review": {
-    title: "Survey what's known",
-    subtitle: "Start from papers you already trust, then ask the agent to map the field.",
-    composerHint: "Describe what you want reviewed",
-    startLabel: "Start review",
-    startPrompt: "Start the literature review using the intake context and attached files.",
-  },
-  "experimental-design": {
-    title: "Design the experiment",
-    subtitle: "Point the agent at prior work, protocols, and constraints before it designs.",
-    composerHint: "Describe the question you want to test",
-    startLabel: "Start design",
-    startPrompt: "Design the experiment using the intake context and attached files.",
-  },
-  "data-analysis": {
-    title: "Analyze your data",
-    subtitle: "Connect a dataset, code, or prior analysis so the agent starts from evidence.",
-    composerHint: "Describe what you want to find in the data",
-    startLabel: "Start analysis",
-    startPrompt: "Analyze the data using the intake context and attached files.",
-  },
-  "grant-writing": {
-    title: "Write the grant",
-    subtitle: "Start with the call or mechanism so aims, page limits, and review criteria line up.",
-    composerHint: "Describe what you're applying for",
-    startLabel: "Start grant",
-    startPrompt: "Write the grant using the intake context and attached files.",
-  },
-};
 
 function AgentWorkflowStartSurface({
   threadId,
@@ -668,47 +633,48 @@ function AgentWorkflowStartSurface({
   onBrowseDatasets,
   onBackToAgentPicker,
 }: AgentWorkflowStartSurfaceProps) {
-  const modeOption = AGENT_WORKFLOW_MODES.find((entry) => entry.id === mode);
-  const copy = AGENT_START_COPY[mode];
+  const agent = AGENT_CONFIG_BY_MODE[mode];
 
   return (
-    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-40 pt-10 sm:pb-44 sm:pt-14">
-      <div className="w-full max-w-[720px]">
-        <div className="mb-8 flex">
+    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-40 pt-12 sm:px-10 sm:pb-44 sm:pt-16">
+      <div className="w-full max-w-[820px]">
+        <header className="relative">
           <button
             type="button"
             onClick={onBackToAgentPicker}
-            className="inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-ink-light transition-colors duration-150 hover:text-ink"
+            className="group mb-6 inline-flex size-8 items-center justify-center rounded-[4px] border border-rule bg-snow-white text-ink-light transition-colors duration-150 hover:bg-snow-white-dark hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:absolute sm:-left-12 sm:top-0 sm:mb-0"
+            aria-label="Back to all research agents"
+            title="Back to all agents"
           >
-            <ArrowLeftIcon className="size-3.5" />
-            All agents
-          </button>
-        </div>
-        <header className="text-center">
-          <div className="flex items-center justify-center gap-2 text-[0.8125rem] font-medium text-ink-light">
-            <span
-              aria-hidden
-              className={cn("size-2 shrink-0 rounded-full", modeOption?.dotClassName)}
+            <ArrowLeftIcon
+              aria-hidden="true"
+              className="size-4 text-ink-faint transition-colors duration-150 group-hover:text-brand"
+              strokeWidth={1.7}
             />
-            <span>{modeOption?.label ?? copy.title}</span>
+          </button>
+          <div className="inline-flex items-center gap-2 text-[0.875rem] font-medium text-ink-light">
+            <AgentGlyph agent={agent} className="size-4" />
+            <span>{agent.name}</span>
           </div>
-          <h1 className="mt-5 font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
-            {copy.title}
+          <h1 className="mt-4 font-display text-[1.875rem] leading-[1.15] text-ink">
+            {agent.title}
           </h1>
-          <p className="mx-auto mt-3 max-w-[600px] text-[0.9375rem] leading-relaxed text-ink-light">
-            {copy.subtitle}
+          <p className="mt-3 max-w-[560px] text-[1rem] leading-relaxed text-ink-light">
+            {agent.lede}
           </p>
         </header>
 
-        <div className="mt-10 border-y border-rule py-5">
+        <div className="mt-10 border-y border-rule py-8">
           {mode === "literature-review" ? (
             <LiteratureReviewIntake
+              agent={agent}
               threadId={threadId}
               onSeedPrompt={onSeedPrompt}
               onPickFiles={onPickFiles}
             />
           ) : mode === "experimental-design" ? (
             <ExperimentalDesignIntake
+              agent={agent}
               threadId={threadId}
               onSeedPrompt={onSeedPrompt}
               onPickFiles={onPickFiles}
@@ -717,6 +683,7 @@ function AgentWorkflowStartSurface({
             />
           ) : mode === "data-analysis" ? (
             <DataAnalysisIntake
+              agent={agent}
               threadId={threadId}
               onSeedPrompt={onSeedPrompt}
               onPickFiles={onPickFiles}
@@ -724,6 +691,7 @@ function AgentWorkflowStartSurface({
             />
           ) : (
             <GrantWritingIntake
+              agent={agent}
               threadId={threadId}
               onSeedPrompt={onSeedPrompt}
               onPickFiles={onPickFiles}
@@ -731,26 +699,31 @@ function AgentWorkflowStartSurface({
           )}
         </div>
 
-        <div className="mt-5 flex justify-center">
-          <Button size="sm" onClick={() => onSubmitPrompt(copy.startPrompt)}>
+        <div className="mt-8 flex flex-wrap items-center gap-4">
+          <Button
+            size="sm"
+            className="rounded-[4px] hover:bg-ink/90"
+            onClick={() => onSubmitPrompt(agent.startPrompt)}
+          >
             <CheckIcon className="size-3.5" />
-            {copy.startLabel}
+            {agent.startLabel}
           </Button>
+          <p className="text-[0.875rem] text-ink-faint">
+            or just describe it in the chat below
+          </p>
         </div>
-
-        <p className="mt-5 text-center text-[0.8125rem] text-ink-faint">
-          Or use the composer below to {copy.composerHint.toLowerCase()}.
-        </p>
       </div>
     </div>
   );
 }
 
 function LiteratureReviewIntake({
+  agent,
   threadId,
   onSeedPrompt,
   onPickFiles,
 }: {
+  agent: AgentConfig;
   threadId: ThreadId;
   onSeedPrompt: (seed: string) => void;
   onPickFiles: () => Promise<ChatFileAttachment[]>;
@@ -758,6 +731,7 @@ function LiteratureReviewIntake({
   const [sources, setSources] = useState("");
   const normalizedSources = sources.trim();
   const upsertIntakeEntry = useAgentIntakeStore((store) => store.upsertEntry);
+  const block = agent.sourceBlock.kind === "paste" ? agent.sourceBlock : null;
 
   useEffect(() => {
     upsertIntakeEntry(threadId, "literature-review", {
@@ -768,17 +742,21 @@ function LiteratureReviewIntake({
   }, [sources, threadId, upsertIntakeEntry]);
 
   return (
-    <div className="mx-auto max-w-[640px]">
+    <div>
       <div className="flex items-center justify-between gap-4">
-        <h2 className="text-[0.9375rem] font-medium text-ink">Papers you already have</h2>
-        <p className="text-[0.8125rem] text-ink-light">PMIDs, DOIs, URLs, or citations</p>
+        <h2 className="text-[0.9375rem] font-medium text-ink">
+          {block?.fieldHead ?? "Papers you already have"}
+        </h2>
+        <p className="text-right text-[0.8125rem] text-ink-faint">
+          {block?.hint ?? "PMIDs, DOIs, URLs, or citations"}
+        </p>
       </div>
       <textarea
         value={sources}
         onChange={(event) => setSources(event.target.value)}
         rows={5}
-        placeholder={"32842672\n10.1038/s41586-023-06887-8\nhttps://pubmed.ncbi.nlm.nih.gov/35414745/"}
-        className="mt-3 min-h-32 w-full resize-y rounded-[8px] border border-rule bg-card px-4 py-3 font-mono text-[0.875rem] leading-relaxed text-ink outline-none transition-colors duration-150 placeholder:text-ink-faint focus:border-ink"
+        placeholder={block?.placeholder}
+        className="mt-3 min-h-[104px] w-full resize-y rounded-[4px] border border-rule bg-snow-white px-5 py-4 font-mono text-[0.9375rem] leading-relaxed text-ink outline-none transition-colors duration-150 placeholder:text-ink-faint focus:border-brand"
       />
       <AgentActionRow
         actions={[
@@ -816,12 +794,14 @@ function LiteratureReviewIntake({
 }
 
 function ExperimentalDesignIntake({
+  agent,
   threadId,
   onSeedPrompt,
   onPickFiles,
   onPickFolder,
   onImportDroppedFiles,
 }: {
+  agent: AgentConfig;
   threadId: ThreadId;
   onSeedPrompt: (seed: string) => void;
   onPickFiles: () => Promise<ChatFileAttachment[]>;
@@ -830,9 +810,10 @@ function ExperimentalDesignIntake({
 }) {
   const [dragActive, setDragActive] = useState(false);
   const upsertIntakeEntry = useAgentIntakeStore((store) => store.upsertEntry);
+  const block = agent.sourceBlock.kind === "dropzone" ? agent.sourceBlock : null;
 
   return (
-    <div className="mx-auto max-w-[640px]">
+    <div>
       <button
         type="button"
         onClick={async () => {
@@ -861,16 +842,17 @@ function ExperimentalDesignIntake({
           void onImportDroppedFiles(Array.from(event.dataTransfer.files));
         }}
         className={cn(
-          "flex min-h-44 w-full flex-col items-center justify-center rounded-[8px] border border-dashed px-8 py-8 text-center transition-colors duration-150",
-          dragActive ? "border-ink bg-secondary" : "border-rule bg-card hover:bg-secondary/70",
+          "flex min-h-[156px] w-full flex-col items-center justify-center rounded-[4px] border border-dashed bg-snow-white px-8 py-8 text-center transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+          dragActive ? "border-ink-faint" : "border-rule hover:border-ink-faint",
         )}
       >
-        <FolderOpenIcon className="size-8 text-ink-light" />
+        <FolderOpenIcon className="size-8 text-ink-faint" strokeWidth={1.6} />
         <span className="mt-4 text-[0.9375rem] font-medium text-ink">
-          Drop existing work here
+          {block?.dropTitle ?? "Drop existing work here"}
         </span>
         <span className="mt-2 max-w-[460px] text-[0.875rem] leading-relaxed text-ink-light">
-          Proposals, drafts, protocols, pilot data, related papers, or click to browse.
+          {block?.dropSub ??
+            "Proposals, drafts, protocols, pilot data, or related papers. Or click to browse."}
         </span>
       </button>
       <AgentActionRow
@@ -905,11 +887,13 @@ function ExperimentalDesignIntake({
 }
 
 function DataAnalysisIntake({
+  agent,
   threadId,
   onSeedPrompt,
   onPickFiles,
   onBrowseDatasets,
 }: {
+  agent: AgentConfig;
   threadId: ThreadId;
   onSeedPrompt: (seed: string) => void;
   onPickFiles: () => Promise<ChatFileAttachment[]>;
@@ -918,8 +902,9 @@ function DataAnalysisIntake({
   const [dataset, setDataset] = useState("");
   const [datasetItems, setDatasetItems] = useState<string[]>([]);
   const normalizedDataset = dataset.trim();
-  const recentDatasets = ["NHANES 2017-2018", "MIMIC-IV", "pilot_data.csv"];
   const upsertIntakeEntry = useAgentIntakeStore((store) => store.upsertEntry);
+  const block = agent.sourceBlock.kind === "searchPick" ? agent.sourceBlock : null;
+  const recentDatasets = block?.picks.chips ?? ["NHANES 2017-2018", "MIMIC-IV", "pilot_data.csv"];
 
   useEffect(() => {
     const values = [...datasetItems, dataset].map((entry) => entry.trim()).filter(Boolean);
@@ -942,58 +927,60 @@ function DataAnalysisIntake({
   };
 
   return (
-    <div className="mx-auto max-w-[640px]">
+    <div>
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-[0.9375rem] font-medium text-ink">Your dataset</h2>
+        <h2 className="text-[0.9375rem] font-medium text-ink">
+          {block?.fieldHead ?? "Your dataset"}
+        </h2>
         <button
           type="button"
           onClick={onBrowseDatasets}
-          className="text-[0.8125rem] text-ink-light transition-colors hover:text-ink"
+          className="text-[0.875rem] text-ink-light transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
-          Browse registry
+          {block?.browseLink ?? "Browse registry"}
         </button>
       </div>
-      <div className="mt-3 flex items-center gap-2 rounded-[8px] border border-rule bg-card px-3 py-2 focus-within:border-ink">
-        <DatabaseIcon className="size-4 shrink-0 text-ink-light" />
+      <div className="mt-3 flex h-11 items-center rounded-[4px] border border-rule bg-snow-white pl-4 transition-colors duration-150 focus-within:border-brand">
+        <DatabaseIcon className="mr-3 size-4 shrink-0 text-ink-faint" strokeWidth={1.6} />
         <input
           type="text"
           value={dataset}
           onChange={(event) => setDataset(event.target.value)}
-          placeholder="Search saved datasets, paste a URL, or name a local file"
+          placeholder={block?.placeholder ?? "Search saved datasets, paste a URL, or name a local file"}
           className="min-w-0 flex-1 bg-transparent text-[0.9375rem] text-ink outline-none placeholder:text-ink-faint"
         />
-        <Button
-          size="sm"
-          variant="outline"
+        <button
+          type="button"
           disabled={normalizedDataset.length === 0}
           onClick={() => addDatasetItem(normalizedDataset)}
+          className="h-full border-l border-rule px-5 text-[0.8125rem] font-medium text-ink transition-colors duration-150 hover:bg-snow-white-dark disabled:pointer-events-none disabled:opacity-45"
         >
-          Add
-        </Button>
+          {block?.addLabel ?? "Add"}
+        </button>
       </div>
       {datasetItems.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {datasetItems.map((entry) => (
             <span
               key={entry}
-              className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2.5 py-[3px] text-[0.8125rem] text-ink"
+              className="inline-flex items-center gap-1.5 rounded-[4px] border border-rule bg-background px-3 py-1.5 text-[0.8125rem] font-medium text-ink"
             >
-              <DatabaseIcon className="size-3" />
+              <DatabaseIcon className="size-3.5 text-ink-faint" strokeWidth={1.6} />
               {entry}
             </span>
           ))}
         </div>
       ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-[0.8125rem] text-ink-light">Recent</span>
+        <span className="text-[0.8125rem] text-ink-faint">{block?.picks.label ?? "Recent"}</span>
         {recentDatasets.map((entry) => (
           <button
             key={entry}
             type="button"
             onClick={() => addDatasetItem(entry)}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2.5 py-[3px] text-[0.8125rem] text-ink transition-colors hover:border-ink-faint"
+            className="inline-flex items-center gap-1.5 rounded-[4px] border border-rule bg-background px-3 py-1.5 text-[0.8125rem] font-medium text-ink transition-colors hover:bg-snow-white-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
-            <DatabaseIcon className="size-3" />
+            <DatabaseIcon className="size-3.5 text-ink-faint" strokeWidth={1.6} />
             {entry}
           </button>
         ))}
@@ -1002,7 +989,7 @@ function DataAnalysisIntake({
         actions={[
           {
             label: "Bring in code",
-            icon: FileTextIcon,
+            icon: Code2Icon,
             onClick: async () => {
               await onPickFiles();
             },
@@ -1024,18 +1011,21 @@ function DataAnalysisIntake({
 }
 
 function GrantWritingIntake({
+  agent,
   threadId,
   onSeedPrompt,
   onPickFiles,
 }: {
+  agent: AgentConfig;
   threadId: ThreadId;
   onSeedPrompt: (seed: string) => void;
   onPickFiles: () => Promise<ChatFileAttachment[]>;
 }) {
   const [target, setTarget] = useState("");
   const normalizedTarget = target.trim();
-  const commonTargets = ["NIH R01", "NIH R21", "NSF CAREER", "Sloan"];
   const upsertIntakeEntry = useAgentIntakeStore((store) => store.upsertEntry);
+  const block = agent.sourceBlock.kind === "searchPick" ? agent.sourceBlock : null;
+  const commonTargets = block?.picks.chips ?? ["NIH R01", "NIH R21", "NSF CAREER", "Sloan"];
 
   useEffect(() => {
     upsertIntakeEntry(threadId, "grant-writing", {
@@ -1046,43 +1036,45 @@ function GrantWritingIntake({
   }, [target, threadId, upsertIntakeEntry]);
 
   return (
-    <div className="mx-auto max-w-[640px]">
+    <div>
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-[0.9375rem] font-medium text-ink">Funding target</h2>
+        <h2 className="text-[0.9375rem] font-medium text-ink">
+          {block?.fieldHead ?? "Funding target"}
+        </h2>
         <button
           type="button"
           onClick={() => onSeedPrompt("Find relevant funding mechanisms for this project:\n")}
-          className="text-[0.8125rem] text-ink-light transition-colors hover:text-ink"
+          className="text-[0.875rem] text-ink-light transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
-          Browse mechanisms
+          {block?.browseLink ?? "Browse mechanisms"}
         </button>
       </div>
-      <div className="mt-3 flex items-center gap-2 rounded-[8px] border border-rule bg-card px-3 py-2 focus-within:border-ink">
-        <LinkIcon className="size-4 shrink-0 text-ink-light" />
+      <div className="mt-3 flex h-11 items-center rounded-[4px] border border-rule bg-snow-white pl-4 transition-colors duration-150 focus-within:border-brand">
+        <LinkIcon className="mr-3 size-4 shrink-0 text-ink-faint" strokeWidth={1.6} />
         <input
           type="text"
           value={target}
           onChange={(event) => setTarget(event.target.value)}
-          placeholder="Search NIH/NSF mechanisms, paste RFP URL, or name the call"
+          placeholder={block?.placeholder ?? "Search NIH/NSF mechanisms, paste an RFP URL, or name the call"}
           className="min-w-0 flex-1 bg-transparent text-[0.9375rem] text-ink outline-none placeholder:text-ink-faint"
         />
-        <Button
-          size="sm"
-          variant="outline"
+        <button
+          type="button"
           disabled={normalizedTarget.length === 0}
           onClick={() => onSeedPrompt("Describe the project or aims for this funding target:\n")}
+          className="h-full border-l border-rule px-5 text-[0.8125rem] font-medium text-ink transition-colors duration-150 hover:bg-snow-white-dark disabled:pointer-events-none disabled:opacity-45"
         >
-          Add
-        </Button>
+          {block?.addLabel ?? "Add"}
+        </button>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-[0.8125rem] text-ink-light">Common</span>
+        <span className="text-[0.8125rem] text-ink-faint">{block?.picks.label ?? "Common"}</span>
         {commonTargets.map((entry) => (
           <button
             key={entry}
             type="button"
             onClick={() => setTarget(entry)}
-            className="rounded-full border border-border bg-secondary px-2.5 py-[3px] text-[0.8125rem] text-ink transition-colors hover:border-ink-faint"
+            className="rounded-[4px] border border-rule bg-background px-3 py-1.5 text-[0.8125rem] font-medium text-ink transition-colors hover:bg-snow-white-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             {entry}
           </button>
@@ -1127,7 +1119,7 @@ function AgentActionRow({
   }>;
 }) {
   return (
-    <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[0.8125rem]">
+    <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-[0.875rem]">
       {actions.map((action) => {
         const Icon = action.icon;
         return (
@@ -1137,13 +1129,16 @@ function AgentActionRow({
             disabled={action.disabled}
             onClick={action.onClick}
             className={cn(
-              "inline-flex items-center gap-1.5 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45",
+              "group inline-flex items-center gap-2 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
               action.primary
-                ? "font-medium text-ink hover:text-accent-color"
+                ? "font-medium text-ink hover:text-brand"
                 : "text-ink-light hover:text-ink",
             )}
           >
-            <Icon className="size-3.5" />
+            <Icon
+              className="size-4 text-ink-faint transition-colors duration-150 group-hover:text-brand"
+              strokeWidth={1.6}
+            />
             {action.label}
           </button>
         );
@@ -1162,54 +1157,53 @@ function NewAgentModePicker({
   onSkip: () => void;
 }) {
   return (
-    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-48 pt-14 sm:pb-52 sm:pt-20">
-      <div className="w-full max-w-[680px]">
-        <header className="text-center">
-          <h1 className="font-display text-[2.25rem] leading-[1.08] text-ink sm:text-[3rem]">
+    <div className="flex h-full w-full justify-center overflow-y-auto px-6 pb-48 pt-12 sm:px-10 sm:pb-52 sm:pt-20">
+      <div className="w-full max-w-[820px]">
+        <header>
+          <h1 className="font-display text-[1.875rem] leading-[1.15] text-ink">
             Choose a research agent
           </h1>
-          <p className="mx-auto mt-3 max-w-[520px] text-[0.9375rem] leading-relaxed text-ink-light">
+          <p className="mt-3 max-w-[620px] text-[1rem] leading-relaxed text-ink-light">
             Pick the specialist agent for your research task, or keep it open-ended.
           </p>
         </header>
 
-        <div className="mt-10 grid gap-3 border-y border-rule py-4 sm:grid-cols-2">
-          {AGENT_WORKFLOW_MODES.map((mode) => {
-            const selected = selectedMode === mode.id;
+        <div className="mt-10 border-y border-rule">
+          {AGENT_CONFIGS.map((agent) => {
+            const selected = selectedMode === agent.id;
             return (
               <button
-                key={mode.id}
+                key={agent.id}
                 type="button"
                 aria-pressed={selected}
-                onClick={() => onSelectMode(selected ? null : mode.id)}
+                onClick={() => onSelectMode(selected ? null : agent.id)}
                 className={cn(
-                  "group flex min-h-28 flex-col items-start justify-start rounded-[8px] border border-rule bg-background px-4 py-4 text-left transition-colors duration-150 ease-linear",
-                  "hover:border-ink-faint hover:bg-snow-white",
-                  selected && "border-ink bg-snow-white",
+                  "group flex w-full items-center gap-5 border-b border-rule px-2 py-5 text-left transition-colors duration-150 ease-linear last:border-b-0 hover:bg-snow-white focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand",
+                  selected && "bg-snow-white",
                 )}
               >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span
-                    aria-hidden
-                    className={cn("size-2.5 shrink-0 rounded-full", mode.dotClassName)}
-                  />
-                  <span className="truncate text-[0.9375rem] font-medium text-ink">
-                    {mode.label}
-                  </span>
+                <AgentGlyph agent={agent} active={selected} className="size-5" />
+                <span className="w-48 shrink-0 truncate text-[1rem] font-medium text-ink transition-colors duration-150 group-hover:text-brand">
+                  {agent.name}
                 </span>
-                <span className="mt-3 text-[0.875rem] leading-relaxed text-ink-light">
-                  {mode.description}
+                <span className="min-w-0 flex-1 text-[0.9375rem] text-ink-light">
+                  {agent.chooserDesc}
                 </span>
+                <ArrowRightIcon
+                  aria-hidden="true"
+                  className="size-4 shrink-0 -translate-x-1 text-ink-faint opacity-0 transition-all duration-150 group-hover:translate-x-0 group-hover:text-brand group-hover:opacity-100"
+                  strokeWidth={1.7}
+                />
               </button>
             );
           })}
         </div>
 
-        <div className="mt-6 text-center">
+        <div className="mt-7">
           <button
             type="button"
             onClick={onSkip}
-            className="inline-flex items-center rounded-[4px] border border-rule bg-background px-4 py-2 text-[0.8125rem] font-medium text-ink transition-colors duration-150 ease-linear hover:bg-snow-white-dark"
+            className="text-[0.875rem] text-ink-light transition-colors duration-150 ease-linear hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
             Skip and chat about anything else
           </button>
