@@ -49,34 +49,26 @@ export interface WorkflowAgentInput {
 
 export type WorkflowAutonomyMode = "manual" | "auto";
 
-const MAX_RESEARCH_DEPTH_INSTRUCTIONS = `Research depth: Max.
+export const MAX_RESEARCH_DEPTH_INSTRUCTIONS = `Research depth: Max.
 
-This turn must run a branching frontier-search protocol before answering. Do not treat Max as
-"spend more time"; treat it as a larger, explicitly expanded search space.
+The goal is a genuinely new scientific contribution: something an expert in this field would not
+already have from reading the most-cited recent papers.
 
-Required protocol:
-1. Decompose the request into subquestions, assumptions, expert-known baselines, and what would
-   count as a non-obvious answer.
-2. Run seed search across the most credible sources available for the field.
-3. Build an internal Frontier Map covering papers, authors, methods, claims, datasets or
-   benchmarks, objections, adjacent fields, and open problems.
-4. Expand the best frontier nodes for 2-3 rounds where warranted: forward citations, backward
-   citations, recent work by the same author groups, competing methods, failure or critique papers,
-   and adjacent-field uses.
-5. Use parallel scouts/subagents when the runtime exposes them and the branches are separable.
-   Keep each scout bounded and synthesize their outputs yourself.
-6. Run an adversarial critic pass before the final answer: ask whether the answer is just a
-   competent summary, whether an expert would find it shallow, whether citations support the
-   claims, and what the sharpest original direction is.
+Before proposing, scan the field widely enough to know what has already been claimed, by whom, and
+with what evidence. The scan exists to define what does not yet exist; it is not the answer. Search
+adversarially: try to kill candidate ideas, not collect them.
 
-Depth budget, adaptively applied:
-- Simple factual questions do not need an enormous run; answer them directly.
-- Frontier research questions should usually inspect 30-100 high-signal sources when available.
-- Always include contradiction/negative-evidence search for scientific or mathematical claims.
+The default failure mode is filtering the existing idea set and keeping the survivors. If your
+output can be reached by rejecting the weaker options inside the current vocabulary, you have not
+done Max. Once you know the claimed space, propose something outside it: a mechanism, a reframing,
+a cross-field transfer, a falsifiable prediction, or another defensible scientific move. Defend why
+an expert would call it new.
 
-Write substantial intermediate notes to workspace files when the search is large, using names like
-\`frontier-map.md\`, \`claim-ledger.md\`, \`adversarial-review.md\`, or \`max-research-notes.md\`.
-The visible answer should stay concise and expert-facing unless the user asks for the audit trail.`;
+If no strong novel angle survives honest adversarial search, say so plainly and name the best
+incremental route. An honest "nothing genuinely new here; the publishable path is X" is a better Max
+answer than generic novelty language.
+
+Decide your own search and reasoning budget. The bar is the result, not the procedure.`;
 
 const STANDARD_RESEARCH_DEPTH_INSTRUCTIONS = `Research depth: Standard.
 

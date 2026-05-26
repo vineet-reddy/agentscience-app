@@ -844,6 +844,32 @@ describe("sendTurn", () => {
     });
   });
 
+  it("injects the shared Max novelty posture into collaboration instructions", async () => {
+    const { manager, sendRequest } = createSendTurnHarness();
+
+    await manager.sendTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Stress-test this research idea",
+      interactionMode: "default",
+      researchDepth: "max",
+    });
+
+    const requestParams = sendRequest.mock.calls[0]?.[2] as {
+      collaborationMode?: {
+        settings?: {
+          reasoning_effort?: string;
+          developer_instructions?: string;
+        };
+      };
+    };
+    const instructions = requestParams.collaborationMode?.settings?.developer_instructions;
+
+    expect(requestParams.collaborationMode?.settings?.reasoning_effort).toBe("xhigh");
+    expect(instructions).toContain("<agentscience_max_mode>");
+    expect(instructions).toContain("genuinely new");
+    expect(instructions).not.toContain("Frontier Map");
+  });
+
   it("injects AgentScience personality tags into every collaboration mode turn", async () => {
     const { manager, sendRequest } = createSendTurnHarness();
 

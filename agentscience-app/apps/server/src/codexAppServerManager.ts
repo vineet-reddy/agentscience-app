@@ -31,6 +31,7 @@ import {
 } from "@agentscience/contracts";
 import { compileCodexDeveloperInstructions, loadPersonality } from "@agentscience/personality";
 import { normalizeModelSlug } from "@agentscience/shared/model";
+import { MAX_RESEARCH_DEPTH_INSTRUCTIONS } from "@agentscience/shared/stagePromptBuilder";
 import { Effect, ServiceMap } from "effect";
 
 import {
@@ -466,33 +467,6 @@ When you create or update a manuscript that should be reviewed in the desktop ap
 - Do not paste the full paper inline when the user is trying to review it in the app. Present the manuscript block instead so the review pane can open.
 </agentscience_paper_presentation>`;
 
-export const CODEX_AGENTSCIENCE_MAX_MODE_DEVELOPER_INSTRUCTIONS = `<agentscience_max_mode>
-This AgentScience turn is running in Max mode. Max mode is not permission to be verbose; it is a
-requirement to expand the search tree before synthesizing.
-
-Use the strongest available reasoning settings. Turn off fast shortcuts. For serious research
-questions, run a frontier-search protocol:
-
-1. Decompose the problem into assumptions, subclaims, expert-known baselines, and what would count
-   as a non-obvious contribution.
-2. Seed-search credible sources for the field, then build an internal Frontier Map of papers,
-   authors, methods, claims, datasets or benchmarks, objections, adjacent fields, and open
-   problems.
-3. Expand high-value frontier nodes for 2-3 rounds where warranted: forward citations, backward
-   citations, recent papers from the same author groups, competing methods, failure cases, critique
-   papers, and adjacent-field transfers.
-4. Use parallel subagents/scouts when the runtime exposes them and the branches can be bounded.
-   Do not duplicate work across scouts; synthesize their outputs yourself.
-5. Run an adversarial critic pass before the final answer. If the answer is only a competent
-   middle-of-the-literature summary, keep searching or say plainly that no strong original direction
-   was found.
-
-When the search is substantial, write durable notes in the workspace, such as
-\`frontier-map.md\`, \`claim-ledger.md\`, \`adversarial-review.md\`, or
-\`max-research-notes.md\`. Keep the visible response concise and expert-facing unless the user asks
-for the full audit trail.
-</agentscience_max_mode>`;
-
 const AGENTSCIENCE_PERSONALITY = loadPersonality();
 
 export const AGENTSCIENCE_PERSONALITY_VERSION = AGENTSCIENCE_PERSONALITY.version;
@@ -751,7 +725,10 @@ function buildCodexCollaborationMode(input: {
       reasoning_effort: input.researchDepth === "max" ? "xhigh" : (input.effort ?? "medium"),
       developer_instructions:
         input.researchDepth === "max"
-          ? `${developerInstructions}\n\n${CODEX_AGENTSCIENCE_MAX_MODE_DEVELOPER_INSTRUCTIONS}`
+          ? [
+              developerInstructions,
+              `<agentscience_max_mode>\n${MAX_RESEARCH_DEPTH_INSTRUCTIONS.trim()}\n</agentscience_max_mode>`,
+            ].join("\n\n")
           : developerInstructions,
     },
   };

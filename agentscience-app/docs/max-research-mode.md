@@ -1,6 +1,6 @@
 # Max Research Mode
 
-Max mode is the high-rigor AgentScience research path for users who care more about frontier-quality answers than token or latency efficiency.
+Max mode is the high-rigor AgentScience research path for users who care more about scientific novelty and honest judgment than token or latency efficiency.
 
 ## User Behavior
 
@@ -15,14 +15,15 @@ Max mode is the high-rigor AgentScience research path for users who care more ab
 
 Max is not just a longer timeout. The app sends a first-class `researchDepth` field through the contract, orchestration decider, provider reactor, prompt builder, and Codex adapter. Server-side defaults preserve compatibility for older clients.
 
-When Max reaches Codex, AgentScience adds developer instructions requiring a branching frontier-search protocol:
+When Max reaches Codex, AgentScience adds developer instructions that set a posture rather than a fixed search recipe:
 
-- decompose assumptions, baselines, and non-obvious contribution criteria;
-- build a frontier map of sources, authors, methods, objections, benchmarks, and open problems;
-- expand high-value branches through backward citations, forward citations, recent author work, competing methods, critique papers, and adjacent-field transfers;
-- use parallel scouts/subagents when available and separable;
-- run an adversarial critic pass before answering;
-- write durable workspace notes for large searches.
+- optimize for a genuinely new scientific contribution, not a broader summary;
+- scan the field to learn what has already been claimed and what does not yet exist;
+- search adversarially by trying to kill candidate ideas instead of collecting them;
+- avoid merely filtering the existing idea set and keeping the survivors;
+- propose a defensible mechanism, reframing, cross-field transfer, falsifiable prediction, or other scientific move outside the current vocabulary when one survives scrutiny;
+- say plainly when no strong novel angle survives, and name the best incremental route instead of dressing it up as novelty;
+- let the model choose its own search and reasoning budget because the bar is the result, not the procedure.
 
 ## Runtime Updates
 
