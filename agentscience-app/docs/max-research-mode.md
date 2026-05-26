@@ -20,6 +20,9 @@ When Max reaches Codex, AgentScience adds developer instructions that set a post
 - optimize for a genuinely new scientific contribution, not a broader summary;
 - scan the field to learn what has already been claimed and what does not yet exist;
 - search adversarially by trying to kill candidate ideas instead of collecting them;
+- avoid memory-only or shallow web-scan answers when correctness or novelty depends on current literature;
+- use the internet aggressively when needed, including bounded read-only Codex subagents for independent slices of broad, fast-moving, or novelty-sensitive literatures;
+- increase search depth until additional searches stop changing the frontier picture, rather than following a fixed source quota;
 - avoid merely filtering the existing idea set and keeping the survivors;
 - propose a defensible mechanism, reframing, cross-field transfer, falsifiable prediction, or other scientific move outside the current vocabulary when one survives scrutiny;
 - say plainly when no strong novel angle survives, and name the best incremental route instead of dressing it up as novelty;

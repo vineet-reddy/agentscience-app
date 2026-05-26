@@ -77,6 +77,8 @@ describe("buildWorkflowAgentInput", () => {
     expect(standard.systemMessage).not.toContain("Frontier Map");
     expect(max.systemMessage).toContain("Research depth: Max");
     expect(max.systemMessage).toContain("genuinely new");
+    expect(max.systemMessage).toContain("read-only Codex subagents");
+    expect(max.systemMessage).toContain("Do not use a fixed source quota");
     expect(max.systemMessage).not.toContain("branching frontier-search protocol");
     expect(max.systemMessage).not.toContain("Frontier Map");
   });

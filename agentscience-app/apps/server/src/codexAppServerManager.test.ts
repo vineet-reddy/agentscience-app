@@ -867,6 +867,8 @@ describe("sendTurn", () => {
     expect(requestParams.collaborationMode?.settings?.reasoning_effort).toBe("xhigh");
     expect(instructions).toContain("<agentscience_max_mode>");
     expect(instructions).toContain("genuinely new");
+    expect(instructions).toContain("read-only Codex subagents");
+    expect(instructions).toContain("Do not use a fixed source quota");
     expect(instructions).not.toContain("Frontier Map");
   });
 

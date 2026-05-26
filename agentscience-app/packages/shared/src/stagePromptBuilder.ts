@@ -58,6 +58,13 @@ Before proposing, scan the field widely enough to know what has already been cla
 with what evidence. The scan exists to define what does not yet exist; it is not the answer. Search
 adversarially: try to kill candidate ideas, not collect them.
 
+For scientific questions where correctness or novelty depends on current literature, do not rely on
+memory or a shallow web scan. Use the internet aggressively when needed. For broad, fast-moving, or
+novelty-sensitive topics, spawn a small number of read-only Codex subagents to search independently
+across different slices of the literature: recent papers, closest prior methods, competing claims,
+and negative or contradictory evidence. Increase search depth until additional searches stop changing
+the frontier picture. Do not use a fixed source quota; choose the depth from the evidence you find.
+
 The default failure mode is filtering the existing idea set and keeping the survivors. If your
 output can be reached by rejecting the weaker options inside the current vocabulary, you have not
 done Max. Once you know the claimed space, propose something outside it: a mechanism, a reframing,
