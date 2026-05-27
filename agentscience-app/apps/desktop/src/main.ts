@@ -13,9 +13,10 @@ import {
   nativeImage,
   nativeTheme,
   protocol,
+  session,
   shell,
 } from "electron";
-import type { MenuItemConstructorOptions, WebPreferences } from "electron";
+import type { MenuItemConstructorOptions, Session, WebPreferences, WebAuthnAccount } from "electron";
 import * as Effect from "effect/Effect";
 import type {
   DesktopTheme,
@@ -48,6 +49,10 @@ import {
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { extractAgentScienceDeepLinkUrls, parseAgentScienceDeepLink } from "./deepLinks";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
+import {
+  configureMacWebAuthnPlatformAuthenticator,
+  resolveMacWebAuthnKeychainAccessGroup,
+} from "./macWebAuthn";
 import {
   createInitialDesktopUpdateState,
   reduceDesktopUpdateStateOnCheckFailure,
@@ -142,6 +147,12 @@ const AGENTSCIENCE_RELEASES_URL =
   "https://github.com/vineet-reddy/agentscience-app/releases/latest";
 const MAC_APP_ICON_BASENAME = "app-icon";
 
+declare const __AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP__: string;
+const MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP: string | undefined =
+  (typeof __AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP__ === "string" &&
+    __AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP__) ||
+  resolveMacWebAuthnKeychainAccessGroup(process.env);
+
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
   setDesktopName?: (desktopName: string) => void;
@@ -165,6 +176,7 @@ let backendObservabilitySettings = readPersistedBackendObservabilitySettings();
 const pendingDeepLinks: DesktopDeepLink[] = [];
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
+const webAuthnConfiguredSessions = new WeakSet<Session>();
 const expectedBackendExitChildren = new WeakSet<ChildProcess.ChildProcess>();
 const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
   platform: process.platform,
@@ -193,6 +205,57 @@ function focusOrCreateMainWindow(): void {
   // Re-evaluate the daily ping on every reactivation so a long-running
   // session that crosses UTC midnight still gets counted on the new day.
   tryTrackAppOpened({ now: new Date() });
+}
+
+function formatWebAuthnAccountLabel(account: WebAuthnAccount, index: number): string {
+  return account.displayName?.trim() || account.name?.trim() || `Passkey ${index + 1}`;
+}
+
+function configureWebAuthnAccountPicker(targetSession: Session): void {
+  if (webAuthnConfiguredSessions.has(targetSession)) {
+    return;
+  }
+  webAuthnConfiguredSessions.add(targetSession);
+
+  targetSession.on("select-webauthn-account", (_event, details, callback) => {
+    void (async () => {
+      let selectedCredentialId: string | null = null;
+      try {
+        if (details.accounts.length === 1) {
+          selectedCredentialId = details.accounts[0]?.credentialId ?? null;
+          return;
+        }
+
+        const visibleAccounts = details.accounts.slice(0, 8);
+        const buttons = [...visibleAccounts.map(formatWebAuthnAccountLabel), "Cancel"];
+        const cancelId = buttons.length - 1;
+        const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+        const messageBoxOptions = {
+          type: "question",
+          buttons,
+          defaultId: 0,
+          cancelId,
+          noLink: true,
+          message: "Choose a passkey account",
+          detail: `The browser is signing in to ${details.relyingPartyId}.`,
+        } as const;
+        const response = owner
+          ? await dialog.showMessageBox(owner, messageBoxOptions)
+          : await dialog.showMessageBox(messageBoxOptions);
+
+        if (response.response >= 0 && response.response < visibleAccounts.length) {
+          selectedCredentialId = visibleAccounts[response.response]?.credentialId ?? null;
+        }
+      } catch (error) {
+        writeDesktopLogLine(
+          "webauthn",
+          `account picker failed message=${sanitizeLogValue(formatErrorMessage(error))}`,
+        );
+      } finally {
+        callback(selectedCredentialId);
+      }
+    })();
+  });
 }
 
 if (!hasSingleInstanceLock) {
@@ -2036,6 +2099,8 @@ app.on("before-quit", () => {
 });
 
 app.on("web-contents-created", (_event, contents) => {
+  configureWebAuthnAccountPicker(contents.session);
+
   contents.on("will-attach-webview", (event, webPreferences, params) => {
     if (!getSafeExternalUrl(params.src)) {
       event.preventDefault();
@@ -2075,6 +2140,13 @@ if (hasSingleInstanceLock) {
     .then(() => {
       writeDesktopLogHeader("app ready");
       configureAppIdentity();
+      configureMacWebAuthnPlatformAuthenticator({
+        app,
+        platform: process.platform,
+        keychainAccessGroup: MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP,
+        log: writeDesktopLogHeader,
+      });
+      configureWebAuthnAccountPicker(session.defaultSession);
       configureApplicationMenu();
       registerDeepLinkProtocolClient();
       registerDesktopProtocol();

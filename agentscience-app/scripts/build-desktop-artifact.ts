@@ -466,6 +466,10 @@ const commandOutputOptions = (verbose: boolean) =>
   }) as const;
 
 const AFTER_PACK_HOOK_FILE = "electron-builder-after-pack.mjs";
+const MAC_WEBAUTHN_ENTITLEMENTS_FILE = "apps/desktop/mac-webauthn-entitlements.plist";
+const MAC_WEBAUTHN_KEYCHAIN_GROUP_ENV = "AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP";
+const MAC_WEBAUTHN_TEAM_ID_ENV = "AGENTSCIENCE_MAC_TEAM_ID";
+const MAC_WEBAUTHN_KEYCHAIN_GROUP_SUFFIX = "com.agentscience.app.webauthn";
 const MAC_APP_ICON_PNG_FILE = "app-icon.png";
 const MAC_APP_ICON_ICNS_FILE = "app-icon.icns";
 const SOURCE_MAP_SUFFIXES = [
@@ -1298,6 +1302,44 @@ function resolveGitHubPublishConfig(): {
   };
 }
 
+function resolveMacWebAuthnKeychainAccessGroup(): string | null {
+  const explicitGroup = process.env[MAC_WEBAUTHN_KEYCHAIN_GROUP_ENV]?.trim();
+  if (explicitGroup) {
+    return explicitGroup;
+  }
+
+  const teamId = process.env[MAC_WEBAUTHN_TEAM_ID_ENV]?.trim();
+  return teamId ? `${teamId}.${MAC_WEBAUTHN_KEYCHAIN_GROUP_SUFFIX}` : null;
+}
+
+function escapePlistString(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function createMacWebAuthnEntitlementsPlist(keychainAccessGroup: string): string {
+  const escapedKeychainAccessGroup = escapePlistString(keychainAccessGroup);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>${escapedKeychainAccessGroup}</string>
+  </array>
+</dict>
+</plist>
+`;
+}
+
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
@@ -1305,6 +1347,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   signed: boolean,
   mockUpdates: boolean,
   mockUpdateServerPort: string | undefined,
+  macWebAuthnEntitlementsPath: string | null,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: "com.agentscience.app",
@@ -1338,12 +1381,17 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac") {
-    buildConfig.afterPack = AFTER_PACK_HOOK_FILE;
-    buildConfig.mac = {
+    const macConfig: Record<string, unknown> = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: MAC_APP_ICON_ICNS_FILE,
       category: "public.app-category.developer-tools",
     };
+    if (signed && macWebAuthnEntitlementsPath) {
+      macConfig.entitlements = macWebAuthnEntitlementsPath;
+      macConfig.entitlementsInherit = macWebAuthnEntitlementsPath;
+    }
+    buildConfig.afterPack = AFTER_PACK_HOOK_FILE;
+    buildConfig.mac = macConfig;
     if (target === "dmg") {
       buildConfig.dmg = {
         size: "4g",
@@ -1599,6 +1647,25 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
+  const macWebAuthnKeychainAccessGroup =
+    options.platform === "mac" && options.signed ? resolveMacWebAuthnKeychainAccessGroup() : null;
+  const macWebAuthnEntitlementsPath = macWebAuthnKeychainAccessGroup
+    ? MAC_WEBAUTHN_ENTITLEMENTS_FILE
+    : null;
+  if (macWebAuthnKeychainAccessGroup) {
+    yield* fs.writeFileString(
+      path.join(stageAppDir, MAC_WEBAUTHN_ENTITLEMENTS_FILE),
+      createMacWebAuthnEntitlementsPlist(macWebAuthnKeychainAccessGroup),
+    );
+    yield* Effect.log(
+      `[desktop-artifact] macOS WebAuthn entitlements enabled for ${macWebAuthnKeychainAccessGroup}.`,
+    );
+  } else if (options.platform === "mac" && options.signed) {
+    yield* Effect.log(
+      `[desktop-artifact] macOS WebAuthn entitlements disabled; set ${MAC_WEBAUTHN_KEYCHAIN_GROUP_ENV} or ${MAC_WEBAUTHN_TEAM_ID_ENV}.`,
+    );
+  }
+
   const stagePackageJson: StagePackageJson = {
     name: "agentscience",
     version: appVersion,
@@ -1615,6 +1682,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       options.signed,
       options.mockUpdates,
       options.mockUpdateServerPort,
+      macWebAuthnEntitlementsPath,
     ),
     dependencies: addPackagedDependencyPins({
       ...resolvedServerDependencies,

@@ -729,6 +729,11 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
         <div className="canvas-browser-surface__blocker" role="status">
           <AlertCircleIcon aria-hidden />
           <span>{blocker.userMessage}</span>
+          {blocker.kind === "auth_required" ? (
+            <button type="button" onClick={openExternal}>
+              Open in system browser
+            </button>
+          ) : null}
         </div>
       ) : null}
       <webview

@@ -123,6 +123,8 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          AGENTSCIENCE_MAC_TEAM_ID: ${{ secrets.AGENTSCIENCE_MAC_TEAM_ID }}
+          AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP: ${{ secrets.AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP }}
           AGENTSCIENCE_APTABASE_KEY: ${{ secrets.AGENTSCIENCE_APTABASE_KEY }}
         run: |
           args=(

@@ -76,6 +76,16 @@ macOS signing only when all Apple signing secrets are present:
 `APPLE_API_KEY` is raw `.p8` text; the workflow writes it to a temporary
 `AuthKey_<id>.p8` file before notarization.
 
+Embedded-browser passkey/WebAuthn support is enabled on signed macOS builds when
+either of these optional secrets is present:
+
+- `AGENTSCIENCE_MAC_TEAM_ID`
+- `AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP`
+
+`AGENTSCIENCE_MAC_TEAM_ID` derives the keychain access group as
+`<TEAM_ID>.com.agentscience.app.webauthn`. Set the explicit keychain access
+group only if the Apple signing profile needs a different value.
+
 Windows Authenticode signing is not wired up yet, so Windows installers are
 currently unsigned.
 

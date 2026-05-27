@@ -83,6 +83,12 @@ What they are:
 
 When all five secrets are present and non-empty, the existing workflow signs and notarizes macOS builds automatically.
 
+Signed macOS builds also support embedded-browser WebAuthn/Touch ID passkeys
+when either `AGENTSCIENCE_MAC_TEAM_ID` or
+`AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP` is configured. The team id
+derives `<TEAM_ID>.com.agentscience.app.webauthn`; use the explicit group only
+when the signing profile needs a custom keychain group.
+
 ## Anonymous usage telemetry
 
 Release builds optionally bake an Aptabase App Key into the desktop main process so the app can send a single anonymous ping per UTC day (one event: `app_opened`). The full design — what is and isn't collected, how to opt out, the literal payload — lives in [./PRIVACY.md](./PRIVACY.md).
