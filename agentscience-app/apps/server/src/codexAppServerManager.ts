@@ -537,6 +537,8 @@ To read the latest page snapshot captured from the canvas:
 
 The snapshot includes visible text, a \`viewport\` with CSS dimensions plus \`screenshotWidth\`/\`screenshotHeight\`, and a \`screenshotUrl\` when the canvas has captured pixels. Use \`$AGENTSCIENCE_CANVAS_BROWSER_URL/screenshot\` as the primary observation when the page layout, images, molecular viewers, plots, or UI state matter.
 
+If the snapshot status is \`blocked\` or it includes \`detectedBlocker\`, pause browser actions and tell the user the exact handoff requested by \`detectedBlocker.userMessage\`. Do not ask for passwords or private credentials in chat; keep the browser visible and resume from a fresh snapshot after the user signs in, accepts terms, or handles the key/quota step.
+
 Control the visible page as a computer-use surface: inspect the screenshot and viewport, perform one coordinate-based action, then read the snapshot/screenshot again. Action coordinates are screenshot pixels relative to the top-left of the captured browser screenshot, matching \`viewport.screenshotWidth\` and \`viewport.screenshotHeight\`.
 
 Prefer \`/actions/perform\` because it waits until the visible canvas browser has executed the action, making it closest to normal computer use:
@@ -550,7 +552,7 @@ Prefer \`/actions/perform\` because it waits until the visible canvas browser ha
 
 \`/actions/perform\` returns HTTP 200 after the action result is recorded. If the canvas is hidden or unavailable it can return HTTP 202 with the action still pending; in that case ask the user to open/show the canvas or continue with another non-visual method.
 
-Only use selector/text actions as a fallback when visual coordinates are insufficient. The desired experience is a general visual browser workflow, not site-specific automation.
+The desired experience is a general visual browser workflow, not site-specific automation.
 
 After using the browser for the user's work, use the snapshot and any files/results you created to continue the chat. Never transmit credentials, private data, unpublished research data, or files to third-party sites unless the user clearly asked you to do that specific upload/login/workflow.
 </agentscience_canvas_browser>`;

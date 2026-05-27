@@ -2,6 +2,7 @@ import {
   type CanvasBrowserAction,
   type CanvasBrowserActionInput,
   type CanvasBrowserActionResultInput,
+  type CanvasBrowserBlocker,
   type CanvasBrowserNavigateInput,
   type CanvasBrowserSnapshotInput,
   type CanvasBrowserState,
@@ -40,6 +41,7 @@ function emptyState(threadId: ThreadId): CanvasBrowserState {
     viewport: null,
     status: "idle",
     message: null,
+    detectedBlocker: null,
     pendingAction: null,
     lastActionResult: null,
     navigationSequence: 0,
@@ -103,6 +105,24 @@ function isSyntheticSnapshotErrorTitle(title: string | null): boolean {
   return title === "Browser snapshot unavailable";
 }
 
+function isChromiumErrorUrl(rawUrl: string | null | undefined): boolean {
+  return Boolean(rawUrl?.startsWith("chrome-error://"));
+}
+
+function normalizeEvidence(evidence: readonly string[] | undefined): string[] {
+  return [...new Set((evidence ?? []).map((entry) => entry.trim()).filter(Boolean))].slice(0, 8);
+}
+
+function normalizeBlocker(blocker: CanvasBrowserBlocker | undefined): CanvasBrowserBlocker | null {
+  if (!blocker) return null;
+  return {
+    ...blocker,
+    evidence: normalizeEvidence(blocker.evidence),
+    technicalDetails: blocker.technicalDetails?.trim() || null,
+    userMessage: blocker.userMessage.trim() || "The browser needs user attention before the agent can continue.",
+  };
+}
+
 export function getCanvasBrowserState(threadId: ThreadId): CanvasBrowserState {
   return states.get(threadId) ?? emptyState(threadId);
 }
@@ -152,6 +172,7 @@ export function requestCanvasBrowserNavigation(
     viewport: previous.currentUrl === normalizedUrl ? previous.viewport : null,
     status: "requested" as const,
     message: null,
+    detectedBlocker: null,
     navigationSequence: previous.navigationSequence + 1,
     sequence: previous.sequence + 1,
     updatedAt: nowIso(),
@@ -177,7 +198,6 @@ export function requestCanvasBrowserAction(
   const action: CanvasBrowserAction = {
     id: makeActionId(sequence),
     kind: input.kind,
-    selector: input.selector ?? null,
     x: input.x ?? null,
     y: input.y ?? null,
     endX: input.endX ?? null,
@@ -256,6 +276,7 @@ export function recordCanvasBrowserActionResult(
     },
     status: previous.status,
     message: input.status === "error" ? (input.message ?? "Browser action failed.") : previous.message,
+    detectedBlocker: previous.detectedBlocker,
     sequence: previous.sequence + 1,
     updatedAt: nowIso(),
   };
@@ -275,10 +296,29 @@ export function recordCanvasBrowserSnapshot(
   input: CanvasBrowserSnapshotInput,
 ): CanvasBrowserState {
   const previous = getCanvasBrowserState(threadId);
+  const inputBlocker = normalizeBlocker(input.detectedBlocker);
+  const chromiumError = isChromiumErrorUrl(input.currentUrl);
+  const nextStatus = chromiumError ? "error" as const : input.status ?? "ready";
+  const nextBlocker =
+    inputBlocker ??
+    (chromiumError
+      ? {
+          kind: "navigation_error" as const,
+          service: null,
+          url: input.currentUrl,
+          originalUrl: previous.requestedUrl,
+          requestedAction: "inspect_service" as const,
+          evidence: ["Chromium reached chrome-error://chromewebdata/."],
+          technicalDetails: input.message ?? "Chromium reported an internal navigation error page.",
+          userMessage: previous.requestedUrl
+            ? `Navigation to ${previous.requestedUrl} failed in the embedded browser.`
+            : "Navigation failed in the embedded browser.",
+        }
+      : null);
   if (previous.status === "requested" && previous.requestedUrl) {
     const requestedOrigin = readOrigin(previous.requestedUrl);
     const inputOrigin = readOrigin(input.currentUrl);
-    if (requestedOrigin && inputOrigin && requestedOrigin !== inputOrigin) {
+    if (!chromiumError && requestedOrigin && inputOrigin && requestedOrigin !== inputOrigin) {
       return previous;
     }
     if (
@@ -291,7 +331,7 @@ export function recordCanvasBrowserSnapshot(
   }
   const screenshot = decodeScreenshotDataUrl(input.screenshotDataUrl);
   const loadingWithoutContent =
-    input.status === "loading" &&
+    nextStatus === "loading" &&
     !input.text &&
     !screenshot &&
     previous.status === "ready" &&
@@ -313,7 +353,10 @@ export function recordCanvasBrowserSnapshot(
   const next = {
     ...previous,
     currentUrl: input.currentUrl,
-    requestedUrl: (input.status ?? "ready") === "ready" ? input.currentUrl : previous.requestedUrl ?? input.currentUrl,
+    requestedUrl:
+      nextStatus === "ready"
+        ? input.currentUrl
+        : previous.requestedUrl ?? input.currentUrl,
     title: input.title ?? null,
     text: truncateSnapshotText(input.text),
     screenshotUrl: screenshot || previous.screenshotUrl
@@ -321,8 +364,9 @@ export function recordCanvasBrowserSnapshot(
       : null,
     screenshotCapturedAt: capturedAt,
     viewport: input.viewport ?? previous.viewport,
-    status: input.status ?? "ready",
-    message: input.message ?? null,
+    status: nextStatus,
+    message: input.message ?? nextBlocker?.userMessage ?? null,
+    detectedBlocker: nextBlocker,
     sequence: previous.sequence + 1,
     updatedAt: nowIso(),
   };

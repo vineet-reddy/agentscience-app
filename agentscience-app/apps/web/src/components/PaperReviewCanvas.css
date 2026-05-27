@@ -377,6 +377,28 @@
   font-size: 12px;
 }
 
+.canvas-browser-surface__blocker {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: 8px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+  padding: 8px 12px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.canvas-browser-surface__blocker svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--ink-light);
+  stroke-width: 1.7;
+}
+
 .canvas-browser-surface__webview {
   display: flex;
   min-width: 0;

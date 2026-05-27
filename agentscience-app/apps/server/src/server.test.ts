@@ -1134,6 +1134,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         viewport: null,
         status: "idle",
         message: null,
+        detectedBlocker: null,
         pendingAction: null,
         lastActionResult: null,
         navigationSequence: 0,
@@ -1189,6 +1190,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(finalJson.text, "AlphaFold Server page text");
       assert.equal(finalJson.screenshotUrl, canvasBrowserScreenshotRoutePath(threadId));
       assertTrue(finalJson.screenshotCapturedAt !== null);
+      assert.equal(finalJson.detectedBlocker, null);
       assert.deepStrictEqual(finalJson.viewport, {
         width: 1280,
         height: 720,
@@ -1253,6 +1255,68 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(screenshotResponse.status, 200);
       assert.equal(screenshotResponse.headers["content-type"], "image/png");
       assertTrue((yield* screenshotResponse.arrayBuffer).byteLength > 0);
+
+      const blockerSnapshotResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/snapshot`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(
+          JSON.stringify({
+            currentUrl: "https://alphafoldserver.com/welcome",
+            title: "AlphaFold Server",
+            text: "AlphaFold Server Powered by AlphaFold 3 Continue with Google",
+            status: "blocked",
+            message: "AlphaFold Server requires Google sign-in.",
+            detectedBlocker: {
+              kind: "auth_required",
+              service: "alphafoldserver.com",
+              url: "https://alphafoldserver.com/welcome",
+              originalUrl: "https://alphafoldserver.com/search",
+              requestedAction: "sign_in",
+              evidence: ["continue with google"],
+              technicalDetails: null,
+              userMessage: "AlphaFold Server requires Google sign-in. Please sign in in the browser panel, then continue.",
+            },
+          }),
+          "application/json",
+        ),
+      });
+      assert.equal(blockerSnapshotResponse.status, 200);
+      const blockerSnapshotJson = (yield* blockerSnapshotResponse.json) as CanvasBrowserState;
+      assert.equal(blockerSnapshotJson.status, "blocked");
+      assert.equal(blockerSnapshotJson.detectedBlocker?.kind, "auth_required");
+      assert.equal(blockerSnapshotJson.detectedBlocker?.requestedAction, "sign_in");
+
+      const failedNavigationResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/navigate`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(JSON.stringify({ url: "https://www.boltzfold.com/submit" }), "application/json"),
+      });
+      assert.equal(failedNavigationResponse.status, 200);
+
+      const chromiumErrorSnapshotResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/snapshot`, {
+        headers: {
+          "content-type": "application/json",
+        },
+        body: HttpBody.text(
+          JSON.stringify({
+            currentUrl: "chrome-error://chromewebdata/",
+            title: "This site can’t be reached",
+            text: "",
+            status: "ready",
+            message: "TLS negotiation failed.",
+          }),
+          "application/json",
+        ),
+      });
+      assert.equal(chromiumErrorSnapshotResponse.status, 200);
+      const chromiumErrorSnapshotJson = (yield* chromiumErrorSnapshotResponse.json) as CanvasBrowserState;
+      assert.equal(chromiumErrorSnapshotJson.status, "error");
+      assert.equal(chromiumErrorSnapshotJson.requestedUrl, "https://www.boltzfold.com/submit");
+      assert.equal(chromiumErrorSnapshotJson.currentUrl, "chrome-error://chromewebdata/");
+      assert.equal(chromiumErrorSnapshotJson.detectedBlocker?.kind, "navigation_error");
+      assert.equal(chromiumErrorSnapshotJson.detectedBlocker?.originalUrl, "https://www.boltzfold.com/submit");
 
       const actionResponse = yield* HttpClient.post(`${canvasBrowserRoutePath(threadId)}/actions`, {
         headers: {

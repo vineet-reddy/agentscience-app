@@ -17,9 +17,40 @@ export const CanvasBrowserStatus = Schema.Literals([
   "requested",
   "loading",
   "ready",
+  "blocked",
   "error",
 ]);
 export type CanvasBrowserStatus = typeof CanvasBrowserStatus.Type;
+
+export const CanvasBrowserBlockerKind = Schema.Literals([
+  "auth_required",
+  "terms_required",
+  "quota_or_key_required",
+  "navigation_error",
+  "service_unavailable",
+]);
+export type CanvasBrowserBlockerKind = typeof CanvasBrowserBlockerKind.Type;
+
+export const CanvasBrowserBlockerAction = Schema.Literals([
+  "sign_in",
+  "accept_terms",
+  "provide_api_key",
+  "upgrade_or_wait",
+  "inspect_service",
+]);
+export type CanvasBrowserBlockerAction = typeof CanvasBrowserBlockerAction.Type;
+
+export const CanvasBrowserBlocker = Schema.Struct({
+  kind: CanvasBrowserBlockerKind,
+  service: Schema.NullOr(Schema.String),
+  url: Schema.NullOr(Schema.String),
+  originalUrl: Schema.NullOr(Schema.String),
+  requestedAction: Schema.NullOr(CanvasBrowserBlockerAction),
+  evidence: Schema.Array(Schema.String),
+  technicalDetails: Schema.NullOr(Schema.String),
+  userMessage: Schema.String,
+});
+export type CanvasBrowserBlocker = typeof CanvasBrowserBlocker.Type;
 
 export const CanvasBrowserActionKind = Schema.Literals([
   "click",
@@ -63,7 +94,6 @@ export const CanvasBrowserAction = Schema.Struct({
   deltaY: Schema.NullOr(Schema.Number),
   button: Schema.NullOr(CanvasBrowserMouseButton),
   modifiers: Schema.NullOr(Schema.Array(Schema.String)),
-  selector: Schema.NullOr(Schema.String),
   text: Schema.NullOr(Schema.String),
   key: Schema.NullOr(Schema.String),
   direction: Schema.NullOr(CanvasBrowserScrollDirection),
@@ -92,6 +122,7 @@ export const CanvasBrowserState = Schema.Struct({
   viewport: Schema.NullOr(CanvasBrowserViewport),
   status: CanvasBrowserStatus,
   message: Schema.NullOr(Schema.String),
+  detectedBlocker: Schema.NullOr(CanvasBrowserBlocker),
   pendingAction: Schema.NullOr(CanvasBrowserAction),
   lastActionResult: Schema.NullOr(CanvasBrowserActionResult),
   navigationSequence: Schema.Number,
@@ -114,6 +145,7 @@ export const CanvasBrowserSnapshotInput = Schema.Struct({
   viewport: Schema.optional(CanvasBrowserViewport),
   status: Schema.optional(CanvasBrowserStatus),
   message: Schema.optional(Schema.String),
+  detectedBlocker: Schema.optional(CanvasBrowserBlocker),
 });
 export type CanvasBrowserSnapshotInput = typeof CanvasBrowserSnapshotInput.Type;
 
@@ -127,7 +159,6 @@ export const CanvasBrowserActionInput = Schema.Struct({
   deltaY: Schema.optional(Schema.Number),
   button: Schema.optional(CanvasBrowserMouseButton),
   modifiers: Schema.optional(Schema.Array(Schema.String)),
-  selector: Schema.optional(Schema.String),
   text: Schema.optional(Schema.String),
   key: Schema.optional(Schema.String),
   direction: Schema.optional(CanvasBrowserScrollDirection),

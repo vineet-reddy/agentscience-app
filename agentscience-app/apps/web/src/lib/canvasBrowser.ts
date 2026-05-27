@@ -41,6 +41,7 @@ export async function recordCanvasBrowserSnapshot(
     viewport?: CanvasBrowserState["viewport"];
     status?: CanvasBrowserState["status"];
     message?: string;
+    detectedBlocker?: CanvasBrowserState["detectedBlocker"];
   },
 ): Promise<CanvasBrowserState> {
   return parseCanvasBrowserResponse(

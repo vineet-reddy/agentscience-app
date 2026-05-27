@@ -1,9 +1,10 @@
 import {
   type CanvasBrowserAction,
+  type CanvasBrowserBlocker,
   type CanvasBrowserState,
   type ThreadId,
 } from "@agentscience/contracts";
-import { ExternalLinkIcon, RefreshCcwIcon } from "lucide-react";
+import { AlertCircleIcon, ExternalLinkIcon, RefreshCcwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { recordCanvasBrowserActionResult, recordCanvasBrowserSnapshot } from "~/lib/canvasBrowser";
@@ -93,6 +94,32 @@ const SNAPSHOT_SCRIPT = `(() => {
   };
 })()`;
 
+const AUTH_BLOCKER_PHRASES = [
+  "continue with google",
+  "continue with github",
+  "sign in to continue",
+  "log in to continue",
+  "login to continue",
+  "please sign in",
+  "please log in",
+  "authentication required",
+] as const;
+const TERMS_BLOCKER_PHRASES = [
+  "accept terms",
+  "review and accept",
+  "i agree to the terms",
+  "non-commercial terms",
+  "accept the terms",
+] as const;
+const QUOTA_BLOCKER_PHRASES = [
+  "api key required",
+  "license key required",
+  "quota exceeded",
+  "usage limit exceeded",
+  "subscription required",
+  "upgrade required",
+] as const;
+
 const sleep = (durationMs: number) => new Promise((resolve) => window.setTimeout(resolve, durationMs));
 
 function boundedDelay(durationMs: number | null | undefined, fallbackMs: number): number {
@@ -152,6 +179,133 @@ function normalizeHttpUrl(rawUrl: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function isChromiumErrorUrl(rawUrl: string | null | undefined): boolean {
+  return Boolean(rawUrl?.startsWith("chrome-error://"));
+}
+
+function readServiceName(rawUrl: string | null | undefined, fallbackTitle?: string | null): string | null {
+  try {
+    const host = rawUrl ? new URL(rawUrl).hostname.replace(/^www\./i, "") : "";
+    if (host) return host;
+  } catch {
+    // Fall through to title.
+  }
+  const title = fallbackTitle?.trim();
+  return title || null;
+}
+
+function matchingPhrases(text: string, phrases: readonly string[]): string[] {
+  return phrases.filter((phrase) => text.includes(phrase));
+}
+
+function detectSnapshotBlocker(input: {
+  currentUrl: string;
+  requestedUrl: string | null | undefined;
+  title: string;
+  text: string;
+  message?: string | null;
+}): CanvasBrowserBlocker | null {
+  const lowerText = input.text.toLowerCase();
+  const service = readServiceName(input.currentUrl, input.title);
+  if (isChromiumErrorUrl(input.currentUrl)) {
+    return {
+      kind: "navigation_error",
+      service,
+      url: input.currentUrl,
+      originalUrl: input.requestedUrl ?? null,
+      requestedAction: "inspect_service",
+      evidence: ["Chromium reached an internal error page."],
+      technicalDetails: input.message ?? "The embedded Chromium webview reported an internal navigation error page.",
+      userMessage: input.requestedUrl
+        ? `Navigation to ${input.requestedUrl} failed in the browser panel.`
+        : "Navigation failed in the browser panel.",
+    };
+  }
+  const authEvidence = matchingPhrases(lowerText, AUTH_BLOCKER_PHRASES);
+  if (authEvidence.length > 0) {
+    return {
+      kind: "auth_required",
+      service,
+      url: input.currentUrl,
+      originalUrl: input.requestedUrl ?? null,
+      requestedAction: "sign_in",
+      evidence: authEvidence,
+      technicalDetails: null,
+      userMessage: `${service ?? "This site"} requires sign-in. Please sign in in the browser panel, then continue.`,
+    };
+  }
+  const termsEvidence = matchingPhrases(lowerText, TERMS_BLOCKER_PHRASES);
+  if (termsEvidence.length > 0) {
+    return {
+      kind: "terms_required",
+      service,
+      url: input.currentUrl,
+      originalUrl: input.requestedUrl ?? null,
+      requestedAction: "accept_terms",
+      evidence: termsEvidence,
+      technicalDetails: null,
+      userMessage: `${service ?? "This site"} needs terms or consent reviewed. Please use the browser panel to continue if you agree.`,
+    };
+  }
+  const quotaEvidence = matchingPhrases(lowerText, QUOTA_BLOCKER_PHRASES);
+  if (quotaEvidence.length > 0) {
+    return {
+      kind: "quota_or_key_required",
+      service,
+      url: input.currentUrl,
+      originalUrl: input.requestedUrl ?? null,
+      requestedAction: quotaEvidence.some((entry) => entry.includes("key")) ? "provide_api_key" : "upgrade_or_wait",
+      evidence: quotaEvidence,
+      technicalDetails: null,
+      userMessage: `${service ?? "This site"} requires a key, quota, billing, or license step before the agent can continue.`,
+    };
+  }
+  return null;
+}
+
+function scaleCoordinate(
+  value: number | null | undefined,
+  sourceSize: number | undefined,
+  targetSize: number | undefined,
+): number | null {
+  if (!Number.isFinite(value ?? Number.NaN)) return null;
+  const source = sourceSize && sourceSize > 0 ? sourceSize : targetSize && targetSize > 0 ? targetSize : 1;
+  const target = targetSize && targetSize > 0 ? targetSize : source;
+  return Math.max(0, Math.round((value ?? 0) * target / source));
+}
+
+function scaleDelta(
+  value: number | null | undefined,
+  sourceSize: number | undefined,
+  targetSize: number | undefined,
+): number | null {
+  if (!Number.isFinite(value ?? Number.NaN)) return null;
+  const source = sourceSize && sourceSize > 0 ? sourceSize : targetSize && targetSize > 0 ? targetSize : 1;
+  const target = targetSize && targetSize > 0 ? targetSize : source;
+  return Math.round((value ?? 0) * target / source);
+}
+
+function normalizeActionForNativeInput(
+  action: CanvasBrowserAction,
+  viewport: CanvasBrowserState["viewport"],
+  webview: WebviewElement,
+): CanvasBrowserAction {
+  const rect = webview.getBoundingClientRect();
+  const cssWidth = viewport?.width && viewport.width > 0 ? viewport.width : rect.width;
+  const cssHeight = viewport?.height && viewport.height > 0 ? viewport.height : rect.height;
+  const screenshotWidth = viewport?.screenshotWidth && viewport.screenshotWidth > 0 ? viewport.screenshotWidth : cssWidth;
+  const screenshotHeight = viewport?.screenshotHeight && viewport.screenshotHeight > 0 ? viewport.screenshotHeight : cssHeight;
+  return {
+    ...action,
+    x: scaleCoordinate(action.x, screenshotWidth, cssWidth),
+    y: scaleCoordinate(action.y, screenshotHeight, cssHeight),
+    endX: scaleCoordinate(action.endX, screenshotWidth, cssWidth),
+    endY: scaleCoordinate(action.endY, screenshotHeight, cssHeight),
+    deltaX: scaleDelta(action.deltaX, screenshotWidth, cssWidth),
+    deltaY: scaleDelta(action.deltaY, screenshotHeight, cssHeight),
+  };
 }
 
 function sendInput(webview: WebviewElement, event: Record<string, unknown>) {
@@ -259,568 +413,6 @@ async function performNativeAction(webview: WebviewElement, action: CanvasBrowse
   throw new Error("Unsupported browser action.");
 }
 
-function createVisualActionScript(
-  action: CanvasBrowserAction,
-  viewport: CanvasBrowserState["viewport"],
-): string {
-  return `(async () => {
-  const action = ${JSON.stringify(action)};
-  const viewport = ${JSON.stringify(viewport)};
-  const sleep = (durationMs) => new Promise((resolve) => window.setTimeout(resolve, durationMs));
-  const screenshotWidth = Math.max(1, Number(viewport?.screenshotWidth || window.innerWidth || 1));
-  const screenshotHeight = Math.max(1, Number(viewport?.screenshotHeight || window.innerHeight || 1));
-  const toCssPoint = (rawX, rawY) => ({
-    x: Math.max(0, Math.min(window.innerWidth - 1, Math.round(Number(rawX) * window.innerWidth / screenshotWidth))),
-    y: Math.max(0, Math.min(window.innerHeight - 1, Math.round(Number(rawY) * window.innerHeight / screenshotHeight)))
-  });
-  const requirePoint = (x, y, label) => {
-    if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) {
-      throw new Error(\`Browser \${label} coordinates are required for this action.\`);
-    }
-    return toCssPoint(x, y);
-  };
-  const modifiers = Array.isArray(action.modifiers) ? action.modifiers.map((entry) => String(entry).toLowerCase()) : [];
-  const modifierInit = {
-    shiftKey: modifiers.includes("shift"),
-    ctrlKey: modifiers.includes("control") || modifiers.includes("ctrl"),
-    altKey: modifiers.includes("alt") || modifiers.includes("option"),
-    metaKey: modifiers.includes("meta") || modifiers.includes("cmd") || modifiers.includes("command")
-  };
-  const buttonNumber = action.button === "right" ? 2 : action.button === "middle" ? 1 : 0;
-  const buttonsNumber = action.button === "right" ? 2 : action.button === "middle" ? 4 : 1;
-  const targetAt = (point) => document.elementFromPoint(point.x, point.y) || document.body || document.documentElement;
-  const isVisible = (element) => {
-    if (!(element instanceof Element)) return false;
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    const style = window.getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
-  };
-  const isTextEntryInput = (element) => {
-    if (element instanceof HTMLTextAreaElement) return !element.disabled && !element.readOnly;
-    if (element instanceof HTMLInputElement) {
-      if (element.disabled || element.readOnly) return false;
-      return !["button", "checkbox", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(element.type);
-    }
-    return element instanceof HTMLElement && element.isContentEditable;
-  };
-  const queryDeep = (selector) => {
-    const matches = [];
-    const roots = [document];
-    const seenRoots = new Set();
-    while (roots.length > 0 && matches.length < 400) {
-      const root = roots.shift();
-      if (!root || seenRoots.has(root)) continue;
-      seenRoots.add(root);
-      try {
-        matches.push(...Array.from(root.querySelectorAll(selector)));
-      } catch {
-        return [];
-      }
-      const elements = root instanceof Document || root instanceof ShadowRoot
-        ? Array.from(root.querySelectorAll("*")).slice(0, 800)
-        : [];
-      for (const element of elements) {
-        if (element.shadowRoot) roots.push(element.shadowRoot);
-      }
-    }
-    return matches;
-  };
-  const editableDescendant = (element) => {
-    if (!(element instanceof Element)) return null;
-    if (isTextEntryInput(element) && isVisible(element)) return element;
-    const roots = [element, element.shadowRoot].filter(Boolean);
-    const seenRoots = new Set();
-    while (roots.length > 0) {
-      const root = roots.shift();
-      if (!root || seenRoots.has(root)) continue;
-      seenRoots.add(root);
-      const candidates = Array.from(root.querySelectorAll('input, textarea, [contenteditable="true"], [role="textbox"], [role="searchbox"]'));
-      for (const candidate of candidates) {
-        if (isTextEntryInput(candidate) && isVisible(candidate)) return candidate;
-      }
-      for (const candidate of Array.from(root.querySelectorAll("*")).slice(0, 400)) {
-        if (candidate.shadowRoot) roots.push(candidate.shadowRoot);
-      }
-    }
-    return null;
-  };
-  const readElementLabel = (element) => {
-    if (!(element instanceof Element)) return "";
-    const parts = [];
-    const add = (value) => {
-      const normalized = String(value || "").replace(/\\s+/g, " ").trim();
-      if (normalized) parts.push(normalized.slice(0, 160));
-    };
-    add(element.getAttribute("aria-label"));
-    add(element.getAttribute("placeholder"));
-    add(element.getAttribute("name"));
-    add(element.getAttribute("id"));
-    add(element.getAttribute("title"));
-    add(element.getAttribute("role"));
-    const labelledBy = element.getAttribute("aria-labelledby");
-    if (labelledBy) {
-      for (const id of labelledBy.split(/\\s+/)) {
-        add(document.getElementById(id)?.textContent);
-      }
-    }
-    if ("labels" in element && element.labels) {
-      for (const label of Array.from(element.labels)) add(label.textContent);
-    }
-    if (element instanceof HTMLButtonElement || element instanceof HTMLAnchorElement) {
-      add(element.innerText || element.textContent);
-    }
-    const closestLabel = element.closest("label");
-    if (closestLabel) add(closestLabel.textContent);
-    const parentText = element.parentElement?.innerText || element.parentElement?.textContent;
-    if (parentText && parentText.length <= 240) add(parentText);
-    return parts.join(" ").toLowerCase();
-  };
-  const isEditableElement = (element) => {
-    if (!(element instanceof Element) || !isVisible(element)) return false;
-    if (isTextEntryInput(element)) return true;
-    if (element instanceof HTMLSelectElement) return !element.disabled;
-    if (element instanceof HTMLElement && element.isContentEditable) return true;
-    const role = element.getAttribute("role");
-    return (role === "textbox" || role === "searchbox" || role === "combobox") && editableDescendant(element) !== null;
-  };
-  const isActivatableElement = (element) => (
-    element instanceof HTMLAnchorElement ||
-    element instanceof HTMLButtonElement ||
-    element instanceof HTMLInputElement ||
-    element instanceof HTMLTextAreaElement ||
-    element instanceof HTMLSelectElement ||
-    element instanceof HTMLLabelElement ||
-    element instanceof HTMLElement && (
-      element.isContentEditable ||
-      ["button", "link", "menuitem", "option", "searchbox", "textbox", "combobox"].includes(element.getAttribute("role") || "")
-    )
-  );
-  const findSemanticTarget = (selector) => {
-    const selectorText = selector.toLowerCase();
-    const wantsEditable =
-      action.kind === "type" ||
-      action.kind === "press" ||
-      /input|textarea|select|search|query|term|textbox|searchbox|combobox|placeholder|name=|\\bq\\b/.test(selectorText);
-    const wantsSearch = /search|query|term|find|searchbox|\\bq\\b/.test(selectorText);
-    const candidates = queryDeep(
-      wantsEditable
-        ? 'input, textarea, select, [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"]'
-        : 'a[href], button, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="option"]'
-    );
-    let best = null;
-    let bestScore = 0;
-    for (const candidate of candidates) {
-      if (wantsEditable ? !isEditableElement(candidate) : !isVisible(candidate) || !isActivatableElement(candidate)) {
-        continue;
-      }
-      const label = readElementLabel(candidate);
-      let score = wantsEditable ? 10 : 4;
-      if (candidate instanceof HTMLInputElement && candidate.type === "search") score += 35;
-      if (candidate.getAttribute("role") === "searchbox") score += 35;
-      if (candidate.closest('form[role="search"], [role="search"]')) score += 20;
-      if (/search|query|find/.test(label)) score += 28;
-      if (/gene|variant|disease|dataset|compound|protein|paper|article|trial|species|resource/.test(label)) score += 8;
-      if (wantsSearch && !/search|query|find|term|q\\b|gene|variant|disease|dataset|compound|protein|paper|article|trial|species|resource/.test(label)) {
-        score -= 12;
-      }
-      if (candidate instanceof HTMLInputElement && candidate.value) score -= 2;
-      if (score > bestScore) {
-        best = wantsEditable ? editableDescendant(candidate) || candidate : candidate;
-        bestScore = score;
-      }
-    }
-    return bestScore > 0 ? best : null;
-  };
-  const describeTargets = () =>
-    queryDeep('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"], button, a[href]')
-      .filter(isVisible)
-      .slice(0, 8)
-      .map((element) => readElementLabel(element) || element.tagName.toLowerCase())
-      .filter(Boolean)
-      .join("; ");
-  const targetFromSelector = (options = {}) => {
-    const selector = typeof action.selector === "string" ? action.selector.trim() : "";
-    if (!selector) return null;
-    const target = queryDeep(selector).find(isVisible) ?? null;
-    if (target) return target;
-    const semanticTarget = findSemanticTarget(selector);
-    if (semanticTarget) return semanticTarget;
-    if (options.required === false) return null;
-    const available = describeTargets();
-    throw new Error(\`No browser element matched selector: \${selector}\${available ? \`. Visible controls: \${available}\` : ""}\`);
-  };
-  const pointForElement = (target) => {
-    if (!(target instanceof Element)) {
-      return { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) };
-    }
-    const rect = target.getBoundingClientRect();
-    return {
-      x: Math.round(Math.max(0, Math.min(window.innerWidth - 1, rect.left + Math.min(24, Math.max(8, rect.width / 2))))),
-      y: Math.round(Math.max(0, Math.min(window.innerHeight - 1, rect.top + Math.min(18, Math.max(8, rect.height / 2)))))
-    };
-  };
-  const eventInit = (point, detail = 1) => ({
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    clientX: point.x,
-    clientY: point.y,
-    screenX: point.x,
-    screenY: point.y,
-    button: buttonNumber,
-    buttons: buttonsNumber,
-    detail,
-    ...modifierInit
-  });
-  const dispatchPointer = (target, type, point, detail = 1) => {
-    if (window.PointerEvent) {
-      target.dispatchEvent(new PointerEvent(type, {
-        ...eventInit(point, detail),
-        pointerId: 1,
-        pointerType: "mouse",
-        isPrimary: true
-      }));
-    }
-  };
-  const dispatchMouse = (target, type, point, detail = 1) => {
-    target.dispatchEvent(new MouseEvent(type, eventInit(point, detail)));
-  };
-  const ensureCursor = () => {
-    let layer = document.getElementById("agentscience-canvas-browser-cursor-layer");
-    if (!layer) {
-      layer = document.createElement("div");
-      layer.id = "agentscience-canvas-browser-cursor-layer";
-      layer.setAttribute("aria-hidden", "true");
-      layer.style.cssText = [
-        "position:fixed",
-        "left:0",
-        "top:0",
-        "width:0",
-        "height:0",
-        "z-index:2147483647",
-        "pointer-events:none",
-        "contain:layout style paint"
-      ].join(";");
-      const cursor = document.createElement("div");
-      cursor.id = "agentscience-canvas-browser-cursor";
-      cursor.style.cssText = [
-        "position:absolute",
-        "left:0",
-        "top:0",
-        "width:22px",
-        "height:28px",
-        "opacity:0",
-        "transform:translate3d(0,0,0)",
-        "transition:transform 140ms cubic-bezier(.2,.8,.2,1), opacity 120ms ease",
-        "filter:drop-shadow(0 1px 2px rgba(26,26,26,.28))"
-      ].join(";");
-      cursor.innerHTML = '<svg width="22" height="28" viewBox="0 0 22 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.2 2.8L18.8 16.3L11.8 17.3L8.1 25.1L3.2 2.8Z" fill="#F5F5F5" stroke="#1A1A1A" stroke-width="1.4" stroke-linejoin="round"/><path d="M10.6 16.2L13.2 22.6" stroke="#3B5BDB" stroke-width="1.4" stroke-linecap="round"/></svg>';
-      layer.appendChild(cursor);
-      document.documentElement.appendChild(layer);
-    }
-    return layer.firstElementChild;
-  };
-  const moveCursor = async (point, durationMs = 140) => {
-    const cursor = ensureCursor();
-    if (!(cursor instanceof HTMLElement)) return;
-    cursor.style.opacity = "1";
-    cursor.style.transform = \`translate3d(\${Math.round(point.x)}px, \${Math.round(point.y)}px, 0)\`;
-    await sleep(durationMs);
-  };
-  const pulseCursor = (point) => {
-    const layer = document.getElementById("agentscience-canvas-browser-cursor-layer");
-    if (!layer) return;
-    const pulse = document.createElement("div");
-    pulse.style.cssText = [
-      "position:absolute",
-      "left:0",
-      "top:0",
-      "width:22px",
-      "height:22px",
-      "margin-left:-7px",
-      "margin-top:-7px",
-      "border:1.5px solid #3B5BDB",
-      "border-radius:999px",
-      "opacity:.75",
-      \`transform:translate3d(\${Math.round(point.x)}px,\${Math.round(point.y)}px,0) scale(.45)\`,
-      "transition:transform 280ms ease, opacity 280ms ease"
-    ].join(";");
-    layer.appendChild(pulse);
-    window.requestAnimationFrame(() => {
-      pulse.style.transform = \`translate3d(\${Math.round(point.x)}px,\${Math.round(point.y)}px,0) scale(1.35)\`;
-      pulse.style.opacity = "0";
-    });
-    window.setTimeout(() => pulse.remove(), 320);
-  };
-  const focusTarget = (target) => {
-    if (target instanceof HTMLElement || target instanceof SVGElement) {
-      target.focus?.({ preventScroll: true });
-    }
-  };
-  const clickAt = async (point, detail) => {
-    const target = targetAt(point);
-    const activationTarget =
-      target instanceof Element
-        ? target.closest('a[href], button, input, textarea, select, label, summary, [role="button"], [role="link"]') || target
-        : target;
-    const anchorTarget =
-      activationTarget instanceof HTMLAnchorElement
-        ? activationTarget
-        : activationTarget instanceof Element
-          ? activationTarget.closest("a[href]")
-          : null;
-    const anchorHref =
-      anchorTarget instanceof HTMLAnchorElement && !anchorTarget.hasAttribute("download")
-        ? anchorTarget.href
-        : null;
-    dispatchPointer(target, "pointerover", point, detail);
-    dispatchMouse(target, "mouseover", point, detail);
-    dispatchPointer(target, "pointermove", point, detail);
-    dispatchMouse(target, "mousemove", point, detail);
-    dispatchPointer(target, "pointerdown", point, detail);
-    dispatchMouse(target, "mousedown", point, detail);
-    focusTarget(activationTarget);
-    dispatchPointer(target, "pointerup", point, detail);
-    dispatchMouse(target, "mouseup", point, detail);
-    dispatchMouse(target, "click", point, detail);
-    if (activationTarget instanceof HTMLElement && typeof activationTarget.click === "function") {
-      activationTarget.click();
-    }
-    if (
-      activationTarget instanceof HTMLButtonElement &&
-      (activationTarget.type === "submit" || activationTarget.getAttribute("type") === null) &&
-      activationTarget.form
-    ) {
-      activationTarget.form.requestSubmit(activationTarget);
-    }
-    if (
-      activationTarget instanceof HTMLInputElement &&
-      activationTarget.type === "submit" &&
-      activationTarget.form
-    ) {
-      activationTarget.form.requestSubmit(activationTarget);
-    }
-    if (
-      anchorHref &&
-      anchorTarget instanceof HTMLAnchorElement &&
-      anchorTarget.target &&
-      anchorTarget.target !== "_self" &&
-      !modifierInit.metaKey &&
-      !modifierInit.ctrlKey
-    ) {
-      await sleep(80);
-      window.location.assign(anchorHref);
-    }
-    return activationTarget;
-  };
-  const editableTarget = (preferredTarget = null) => {
-    if (preferredTarget instanceof HTMLElement || preferredTarget instanceof SVGElement) {
-      preferredTarget.focus?.({ preventScroll: false });
-    }
-    const descendant = editableDescendant(preferredTarget);
-    if (descendant) {
-      descendant.focus?.({ preventScroll: false });
-      return descendant;
-    }
-    const active = document.activeElement;
-    if (
-      active instanceof HTMLInputElement ||
-      active instanceof HTMLTextAreaElement ||
-      (
-        active instanceof HTMLElement &&
-        active.isContentEditable &&
-        (!preferredTarget || (active !== document.body && active !== document.documentElement))
-      )
-    ) {
-      return active;
-    }
-    if (preferredTarget instanceof HTMLInputElement || preferredTarget instanceof HTMLTextAreaElement) {
-      return preferredTarget;
-    }
-    if (preferredTarget instanceof HTMLElement && preferredTarget.isContentEditable) {
-      return preferredTarget;
-    }
-    throw new Error("No editable browser element is focused.");
-  };
-  const typeIntoTarget = (text, preferredTarget = null) => {
-    const target = editableTarget(preferredTarget);
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-      const start = target.selectionStart ?? target.value.length;
-      const end = target.selectionEnd ?? target.value.length;
-      target.setRangeText(text, start, end, "end");
-      target.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: text }));
-      target.dispatchEvent(new Event("change", { bubbles: true }));
-      return target;
-    }
-    document.execCommand("insertText", false, text);
-    return target;
-  };
-  const dispatchKey = (key) => {
-    const target = document.activeElement || document.body || document.documentElement;
-    const init = { key, code: key, bubbles: true, cancelable: true, composed: true, ...modifierInit };
-    target.dispatchEvent(new KeyboardEvent("keydown", init));
-    if (key === "Enter" && target instanceof HTMLElement) {
-      const form = target.closest("form");
-      if (form instanceof HTMLFormElement) {
-        if (typeof form.requestSubmit === "function") form.requestSubmit();
-        else form.submit();
-      }
-    }
-    target.dispatchEvent(new KeyboardEvent("keyup", init));
-  };
-  const scrollAt = (point) => {
-    const pages = Number(action.pages || 0.85);
-    const rawDeltaX = Number.isFinite(Number(action.deltaX))
-      ? Number(action.deltaX)
-      : action.direction === "left"
-        ? -screenshotWidth * pages
-        : action.direction === "right"
-          ? screenshotWidth * pages
-          : 0;
-    const rawDeltaY = Number.isFinite(Number(action.deltaY))
-      ? Number(action.deltaY)
-      : action.direction === "up"
-        ? -screenshotHeight * pages
-        : action.direction === "down"
-          ? screenshotHeight * pages
-          : screenshotHeight * pages;
-    const deltaX = Math.round(rawDeltaX * window.innerWidth / screenshotWidth);
-    const deltaY = Math.round(rawDeltaY * window.innerHeight / screenshotHeight);
-    const start = targetAt(point);
-    start.dispatchEvent(new WheelEvent("wheel", { ...eventInit(point), deltaX, deltaY }));
-    let scroller = start;
-    while (scroller && scroller !== document.body && scroller !== document.documentElement) {
-      const style = window.getComputedStyle(scroller);
-      if (/(auto|scroll|hidden)/.test(style.overflowY + style.overflowX)) break;
-      scroller = scroller.parentElement;
-    }
-    const scrollTargets = [
-      scroller,
-      document.scrollingElement,
-      document.documentElement,
-      document.body,
-      ...Array.from(document.querySelectorAll("*")).filter((element) => {
-        const style = window.getComputedStyle(element);
-        return (
-          /(auto|scroll|hidden)/.test(style.overflowY + style.overflowX) &&
-          (element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth)
-        );
-      }),
-    ].filter(Boolean);
-    const seen = new Set();
-    let moved = false;
-    for (const target of scrollTargets) {
-      if (seen.has(target)) continue;
-      seen.add(target);
-      const beforeTop = target.scrollTop || 0;
-      const beforeLeft = target.scrollLeft || 0;
-      if (typeof target.scrollBy === "function") {
-        target.scrollBy({ left: deltaX, top: deltaY, behavior: "instant" });
-      } else {
-        target.scrollTop = beforeTop + deltaY;
-        target.scrollLeft = beforeLeft + deltaX;
-      }
-      moved = moved || beforeTop !== (target.scrollTop || 0) || beforeLeft !== (target.scrollLeft || 0);
-      if (moved) break;
-    }
-    if (!moved) window.scrollBy({ left: deltaX, top: deltaY, behavior: "instant" });
-  };
-  if (action.kind === "wait") {
-    await sleep(Math.max(0, Math.min(10000, Number(action.durationMs || 750))));
-    return { message: "Waited for the browser." };
-  }
-  if (action.kind === "click" || action.kind === "doubleClick") {
-    const selectorTarget = targetFromSelector();
-    if (selectorTarget instanceof Element) {
-      selectorTarget.scrollIntoView?.({ block: "center", inline: "center" });
-      await sleep(80);
-    }
-    const point = selectorTarget ? pointForElement(selectorTarget) : requirePoint(action.x, action.y, "click");
-    await moveCursor(point);
-    const clickedTarget = await clickAt(point, 1);
-    pulseCursor(point);
-    if (action.kind === "doubleClick") {
-      await sleep(45);
-      await clickAt(point, 2);
-      pulseCursor(point);
-      dispatchMouse(targetAt(point), "dblclick", point, 2);
-    }
-    const targetName = clickedTarget instanceof Element
-      ? clickedTarget.id
-        ? \`\${clickedTarget.tagName.toLowerCase()}#\${clickedTarget.id}\`
-        : clickedTarget.tagName.toLowerCase()
-      : "page";
-    return { message: \`\${action.kind === "doubleClick" ? "Double clicked" : "Clicked"} \${targetName} at \${Math.round(Number(action.x))}, \${Math.round(Number(action.y))}.\` };
-  }
-  if (action.kind === "drag") {
-    const start = requirePoint(action.x, action.y, "drag start");
-    const end = requirePoint(action.endX, action.endY, "drag end");
-    const target = targetAt(start);
-    const durationMs = Math.max(0, Math.min(10000, Number(action.durationMs || 450)));
-    const steps = Math.max(6, Math.min(32, Math.round(durationMs / 24)));
-    await moveCursor(start);
-    dispatchPointer(target, "pointerdown", start);
-    dispatchMouse(target, "mousedown", start);
-    focusTarget(target);
-    for (let step = 1; step <= steps; step += 1) {
-      const progress = step / steps;
-      const point = {
-        x: Math.round(start.x + (end.x - start.x) * progress),
-        y: Math.round(start.y + (end.y - start.y) * progress)
-      };
-      await moveCursor(point, Math.max(1, Math.round(durationMs / steps)));
-      dispatchPointer(target, "pointermove", point);
-      dispatchMouse(target, "mousemove", point);
-    }
-    dispatchPointer(target, "pointerup", end);
-    dispatchMouse(target, "mouseup", end);
-    pulseCursor(end);
-    return { message: "Dragged in the browser." };
-  }
-  if (action.kind === "type") {
-    const selectorTarget = targetFromSelector();
-    if (selectorTarget instanceof Element) {
-      selectorTarget.scrollIntoView?.({ block: "center", inline: "center" });
-      await sleep(80);
-    }
-    await moveCursor(pointForElement(selectorTarget || document.activeElement));
-    const target = typeIntoTarget(String(action.text || ""), selectorTarget);
-    const targetName = target instanceof Element
-      ? target.id
-        ? \`\${target.tagName.toLowerCase()}#\${target.id}\`
-        : target.tagName.toLowerCase()
-      : "page";
-    const valueLength =
-      target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
-        ? target.value.length
-        : String(action.text || "").length;
-    return { message: \`Typed into \${targetName}; value length \${valueLength}.\` };
-  }
-  if (action.kind === "press") {
-    const selectorTarget = targetFromSelector();
-    if (selectorTarget instanceof Element) {
-      selectorTarget.scrollIntoView?.({ block: "center", inline: "center" });
-      focusTarget(editableDescendant(selectorTarget) || selectorTarget);
-      await sleep(80);
-    }
-    await moveCursor(pointForElement(selectorTarget || document.activeElement));
-    dispatchKey(String(action.key || "Enter"));
-    return { message: \`Pressed \${action.key || "Enter"} in the browser.\` };
-  }
-  if (action.kind === "scroll") {
-    const point =
-      Number.isFinite(Number(action.x)) && Number.isFinite(Number(action.y))
-        ? requirePoint(action.x, action.y, "scroll")
-        : { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) };
-    await moveCursor(point);
-    scrollAt(point);
-    return { message: "Scrolled the browser." };
-  }
-  throw new Error("Unsupported browser action.");
-})()`;
-}
-
 export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfaceProps) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const lastSnapshotKeyRef = useRef<string | null>(null);
@@ -878,7 +470,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
       if (state.status === "requested") {
         const currentOrigin = readOrigin(currentUrl);
         const requestedOrigin = readOrigin(targetUrl);
-        if (currentOrigin && requestedOrigin && currentOrigin !== requestedOrigin) {
+        if (!isChromiumErrorUrl(currentUrl) && currentOrigin && requestedOrigin && currentOrigin !== requestedOrigin) {
           return;
         }
         if (state.currentUrl && state.currentUrl !== targetUrl && currentUrl === state.currentUrl) {
@@ -918,13 +510,25 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
       const snapshotKey = `${currentUrl}:${title}:${text.length}:${viewportWithScreenshotSize?.scrollX ?? 0}:${viewportWithScreenshotSize?.scrollY ?? 0}:${screenshotSignature}`;
       if (lastSnapshotKeyRef.current === snapshotKey) return;
       lastSnapshotKeyRef.current = snapshotKey;
+      const detectedBlocker = detectSnapshotBlocker({
+        currentUrl,
+        requestedUrl: state.requestedUrl ?? targetUrl,
+        title,
+        text,
+      });
       await recordCanvasBrowserSnapshot(threadId, {
         currentUrl,
         title,
         text,
         ...(screenshotDataUrl ? { screenshotDataUrl } : {}),
         ...(viewportWithScreenshotSize ? { viewport: viewportWithScreenshotSize } : {}),
-        status: "ready",
+        status: detectedBlocker
+          ? detectedBlocker.kind === "navigation_error"
+            ? "error"
+            : "blocked"
+          : "ready",
+        ...(detectedBlocker?.userMessage ? { message: detectedBlocker.userMessage } : {}),
+        ...(detectedBlocker ? { detectedBlocker } : {}),
       });
     } catch (error) {
       if (state.screenshotUrl && state.currentUrl === targetUrl) {
@@ -948,7 +552,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
             : "Could not read page content.",
       }).catch(() => undefined);
     }
-  }, [state.currentUrl, state.screenshotUrl, state.status, state.title, targetUrl, threadId]);
+  }, [state.currentUrl, state.requestedUrl, state.screenshotUrl, state.status, state.title, targetUrl, threadId]);
 
   useEffect(() => {
     webviewReadyRef.current = false;
@@ -986,10 +590,37 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
       void captureSnapshot();
     };
     const onFail = (event: Event) => {
-      const detail = event as Event & { errorDescription?: string };
+      const detail = event as Event & {
+        errorCode?: number;
+        errorDescription?: string;
+        validatedURL?: string;
+      };
       webviewReadyRef.current = false;
       setWebviewReady(false);
-      setLoadMessage(detail.errorDescription ?? "Page load failed.");
+      const failedUrl = detail.validatedURL || webview.getURL?.() || targetUrl || "chrome-error://chromewebdata/";
+      const message = detail.errorDescription ?? "Page load failed.";
+      setLoadMessage(message);
+      void recordCanvasBrowserSnapshot(threadId, {
+        currentUrl: isChromiumErrorUrl(failedUrl) ? failedUrl : webview.getURL?.() || failedUrl,
+        title: "Browser navigation failed",
+        status: "error",
+        message,
+        detectedBlocker: {
+          kind: "navigation_error",
+          service: readServiceName(failedUrl, null),
+          url: failedUrl,
+          originalUrl: state.requestedUrl ?? targetUrl ?? failedUrl,
+          requestedAction: "inspect_service",
+          evidence: [
+            detail.errorDescription ? `Chromium: ${detail.errorDescription}` : "Chromium reported a load failure.",
+            Number.isFinite(detail.errorCode ?? Number.NaN) ? `errorCode ${detail.errorCode}` : "",
+          ].filter((entry): entry is string => entry.length > 0),
+          technicalDetails: Number.isFinite(detail.errorCode ?? Number.NaN)
+            ? `Chromium did-fail-load errorCode=${detail.errorCode}.`
+            : null,
+          userMessage: `Navigation to ${state.requestedUrl ?? targetUrl ?? failedUrl} failed in the browser panel.`,
+        },
+      }).catch(() => undefined);
     };
     const onNewWindow = (event: Event) => {
       const detail = event as Event & { url?: string; newURL?: string };
@@ -1026,7 +657,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
       webview.removeEventListener("did-navigate-in-page", onNavigation);
       webview.removeEventListener("page-title-updated", onNavigation);
     };
-  }, [captureSnapshot, loadInsideCanvas]);
+  }, [captureSnapshot, loadInsideCanvas, state.requestedUrl, targetUrl, threadId]);
 
   useEffect(() => {
     const action = state.pendingAction;
@@ -1034,13 +665,12 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
     const handledAction = handledActionRef.current;
     if (handledAction?.actionId === action.id && Date.now() - handledAction.attemptedAt < 10_000) return;
     const webview = webviewRef.current;
-    if (!webviewReadyRef.current || !webview?.executeJavaScript) return;
+    if (!webviewReadyRef.current || !webview) return;
     handledActionRef.current = { actionId: action.id, attemptedAt: Date.now() };
-    let actionPromise: Promise<string | { message?: unknown }>;
+    let actionPromise: Promise<string>;
     try {
-      actionPromise = webview.executeJavaScript
-        ? webview.executeJavaScript<{ message?: unknown }>(createVisualActionScript(action, state.viewport))
-        : performNativeAction(webview, action);
+      const nativeAction = normalizeActionForNativeInput(action, state.viewport, webview);
+      actionPromise = performNativeAction(webview, nativeAction);
     } catch (error) {
       void recordCanvasBrowserActionResult(threadId, action.id, {
         status: "error",
@@ -1052,12 +682,7 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
       .then((result) =>
         recordCanvasBrowserActionResult(threadId, action.id, {
           status: "success",
-          message:
-            typeof result === "string"
-              ? result
-              : typeof result?.message === "string"
-                ? result.message
-                : "Browser action completed.",
+          message: result,
         }),
       )
       .then(() => sleep(200))
@@ -1080,6 +705,8 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
     void readNativeApi()?.shell.openExternal(url);
   };
 
+  const blocker = state.detectedBlocker;
+
   if (!targetUrl) {
     return <div className="paper-review-canvas__resting"><p>No browser page requested yet.</p></div>;
   }
@@ -1098,6 +725,12 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
         </button>
       </div>
       {loadMessage ? <div className="canvas-browser-surface__status">{loadMessage}</div> : null}
+      {blocker ? (
+        <div className="canvas-browser-surface__blocker" role="status">
+          <AlertCircleIcon aria-hidden />
+          <span>{blocker.userMessage}</span>
+        </div>
+      ) : null}
       <webview
         key={`${targetUrl}:${state.navigationSequence}`}
         ref={(element) => {

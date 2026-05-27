@@ -29,6 +29,7 @@ import {
   PAPER_REVIEW_ROUTE_PREFIX,
   ThreadId,
   type CanvasBrowserActionInput,
+  type CanvasBrowserBlocker,
   type LocalPapersListResponse,
   type LocalPaperPublishedResolveResponse,
   type LocalPaperPublishResponse,
@@ -236,6 +237,43 @@ function normalizeStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
+function parseCanvasBrowserBlocker(value: unknown): CanvasBrowserBlocker | undefined {
+  if (!isRecord(value)) return undefined;
+  const kind = readOptionalString(value, "kind");
+  if (
+    kind !== "auth_required" &&
+    kind !== "terms_required" &&
+    kind !== "quota_or_key_required" &&
+    kind !== "navigation_error" &&
+    kind !== "service_unavailable"
+  ) {
+    return undefined;
+  }
+  const requestedAction = readOptionalString(value, "requestedAction");
+  if (
+    requestedAction !== undefined &&
+    requestedAction !== "sign_in" &&
+    requestedAction !== "accept_terms" &&
+    requestedAction !== "provide_api_key" &&
+    requestedAction !== "upgrade_or_wait" &&
+    requestedAction !== "inspect_service"
+  ) {
+    return undefined;
+  }
+  const userMessage = readNonEmptyString(value, "userMessage");
+  if (!userMessage) return undefined;
+  return {
+    kind,
+    service: readOptionalString(value, "service") ?? null,
+    url: readOptionalString(value, "url") ?? null,
+    originalUrl: readOptionalString(value, "originalUrl") ?? null,
+    requestedAction: requestedAction ?? null,
+    evidence: normalizeStringArray(value.evidence).slice(0, 8),
+    technicalDetails: readOptionalString(value, "technicalDetails") ?? null,
+    userMessage,
+  };
+}
+
 function parseCanvasBrowserActionInput(
   bodyJson: Record<string, unknown>,
 ): CanvasBrowserActionInput | null {
@@ -293,9 +331,6 @@ function parseCanvasBrowserActionInput(
       : {}),
     ...(button !== undefined ? { button } : {}),
     ...(modifiers.length > 0 ? { modifiers } : {}),
-    ...(readOptionalString(bodyJson, "selector") !== undefined
-      ? { selector: readOptionalString(bodyJson, "selector") }
-      : {}),
     ...(readOptionalString(bodyJson, "text") !== undefined
       ? { text: readOptionalString(bodyJson, "text") }
       : {}),
@@ -1678,6 +1713,7 @@ export const canvasBrowserMutationRouteLayer = HttpRouter.add(
         return HttpServerResponse.text("Bad Request", { status: 400 });
       }
       const status = readOptionalString(bodyJson, "status");
+      const detectedBlocker = parseCanvasBrowserBlocker(bodyJson.detectedBlocker);
       const viewport = isRecord(bodyJson.viewport)
         ? {
             width: readOptionalNumber(bodyJson.viewport, "width") ?? 0,
@@ -1706,12 +1742,14 @@ export const canvasBrowserMutationRouteLayer = HttpRouter.add(
           status === "requested" ||
           status === "loading" ||
           status === "ready" ||
+          status === "blocked" ||
           status === "error"
             ? { status }
             : {}),
           ...(readOptionalString(bodyJson, "message") !== undefined
             ? { message: readOptionalString(bodyJson, "message") }
             : {}),
+          ...(detectedBlocker !== undefined ? { detectedBlocker } : {}),
         }),
         {
           headers: getCanvasBrowserResponseHeaders(request),
