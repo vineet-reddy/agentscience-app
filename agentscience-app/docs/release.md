@@ -76,8 +76,8 @@ macOS signing only when all Apple signing secrets are present:
 `APPLE_API_KEY` is raw `.p8` text; the workflow writes it to a temporary
 `AuthKey_<id>.p8` file before notarization.
 
-Embedded-browser passkey/WebAuthn support is enabled on signed macOS builds when
-either of these optional secrets is present:
+Embedded-browser passkey/WebAuthn support is required for signed macOS builds.
+The build fails unless one of these secrets is present:
 
 - `AGENTSCIENCE_MAC_TEAM_ID`
 - `AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP`

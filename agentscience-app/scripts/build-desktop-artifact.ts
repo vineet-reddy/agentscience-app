@@ -1649,6 +1649,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const macWebAuthnKeychainAccessGroup =
     options.platform === "mac" && options.signed ? resolveMacWebAuthnKeychainAccessGroup() : null;
+  if (options.platform === "mac" && options.signed && !macWebAuthnKeychainAccessGroup) {
+    return yield* new BuildScriptError({
+      message: `Signed macOS builds require ${MAC_WEBAUTHN_TEAM_ID_ENV} or ${MAC_WEBAUTHN_KEYCHAIN_GROUP_ENV} so embedded-browser WebAuthn receives a keychain access group entitlement.`,
+    });
+  }
   const macWebAuthnEntitlementsPath = macWebAuthnKeychainAccessGroup
     ? MAC_WEBAUTHN_ENTITLEMENTS_FILE
     : null;
@@ -1659,10 +1664,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     );
     yield* Effect.log(
       `[desktop-artifact] macOS WebAuthn entitlements enabled for ${macWebAuthnKeychainAccessGroup}.`,
-    );
-  } else if (options.platform === "mac" && options.signed) {
-    yield* Effect.log(
-      `[desktop-artifact] macOS WebAuthn entitlements disabled; set ${MAC_WEBAUTHN_KEYCHAIN_GROUP_ENV} or ${MAC_WEBAUTHN_TEAM_ID_ENV}.`,
     );
   }
 

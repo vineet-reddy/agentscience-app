@@ -83,11 +83,11 @@ What they are:
 
 When all five secrets are present and non-empty, the existing workflow signs and notarizes macOS builds automatically.
 
-Signed macOS builds also support embedded-browser WebAuthn/Touch ID passkeys
-when either `AGENTSCIENCE_MAC_TEAM_ID` or
-`AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP` is configured. The team id
-derives `<TEAM_ID>.com.agentscience.app.webauthn`; use the explicit group only
-when the signing profile needs a custom keychain group.
+Signed macOS builds require embedded-browser WebAuthn/Touch ID entitlement
+configuration. Set either `AGENTSCIENCE_MAC_TEAM_ID` or
+`AGENTSCIENCE_MAC_WEBAUTHN_KEYCHAIN_ACCESS_GROUP`; otherwise the signed macOS
+build fails. The team id derives `<TEAM_ID>.com.agentscience.app.webauthn`; use
+the explicit group only when the signing profile needs a custom keychain group.
 
 ## Anonymous usage telemetry
 
