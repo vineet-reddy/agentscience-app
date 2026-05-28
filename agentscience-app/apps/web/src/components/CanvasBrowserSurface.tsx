@@ -97,6 +97,9 @@ const SNAPSHOT_SCRIPT = `(() => {
 const AUTH_BLOCKER_PHRASES = [
   "continue with google",
   "continue with github",
+  "complete sign-in using your passkey",
+  "complete sign in using your passkey",
+  "using your passkey",
   "sign in to continue",
   "log in to continue",
   "login to continue",
@@ -225,6 +228,7 @@ function detectSnapshotBlocker(input: {
   }
   const authEvidence = matchingPhrases(lowerText, AUTH_BLOCKER_PHRASES);
   if (authEvidence.length > 0) {
+    const passkeyEvidence = authEvidence.some((entry) => entry.includes("passkey"));
     return {
       kind: "auth_required",
       service,
@@ -233,7 +237,9 @@ function detectSnapshotBlocker(input: {
       requestedAction: "sign_in",
       evidence: authEvidence,
       technicalDetails: null,
-      userMessage: `${service ?? "This site"} requires sign-in. Please sign in in the browser panel, then continue.`,
+      userMessage: passkeyEvidence
+        ? `${service ?? "This site"} is asking for a passkey in this browser. Continue in the browser panel; if that passkey is unavailable, choose Try another way on the page.`
+        : `${service ?? "This site"} requires sign-in. Please sign in in the browser panel, then continue.`,
     };
   }
   const termsEvidence = matchingPhrases(lowerText, TERMS_BLOCKER_PHRASES);
@@ -729,11 +735,6 @@ export function CanvasBrowserSurface({ state, threadId }: CanvasBrowserSurfacePr
         <div className="canvas-browser-surface__blocker" role="status">
           <AlertCircleIcon aria-hidden />
           <span>{blocker.userMessage}</span>
-          {blocker.kind === "auth_required" ? (
-            <button type="button" onClick={openExternal}>
-              Open in system browser
-            </button>
-          ) : null}
         </div>
       ) : null}
       <webview

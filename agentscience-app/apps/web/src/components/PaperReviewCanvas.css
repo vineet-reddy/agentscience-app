@@ -395,20 +395,6 @@
   flex: 1 1 auto;
 }
 
-.canvas-browser-surface__blocker button {
-  flex: 0 0 auto;
-  border: 1px solid var(--rule-strong);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  padding: 4px 8px;
-  color: var(--ink);
-  font-size: 12px;
-}
-
-.canvas-browser-surface__blocker button:hover {
-  background: var(--snow-white-dark);
-}
-
 .canvas-browser-surface__blocker svg {
   width: 15px;
   height: 15px;
